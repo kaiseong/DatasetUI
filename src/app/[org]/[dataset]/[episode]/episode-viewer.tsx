@@ -7,6 +7,12 @@ import { SimpleVideosPlayer } from "@/components/simple-videos-player";
 import PlaybackBar from "@/components/playback-bar";
 import { TimeProvider, useTime } from "@/context/time-context";
 import { FlaggedEpisodesProvider } from "@/context/flagged-episodes-context";
+import {
+  AnnotationsProvider,
+  useAnnotations,
+} from "@/context/annotations-context";
+import { AnnotationsPanel } from "@/components/annotations-panel";
+import { AnnotationsTimeline } from "@/components/annotations-timeline";
 import Sidebar from "@/components/side-nav";
 import StatsPanel from "@/components/stats-panel";
 import OverviewPanel from "@/components/overview-panel";
@@ -39,8 +45,25 @@ const FilteringPanel = lazy(() => import("@/components/filtering-panel"));
 // videos start downloading in parallel with the chart bundle.
 const DataRecharts = lazy(() => import("@/components/data-recharts"));
 
+/** Skip global playback / navigation shortcuts while typing in a field. */
+function isKeyboardFocusInsideTextEntry(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target.isContentEditable || target.closest('[contenteditable="true"]')) {
+    return true;
+  }
+  const tag = target.tagName;
+  return (
+    tag === "TEXTAREA" ||
+    tag === "SELECT" ||
+    tag === "INPUT" ||
+    tag === "BUTTON" ||
+    (tag === "A" && target.hasAttribute("href"))
+  );
+}
+
 type ActiveTab =
   | "episodes"
+  | "annotations"
   | "statistics"
   | "frames"
   | "insights"
@@ -180,10 +203,33 @@ export default function EpisodeViewer({
   return (
     <TimeProvider duration={data!.duration}>
       <FlaggedEpisodesProvider>
-        <EpisodeViewerInner data={data!} org={org} dataset={dataset} />
+        <AnnotationsProvider>
+          <EpisodeBootstrap data={data!} />
+          <EpisodeViewerInner data={data!} org={org} dataset={dataset} />
+        </AnnotationsProvider>
       </FlaggedEpisodesProvider>
     </TimeProvider>
   );
+}
+
+/** Wires the loaded episode into the AnnotationsProvider. */
+function EpisodeBootstrap({ data }: { data: EpisodeData }) {
+  const { setEpisode } = useAnnotations();
+  useEffect(() => {
+    setEpisode(
+      data.episodeId,
+      { repoId: data.datasetInfo.repoId },
+      data.languageAtoms,
+      data.frameTimestamps,
+    );
+  }, [
+    data.episodeId,
+    data.datasetInfo.repoId,
+    data.languageAtoms,
+    data.frameTimestamps,
+    setEpisode,
+  ]);
+  return null;
 }
 
 function EpisodeViewerInner({
@@ -212,8 +258,29 @@ function EpisodeViewerInner({
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  // Tab state & lazy stats
-  const [activeTab, setActiveTab] = useState<ActiveTab>("episodes");
+  // Tab state & lazy stats — read sessionStorage in the initializer so the
+  // correct tab renders on the very first frame (no post-mount flash).
+  // Safe because EpisodeViewerInner only mounts client-side (behind a loading gate).
+  const [activeTab, setActiveTab] = useState<ActiveTab>(() => {
+    if (typeof window !== "undefined") {
+      const stored = sessionStorage.getItem("activeTab");
+      if (
+        stored &&
+        [
+          "episodes",
+          "annotations",
+          "statistics",
+          "frames",
+          "insights",
+          "filtering",
+          "urdf",
+        ].includes(stored)
+      ) {
+        return stored as ActiveTab;
+      }
+    }
+    return "episodes";
+  });
   const isLoading = activeTab === "episodes" && (!videosReady || !chartsReady);
 
   useEffect(() => {
@@ -232,8 +299,16 @@ function EpisodeViewerInner({
     useState<EpisodeFramesData | null>(null);
   const [framesLoading, setFramesLoading] = useState(false);
   const framesLoadedRef = useRef(false);
-  const [framesFlaggedOnly, setFramesFlaggedOnly] = useState(false);
-  const [sidebarFlaggedOnly, setSidebarFlaggedOnly] = useState(false);
+  const [framesFlaggedOnly, setFramesFlaggedOnly] = useState(() =>
+    typeof window !== "undefined"
+      ? sessionStorage.getItem("framesFlaggedOnly") === "true"
+      : false,
+  );
+  const [sidebarFlaggedOnly, setSidebarFlaggedOnly] = useState(() =>
+    typeof window !== "undefined"
+      ? sessionStorage.getItem("sidebarFlaggedOnly") === "true"
+      : false,
+  );
   const [crossEpData, setCrossEpData] =
     useState<CrossEpisodeVarianceData | null>(null);
   const [insightsLoading, setInsightsLoading] = useState(false);
@@ -266,28 +341,6 @@ function EpisodeViewerInner({
       void import("@/components/urdf-viewer");
     }
   }, [datasetInfo.robot_type, datasetInfo.codebase_version]);
-
-  // Hydrate UI state from sessionStorage after mount (avoids SSR/client mismatch)
-  useEffect(() => {
-    const stored = sessionStorage.getItem("activeTab");
-    if (
-      stored &&
-      [
-        "episodes",
-        "statistics",
-        "frames",
-        "insights",
-        "filtering",
-        "urdf",
-      ].includes(stored)
-    ) {
-      setActiveTab(stored as ActiveTab);
-    }
-    if (sessionStorage.getItem("framesFlaggedOnly") === "true")
-      setFramesFlaggedOnly(true);
-    if (sessionStorage.getItem("sidebarFlaggedOnly") === "true")
-      setSidebarFlaggedOnly(true);
-  }, []);
 
   // Persist UI state across episode navigations. One effect instead of
   // three near-identical writes — fewer commit hooks per render and the
@@ -483,8 +536,10 @@ function EpisodeViewerInner({
     const onKeyDown = (e: KeyboardEvent) => {
       const { key } = e;
       const s = keyStateRef.current;
+      const inTextEntry = isKeyboardFocusInsideTextEntry(e.target);
 
       if (key === " ") {
+        if (inTextEntry) return;
         e.preventDefault();
         if (s.activeTab === "urdf") {
           urdfPlayToggleRef.current?.();
@@ -492,6 +547,7 @@ function EpisodeViewerInner({
           setIsPlaying((prev: boolean) => !prev);
         }
       } else if (key === "ArrowDown" || key === "ArrowUp") {
+        if (inTextEntry) return;
         e.preventDefault();
         if (s.activeTab === "urdf") {
           const nextEp =
@@ -550,6 +606,11 @@ function EpisodeViewerInner({
       {/* Top tab bar */}
       <div className="flex items-center border-b border-white/5 bg-[var(--surface-0)] shrink-0">
         {renderTab("episodes", "Episodes")}
+        {renderTab(
+          "annotations",
+          "Annotations",
+          "Edit subtask / plan / memory / interjection / VQA atoms (lerobot v3.1 schema)",
+        )}
         {hasURDFSupport(datasetInfo.robot_type) &&
           datasetInfo.codebase_version >= "v3.0" &&
           renderTab("urdf", "3D Replay")}
@@ -570,7 +631,9 @@ function EpisodeViewerInner({
       {/* Body: sidebar + content */}
       <div className="flex flex-1 min-h-0">
         {/* Sidebar — on Episodes and 3D Replay tabs */}
-        {(activeTab === "episodes" || activeTab === "urdf") && (
+        {(activeTab === "episodes" ||
+          activeTab === "annotations" ||
+          activeTab === "urdf") && (
           <Sidebar
             datasetInfo={datasetInfo}
             paginatedEpisodes={paginatedEpisodes}
@@ -587,7 +650,9 @@ function EpisodeViewerInner({
                     setUrdfEpisode(ep);
                     urdfChangerRef.current?.(ep);
                   }
-                : undefined
+                : activeTab === "annotations"
+                  ? (ep) => router.push(`./episode_${ep}`)
+                  : undefined
             }
           />
         )}
@@ -666,6 +731,45 @@ function EpisodeViewerInner({
 
               <PlaybackBar />
             </>
+          )}
+
+          {activeTab === "annotations" && (
+            <div className="annotations-skin flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <p className="text-base font-medium text-slate-200 truncate">
+                  {datasetInfo.repoId}
+                </p>
+                <p className="text-[10px] uppercase tracking-wide text-slate-500 tabular">
+                  Episode · {episodeId}
+                </p>
+              </div>
+              {videosInfo.length > 0 && (
+                <SimpleVideosPlayer
+                  videosInfo={videosInfo}
+                  onVideosReady={() => setVideosReady(true)}
+                />
+              )}
+              <div className="grounding-intro">
+                <span className="section-kicker">Grounded VQA</span>
+                <ul>
+                  <li>
+                    Draw directly on the active video to create visual
+                    questions. Drag for a bounding box, click for a point. The
+                    camera is detected from the video you draw on.
+                  </li>
+                  <li>
+                    Drag on any video to add a bbox question. Click any video to
+                    add a keypoint question. Confirm the popup with <kbd>↵</kbd>
+                    , or cancel with <kbd>Esc</kbd>.
+                  </li>
+                </ul>
+              </div>
+              <PlaybackBar />
+              <AnnotationsTimeline duration={data.duration} />
+              <AnnotationsPanel
+                cameraKeys={videosInfo.map((v) => v.filename)}
+              />
+            </div>
           )}
 
           {activeTab === "statistics" && (
