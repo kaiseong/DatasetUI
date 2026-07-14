@@ -8,6 +8,7 @@ import { pick } from "@/utils/pick";
 import {
   getDatasetVersionAndInfo,
   buildVersionedUrl,
+  getDatasetStats,
 } from "@/utils/versionUtils";
 import { PADDING, CHART_CONFIG, EXCLUDED_COLUMNS } from "@/utils/constants";
 import {
@@ -20,6 +21,11 @@ import {
   buildV3EpisodesMetadataPath,
 } from "@/utils/stringFormatting";
 import { bigIntToNumber } from "@/utils/typeGuards";
+import {
+  isGrayscaleShape,
+  depthColormapRange,
+  depthEncodingFromFeature,
+} from "@/utils/colormaps";
 import type { VideoInfo, AdjacentEpisodeVideos } from "@/types";
 
 const SERIES_NAME_DELIMITER = CHART_CONFIG.SERIES_NAME_DELIMITER;
@@ -335,14 +341,34 @@ export async function getEpisodeData(
     // timestamps at the end. Now loadEpisodeProgressGroup returns a
     // builder we apply once both promises settle.
     // Vercel rule: async-parallel.
+    // Only single-channel feeds are recolored, so only they need q10/q90 from
+    // stats.json — skip the extra fetch entirely for ordinary RGB datasets.
+    const hasGrayscaleFeed = Object.values(rawInfo.features).some(
+      (f) => f.dtype === "video" && isGrayscaleShape(f.shape),
+    );
+
     console.time(`[perf] getEpisodeData (${version})`);
-    const [result, progressBuilder] = await Promise.all([
+    const [result, progressBuilder, stats] = await Promise.all([
       version === "v3.0"
         ? getEpisodeDataV3(repoId, version, info, episodeId)
         : getEpisodeDataV2(repoId, version, info, episodeId),
       loadEpisodeProgressGroup(repoId, version, episodeId),
+      hasGrayscaleFeed ? getDatasetStats(repoId) : Promise.resolve(null),
     ]);
     console.timeEnd(`[perf] getEpisodeData (${version})`);
+
+    // Stretch each grayscale feed's colormap to its q10/q90 band so outliers
+    // don't wash out the visualization. Single-channel depth feeds map the
+    // quantiles through their quantization params; plain grayscale feeds use
+    // the already-normalized quantiles directly.
+    if (stats) {
+      for (const v of result.videosInfo) {
+        if (!v.isGrayscale) continue;
+        const encoding = depthEncodingFromFeature(rawInfo.features[v.filename]);
+        const range = depthColormapRange(stats[v.filename], encoding);
+        if (range) v.colormapRange = range;
+      }
+    }
 
     // Extract camera resolutions from features
     const cameras: CameraInfo[] = Object.entries(rawInfo.features)
@@ -419,7 +445,7 @@ export async function getAdjacentEpisodesVideoInfo(
               const episode_chunk = Math.floor(episodeId / chunkSize);
               videosInfo = Object.entries(info.features)
                 .filter(([, value]) => value.dtype === "video")
-                .map(([key]) => {
+                .map(([key, value]) => {
                   const videoPath = formatStringWithVars(info.video_path!, {
                     video_key: key,
                     episode_chunk: episode_chunk
@@ -432,6 +458,7 @@ export async function getAdjacentEpisodesVideoInfo(
                   return {
                     filename: key,
                     url: buildVersionedUrl(repoId, version, videoPath),
+                    isGrayscale: isGrayscaleShape(value.shape),
                   };
                 });
             }
@@ -490,7 +517,7 @@ async function getEpisodeDataV2(
     info.video_path !== null
       ? Object.entries(info.features)
           .filter(([, value]) => value.dtype === "video")
-          .map(([key]) => {
+          .map(([key, value]) => {
             const videoPath = formatStringWithVars(info.video_path!, {
               video_key: key,
               episode_chunk: episode_chunk
@@ -503,6 +530,7 @@ async function getEpisodeDataV2(
             return {
               filename: key,
               url: buildVersionedUrl(repoId, version, videoPath),
+              isGrayscale: isGrayscaleShape(value.shape),
             };
           })
       : [];
@@ -1258,7 +1286,7 @@ function extractVideoInfoV3WithSegmentation(
     ([, value]) => value.dtype === "video",
   );
 
-  const videosInfo = videoFeatures.map(([videoKey]) => {
+  const videosInfo = videoFeatures.map(([videoKey, videoFeature]) => {
     // Check if we have per-camera metadata in the episode row
     const cameraSpecificKeys = Object.keys(episodeMetadata).filter((key) =>
       key.startsWith(`videos/${videoKey}/`),
@@ -1308,6 +1336,7 @@ function extractVideoInfoV3WithSegmentation(
       segmentStart: startNum,
       segmentEnd: endNum,
       segmentDuration: endNum - startNum,
+      isGrayscale: isGrayscaleShape(videoFeature.shape),
     };
   });
 
