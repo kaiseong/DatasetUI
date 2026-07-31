@@ -32,6 +32,9 @@ from .protocol import (
 
 PROTOCOL_VERSION = 1
 METHODS = [
+    "dataset.browse",
+    "dataset.open",
+    "dataset.validate",
     "initialize",
     "project.get",
     "project.list",
@@ -106,6 +109,12 @@ class RpcServer:
             return self._runtime_doctor(request.params)
         if request.method == "runtime.select":
             return self._runtime_select(request.params)
+        if request.method == "dataset.open":
+            return self._dataset_open(request.params)
+        if request.method == "dataset.browse":
+            return self._dataset_browse(request.params)
+        if request.method == "dataset.validate":
+            return self._dataset_validate(request.params)
         raise RpcDispatchError(
             METHOD_NOT_FOUND,
             "Method not found",
@@ -316,6 +325,104 @@ class RpcServer:
             return get_project(self._get_registry(), project_id)
         except (KeyError, TypeError, ValueError) as exc:
             raise RpcDispatchError(INVALID_PARAMS, str(exc)) from exc
+
+    def _dataset_open(self, params: dict[str, Any] | list[Any] | None) -> dict[str, Any]:
+        from ..dataset.index import DatasetIndex, _serialize_document, default_index_path
+        from ..dataset.version import UnsupportedVersionError
+        from ..registry.repository import get_project
+
+        if not isinstance(params, dict) or not isinstance(params.get("project_id"), str):
+            raise RpcDispatchError(INVALID_PARAMS, "project_id is required")
+        try:
+            project = get_project(self._get_registry(), params["project_id"])
+        except KeyError as exc:
+            raise RpcDispatchError(INVALID_PARAMS, str(exc)) from exc
+
+        source_path = project.get("source_path", "")
+        try:
+            idx = DatasetIndex(db_path=default_index_path())
+            doc = idx.get_or_build(source_path)
+            idx.close()
+        except UnsupportedVersionError as exc:
+            raise RpcDispatchError(INVALID_PARAMS, str(exc)) from exc
+        except Exception as exc:
+            raise RpcDispatchError(INTERNAL_ERROR, f"Failed to open dataset: {exc}") from exc
+
+        import json
+        return json.loads(_serialize_document(doc))
+
+    def _dataset_browse(self, params: dict[str, Any] | list[Any] | None) -> dict[str, Any]:
+        from ..dataset.index import DatasetIndex, default_index_path
+        from ..dataset.version import UnsupportedVersionError
+        from ..registry.repository import get_project
+
+        if not isinstance(params, dict) or not isinstance(params.get("project_id"), str):
+            raise RpcDispatchError(INVALID_PARAMS, "project_id is required")
+        try:
+            project = get_project(self._get_registry(), params["project_id"])
+        except KeyError as exc:
+            raise RpcDispatchError(INVALID_PARAMS, str(exc)) from exc
+
+        offset = params.get("offset", 0)
+        limit = params.get("limit", 20)
+        if not isinstance(offset, int) or offset < 0:
+            raise RpcDispatchError(INVALID_PARAMS, "offset must be a non-negative integer")
+        if not isinstance(limit, int) or not 1 <= limit <= 1000:
+            raise RpcDispatchError(INVALID_PARAMS, "limit must be 1-1000")
+
+        source_path = project.get("source_path", "")
+        try:
+            idx = DatasetIndex(db_path=default_index_path())
+            doc = idx.get_or_build(source_path)
+            idx.close()
+        except UnsupportedVersionError as exc:
+            raise RpcDispatchError(INVALID_PARAMS, str(exc)) from exc
+        except Exception as exc:
+            raise RpcDispatchError(INTERNAL_ERROR, f"Failed to browse dataset: {exc}") from exc
+
+        all_episodes = doc.episodes
+        page = all_episodes[offset:offset + limit]
+        return {
+            "total": len(all_episodes),
+            "episodes": [
+                {
+                    "index": episode.index,
+                    "length": episode.length,
+                    "chunk_index": episode.chunk_index,
+                    "file_index": episode.file_index,
+                    "tasks": list(episode.tasks),
+                    "frame_start": episode.frame_start,
+                    "frame_end": episode.frame_end,
+                }
+                for episode in page
+            ],
+        }
+
+    def _dataset_validate(self, params: dict[str, Any] | list[Any] | None) -> dict[str, Any]:
+        from ..dataset.validation import validate_dataset
+        from ..dataset.version import UnsupportedVersionError
+        from ..registry.repository import get_project
+
+        if not isinstance(params, dict) or not isinstance(params.get("project_id"), str):
+            raise RpcDispatchError(INVALID_PARAMS, "project_id is required")
+        try:
+            project = get_project(self._get_registry(), params["project_id"])
+        except KeyError as exc:
+            raise RpcDispatchError(INVALID_PARAMS, str(exc)) from exc
+
+        source_path = project.get("source_path", "")
+        try:
+            result = validate_dataset(source_path)
+        except UnsupportedVersionError as exc:
+            raise RpcDispatchError(INVALID_PARAMS, str(exc)) from exc
+        except Exception as exc:
+            raise RpcDispatchError(INTERNAL_ERROR, f"Validation failed: {exc}") from exc
+
+        return {
+            "valid": result.valid,
+            "errors": list(result.errors),
+            "warnings": list(result.warnings),
+        }
 
 
 def _write(stream: BinaryIO, message: dict[str, Any]) -> None:

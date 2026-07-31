@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lerobot:dataset-editor:dataset-document-v1",
+  "title": "DatasetDocument",
+  "description": "Version-neutral representation of a LeRobot dataset for metadata browsing.",
+  "type": "object",
+  "required": [
+    "source_path",
+    "version",
+    "features",
+    "episodes",
+    "total_frames",
+    "fps",
+    "media",
+    "tasks",
+    "has_annotations",
+    "annotation_styles",
+    "provenance",
+    "validation",
+    "indexed_at"
+  ],
+  "properties": {
+    "source_path": { "type": "string", "minLength": 1 },
+    "version": { "$ref": "#/$defs/DatasetVersion" },
+    "features": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/FeatureSpec" }
+    },
+    "episodes": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/EpisodeRef" }
+    },
+    "total_frames": { "type": "integer", "minimum": 0 },
+    "fps": { "type": "integer", "minimum": 0 },
+    "media": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/MediaRef" }
+    },
+    "tasks": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "has_annotations": { "type": "boolean" },
+    "annotation_styles": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "array", "items": { "type": "string" } }
+      ]
+    },
+    "provenance": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "string" }
+      ]
+    },
+    "validation": { "$ref": "#/$defs/ValidationResult" },
+    "indexed_at": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "DatasetVersion": {
+      "type": "object",
+      "required": ["family", "version", "raw"],
+      "properties": {
+        "family": { "type": "string", "enum": ["lerobot"] },
+        "version": { "type": "string", "pattern": "^v[0-9]+\\.[0-9]+$" },
+        "raw": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "FeatureSpec": {
+      "type": "object",
+      "required": ["name", "dtype", "shape", "names"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "dtype": { "type": "string" },
+        "shape": {
+          "type": "array",
+          "items": { "type": "integer" }
+        },
+        "names": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "array", "items": { "type": "string" } }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "EpisodeRef": {
+      "type": "object",
+      "required": [
+        "index",
+        "length",
+        "chunk_index",
+        "file_index",
+        "tasks",
+        "frame_start",
+        "frame_end"
+      ],
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "length": { "type": "integer", "minimum": 0 },
+        "chunk_index": { "type": "integer", "minimum": 0 },
+        "file_index": { "type": "integer", "minimum": 0 },
+        "frame_start": { "type": "integer", "minimum": 0 },
+        "frame_end": { "type": "integer", "minimum": 0 },
+        "tasks": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "MediaRef": {
+      "type": "object",
+      "required": ["video_key", "path_template", "episodes_with_video"],
+      "properties": {
+        "video_key": { "type": "string" },
+        "path_template": {
+          "oneOf": [
+            { "type": "null" },
+            { "type": "string" }
+          ]
+        },
+        "episodes_with_video": {
+          "type": "array",
+          "items": { "type": "integer" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ValidationResult": {
+      "type": "object",
+      "required": ["valid", "errors", "warnings"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "errors": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "warnings": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

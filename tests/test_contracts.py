@@ -205,3 +205,33 @@ class TestCorruptFixture:
         assert corrupt_pq.exists()
         with pytest.raises(Exception):
             pq.read_table(corrupt_pq)
+
+
+class TestDatasetDocumentContract:
+    """Test the dataset-document.schema.json contract."""
+
+    def test_dataset_document_schema_valid(self) -> None:
+        """Schema is well-formed JSON Schema."""
+        import jsonschema
+
+        schema_path = Path(__file__).resolve().parents[0] / ".." / "contracts" / "dataset-document.schema.json"
+        schema = json.loads(schema_path.read_text())
+        jsonschema.Draft202012Validator.check_schema(schema)
+        assert schema["$id"] == "urn:lerobot:dataset-editor:dataset-document-v1"
+
+    def test_all_fixtures_produce_valid_documents(self, fixtures_dir) -> None:
+        """All generated fixtures produce documents conforming to the schema."""
+        import jsonschema
+
+        from lerobot_dataset_editor.dataset.index import _serialize_document
+        from lerobot_dataset_editor.dataset.loader import load_document
+
+        schema_path = Path(__file__).resolve().parents[0] / ".." / "contracts" / "dataset-document.schema.json"
+        schema = json.loads(schema_path.read_text())
+        validator = jsonschema.Draft202012Validator(schema)
+
+        for name in ("v21_valid", "v30_valid", "v30_annotated"):
+            doc = load_document(fixtures_dir / name)
+            doc_json = json.loads(_serialize_document(doc))
+            errors = list(validator.iter_errors(doc_json))
+            assert errors == [], f"Fixture {name} failed schema validation: {errors}"

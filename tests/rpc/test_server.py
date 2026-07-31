@@ -73,6 +73,9 @@ def test_server_lifecycle_ping_report_and_shutdown(rpc_process: subprocess.Popen
     assert initialized["id"] == 2
     assert initialized["result"]["protocolVersion"] == 1
     assert initialized["result"]["methods"] == [
+        "dataset.browse",
+        "dataset.open",
+        "dataset.validate",
         "initialize",
         "project.get",
         "project.list",

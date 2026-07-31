@@ -52,6 +52,9 @@ describe("secure Electron vertical slice", () => {
       requireType: "undefined",
       processType: "undefined",
       apiKeys: [
+        "datasetBrowse",
+        "datasetOpen",
+        "datasetValidate",
         "ping",
         "projectGet",
         "projectList",

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import { DatasetBrowser } from "./DatasetBrowser";
 import { ProjectRegistry } from "./ProjectRegistry";
 
 interface Report {
@@ -71,6 +72,7 @@ export function App(): React.JSX.Element {
       </section>
       {error ? <p className="error">{error}</p> : null}
       <ProjectRegistry />
+      <DatasetBrowser />
       <output data-testid="csp-eval-blocked" hidden>{String(evalBlocked)}</output>
     </main>
   );

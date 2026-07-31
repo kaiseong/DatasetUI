@@ -40,6 +40,9 @@ function registerIpcHandlers(activeBackend: PythonBackend): void {
   ipcMain.removeHandler("rpc:project.remove");
   ipcMain.removeHandler("rpc:runtime.doctor");
   ipcMain.removeHandler("rpc:runtime.select");
+  ipcMain.removeHandler("rpc:dataset.open");
+  ipcMain.removeHandler("rpc:dataset.browse");
+  ipcMain.removeHandler("rpc:dataset.validate");
   ipcMain.handle("rpc:ping", (event) => {
     assertTrustedSender(event);
     return activeBackend.request("system.ping");
@@ -75,6 +78,18 @@ function registerIpcHandlers(activeBackend: PythonBackend): void {
   ipcMain.handle("rpc:runtime.select", (event, params) => {
     assertTrustedSender(event);
     return activeBackend.request("runtime.select", params);
+  });
+  ipcMain.handle("rpc:dataset.open", (event, params) => {
+    assertTrustedSender(event);
+    return activeBackend.request("dataset.open", params);
+  });
+  ipcMain.handle("rpc:dataset.browse", (event, params) => {
+    assertTrustedSender(event);
+    return activeBackend.request("dataset.browse", params);
+  });
+  ipcMain.handle("rpc:dataset.validate", (event, params) => {
+    assertTrustedSender(event);
+    return activeBackend.request("dataset.validate", params);
   });
 }
 

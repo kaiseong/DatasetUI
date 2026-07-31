@@ -37,6 +37,20 @@ export interface RuntimeSelectParams {
   device_policy?: "auto" | "cpu-only" | "gpu-only";
 }
 
+export interface DatasetOpenParams {
+  project_id: string;
+}
+
+export interface DatasetBrowseParams {
+  project_id: string;
+  offset?: number;
+  limit?: number;
+}
+
+export interface DatasetValidateParams {
+  project_id: string;
+}
+
 export interface DatasetEditorApi {
   ping(): Promise<unknown>;
   report(): Promise<unknown>;
@@ -47,6 +61,9 @@ export interface DatasetEditorApi {
   projectRemove(params: { id: string }): Promise<unknown>;
   runtimeDoctor(params?: RuntimeDoctorParams): Promise<unknown>;
   runtimeSelect(params: RuntimeSelectParams): Promise<unknown>;
+  datasetOpen(params: DatasetOpenParams): Promise<unknown>;
+  datasetBrowse(params: DatasetBrowseParams): Promise<unknown>;
+  datasetValidate(params: DatasetValidateParams): Promise<unknown>;
 }
 
 export type Invoke = (channel: string, params?: unknown) => Promise<unknown>;
@@ -62,5 +79,8 @@ export function createDatasetEditorApi(invoke: Invoke): DatasetEditorApi {
     projectRemove: (params: { id: string }) => invoke("rpc:project.remove", params),
     runtimeDoctor: (params?: RuntimeDoctorParams) => invoke("rpc:runtime.doctor", params),
     runtimeSelect: (params: RuntimeSelectParams) => invoke("rpc:runtime.select", params),
+    datasetOpen: (params: DatasetOpenParams) => invoke("rpc:dataset.open", params),
+    datasetBrowse: (params: DatasetBrowseParams) => invoke("rpc:dataset.browse", params),
+    datasetValidate: (params: DatasetValidateParams) => invoke("rpc:dataset.validate", params),
   });
 }

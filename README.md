@@ -1,6 +1,6 @@
 # LeRobot Dataset Editor
 
-Standalone LeRobot dataset inspection/editing application under development in `/home/kgs/DatasetUI`. Task 1 freezes format, annotation, Space-parity, fixture, report, and existing `dataset_tools.sh` contracts. Task 2 provides the secure Electron↔Python vertical slice and Ubuntu x86_64 AppImage feasibility spike. Task 3 adds the local project registry and embedded/external runtime doctor. The characterized launcher and Python tools remain vendored byte-for-byte; the original `/home/kgs/lerobot-rby1` files are unmodified.
+Standalone LeRobot dataset inspection/editing application under development in `/home/kgs/DatasetUI`. Task 1 freezes format, annotation, Space-parity, fixture, report, and existing `dataset_tools.sh` contracts. Task 2 provides the secure Electron↔Python vertical slice and Ubuntu x86_64 AppImage feasibility spike. Task 3 adds the local project registry and embedded/external runtime doctor. Task 4 adds read-only version-neutral documents, explicit structural validation, an incremental metadata index, and a side-by-side schema/episode browser. The characterized launcher and Python tools remain vendored byte-for-byte; the original `/home/kgs/lerobot-rby1` files are unmodified.
 
 ## Frozen baselines
 
@@ -38,7 +38,7 @@ The report fails on invalid schemas/fixtures, Space drift, source-fingerprint dr
 
 Electron starts only the fixed backend command `python -m lerobot_dataset_editor.rpc`. It uses `shell: false`, a fixed working directory, and an environment allowlist: `HOME`, `LANG`, `LC_ALL`, `PATH`, and the four safe XDG location variables. It adds fixed `PYTHONDONTWRITEBYTECODE`, `PYTHONUNBUFFERED`, and packaged-source `PYTHONPATH`; credentials and tokens are not copied. Stdout is framed protocol only and diagnostics use stderr.
 
-`contracts/rpc-transport.schema.json` freezes protocol version 1 and `Content-Length: N\r\n\r\n<payload>`. Length is UTF-8 bytes, payloads are capped at 16 MiB, headers at 8 KiB, batches are rejected, and IDs correlate requests. The fixed surface includes initialize/shutdown/ping/report plus project register/list/get/update/remove and runtime doctor/select. No generic method or IPC channel is exposed.
+`contracts/rpc-transport.schema.json` freezes protocol version 1 and `Content-Length: N\r\n\r\n<payload>`. Length is UTF-8 bytes, payloads are capped at 16 MiB, headers at 8 KiB, batches are rejected, and IDs correlate requests. The fixed surface includes initialize/shutdown/ping/report, project register/list/get/update/remove, runtime doctor/select, and dataset open/browse/validate. No generic method or IPC channel is exposed.
 
 The sandboxed CommonJS preload exposes one frozen `window.datasetEditor` object containing only those fixed methods. Main validates sender URLs. The window enables context isolation, sandboxing, and web security; disables renderer Node, webviews, insecure content, popups, external navigation, and permissions; and uses a CSP without `unsafe-inline` or `unsafe-eval`.
 
@@ -56,6 +56,14 @@ $XDG_CACHE_HOME/lerobot-dataset-editor/
 The SQLite registry uses versioned idempotent migrations, WAL, private application directories, parameterized queries, and an explicit newer-schema refusal. It stores local source/output references, selected revision, an explicit preferred target (`v2.1` or `v3`), recent-open ordering, and embedded/external runtime paths. It never provides a token field and rejects detected Hub tokens. Removing or opening a project changes registry state only; it never deletes or writes source data. Missing and read-only source paths are reported rather than repaired silently.
 
 The renderer can register multiple projects with an explicit target and switch runtimes. An external runtime is persisted only after a fixed-command handshake confirms Python 3.12, exact `lerobot==0.6.0`, and executable FFmpeg/codec reporting. Probe subprocesses receive a secret-free environment. The doctor reports Python, LeRobot, FFmpeg/codecs, CPU, Torch/CUDA runtime, NVIDIA driver/GPU/VRAM, compatibility issues, and device choice. `auto` falls back to CPU on missing/import/init/VRAM failures; `gpu-only` raises an explicit error and never falls back. Task 3 does not claim that production runtimes are bundled—that remains Task 22.
+
+## Version-neutral read-only dataset browser
+
+Task 4 reads legacy `v1.<integer>`, `v2.0`, `v2.1`, and core `v3.0` datasets through one immutable `DatasetDocument`; a core-v3 dataset with v3.1 language features is reported as the annotated `v3.1` extension. Unknown or future core versions fail closed. The document contains canonical source/version data, feature specs, episode file references, cumulative half-open frame ranges, media/task/annotation references, provenance, and validation status. The renderer can select two registered projects independently and displays their common feature schemas and bounded episode-reference lists side by side.
+
+The derived index lives at `$XDG_CACHE_HOME/lerobot-dataset-editor/index.sqlite`, uses WAL and versioned cache-only migrations, and fingerprints metadata, data Parquet, videos, and provenance. It reads Parquet footers/schemas plus small episode/task metadata only; dataset open and index build never read data row groups. Video indexing invokes fixed, shell-free `ffprobe -v error -print_format json -show_format -show_streams <video>` and never requests frames or decode intervals. Any indexed source-file stat change invalidates the cached document.
+
+`dataset.validate` is deliberately explicit because it may read timestamp columns. It checks zero-based unique contiguous episodes, declared episode/frame totals, every metadata and data Parquet footer, every data-file schema and primitive feature type, finite monotonic timestamps across row groups/files, and referenced image/video media. Opening, indexing, browsing, and validating are source-preserving: SQLite state is written only under XDG application directories, never into a dataset. Task 4 provides no playback, charts, frame navigation, or writes; those begin in later tasks.
 
 ## Ubuntu x86_64 AppImage feasibility spike
 
@@ -96,6 +104,7 @@ DatasetUI/
 │   └── tests/                         # Node and real-Electron tests
 ├── fixtures/
 ├── python/src/lerobot_dataset_editor/
+│   ├── dataset/                       # common documents, validation, lazy XDG index
 │   ├── registry/                      # XDG SQLite projects and migrations
 │   ├── runtime/                       # embedded/external doctor and devices
 │   ├── rpc/                           # bounded framed JSON-RPC server

@@ -43,6 +43,9 @@ describe("Electron security invariants", () => {
     const invoke = vi.fn(async (channel: string, _params?: unknown) => ({ channel }));
     const api = createDatasetEditorApi(invoke);
     expect(Object.keys(api).sort()).toEqual([
+      "datasetBrowse",
+      "datasetOpen",
+      "datasetValidate",
       "ping",
       "projectGet",
       "projectList",
