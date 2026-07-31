@@ -74,7 +74,14 @@ def test_server_lifecycle_ping_report_and_shutdown(rpc_process: subprocess.Popen
     assert initialized["result"]["protocolVersion"] == 1
     assert initialized["result"]["methods"] == [
         "initialize",
+        "project.get",
+        "project.list",
+        "project.register",
+        "project.remove",
+        "project.update",
         "report.get",
+        "runtime.doctor",
+        "runtime.select",
         "shutdown",
         "system.ping",
     ]

@@ -38,7 +38,7 @@ describe("secure Electron vertical slice", () => {
     await expect.poll(() => page.getByTestId("space-count").textContent()).toBe("37");
   });
 
-  it("keeps Node globals out of the renderer and exposes only ping/report", async () => {
+  it("keeps Node globals out and exposes only fixed contract methods", async () => {
     const probe = await page.evaluate(() => {
       const api = (window as unknown as { datasetEditor: object }).datasetEditor;
       return {
@@ -51,9 +51,36 @@ describe("secure Electron vertical slice", () => {
     expect(probe).toEqual({
       requireType: "undefined",
       processType: "undefined",
-      apiKeys: ["ping", "report"],
+      apiKeys: [
+        "ping",
+        "projectGet",
+        "projectList",
+        "projectRegister",
+        "projectRemove",
+        "projectUpdate",
+        "report",
+        "runtimeDoctor",
+        "runtimeSelect",
+      ],
       apiFrozen: true,
     });
+  });
+
+  it("applies the glassmorphism surface system without inline styles", async () => {
+    const glass = await page.locator(".status-card").evaluate((element) => {
+      const style = getComputedStyle(element);
+      return {
+        backdropFilter: style.backdropFilter,
+        backgroundColor: style.backgroundColor,
+        boxShadow: style.boxShadow,
+        borderColor: style.borderColor,
+      };
+    });
+    expect(glass.backdropFilter).toContain("blur(");
+    expect(glass.backgroundColor).toMatch(/^rgba\(/);
+    expect(glass.boxShadow).not.toBe("none");
+    expect(glass.borderColor).toMatch(/^rgba\(/);
+    expect(await page.locator('[style]').count()).toBe(0);
   });
 
   it("enforces CSP and blocks external navigation and popup creation", async () => {

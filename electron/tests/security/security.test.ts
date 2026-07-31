@@ -39,10 +39,20 @@ describe("Electron security invariants", () => {
     expect(CONTENT_SECURITY_POLICY).not.toContain("unsafe-eval");
   });
 
-  it("exposes only frozen ping and report methods over fixed IPC channels", async () => {
-    const invoke = vi.fn(async (channel: string) => ({ channel }));
+  it("exposes only frozen fixed-contract methods over fixed IPC channels", async () => {
+    const invoke = vi.fn(async (channel: string, _params?: unknown) => ({ channel }));
     const api = createDatasetEditorApi(invoke);
-    expect(Object.keys(api).sort()).toEqual(["ping", "report"]);
+    expect(Object.keys(api).sort()).toEqual([
+      "ping",
+      "projectGet",
+      "projectList",
+      "projectRegister",
+      "projectRemove",
+      "projectUpdate",
+      "report",
+      "runtimeDoctor",
+      "runtimeSelect",
+    ]);
     expect(Object.isFrozen(api)).toBe(true);
     await expect(api.ping()).resolves.toEqual({ channel: "rpc:ping" });
     await expect(api.report()).resolves.toEqual({ channel: "rpc:report" });
@@ -58,6 +68,10 @@ describe("Electron security invariants", () => {
         PATH: "/usr/bin:/bin",
         HOME: "/home/test",
         LANG: "C.UTF-8",
+        XDG_CONFIG_HOME: "/tmp/config",
+        XDG_DATA_HOME: "/tmp/data",
+        XDG_STATE_HOME: "/tmp/state",
+        XDG_CACHE_HOME: "/tmp/cache",
         AWS_SECRET_ACCESS_KEY: "must-not-cross-boundary",
         HF_TOKEN: "must-not-cross-boundary",
       },
@@ -70,6 +84,10 @@ describe("Electron security invariants", () => {
       HOME: "/home/test",
       LANG: "C.UTF-8",
       PATH: "/usr/bin:/bin",
+      XDG_CACHE_HOME: "/tmp/cache",
+      XDG_CONFIG_HOME: "/tmp/config",
+      XDG_DATA_HOME: "/tmp/data",
+      XDG_STATE_HOME: "/tmp/state",
       PYTHONDONTWRITEBYTECODE: "1",
       PYTHONPATH: resolve(root, "python/src"),
       PYTHONUNBUFFERED: "1",

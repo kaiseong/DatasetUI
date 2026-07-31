@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lerobot:dataset-editor:project-registry-v1",
+  "title": "DatasetUI Project Registry RPC Results",
+  "$defs": {
+    "path_health": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "path"],
+      "properties": {
+        "status": { "enum": ["ok", "missing", "read_only"] },
+        "path": { "type": "string" }
+      }
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id", "name", "source_path", "output_path", "selected_revision",
+        "target_format", "runtime_mode", "python_path", "ffmpeg_path",
+        "created_at", "updated_at", "last_opened_at"
+      ],
+      "properties": {
+        "id": { "type": "string", "format": "uuid" },
+        "name": { "type": "string", "minLength": 1 },
+        "source_path": { "type": "string", "minLength": 1 },
+        "output_path": { "type": ["string", "null"] },
+        "selected_revision": { "type": ["string", "null"] },
+        "target_format": { "enum": ["v2.1", "v3"] },
+        "runtime_mode": { "enum": ["embedded", "external"] },
+        "python_path": { "type": ["string", "null"] },
+        "ffmpeg_path": { "type": ["string", "null"] },
+        "created_at": { "type": "string", "format": "date-time" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "last_opened_at": { "type": "string", "format": "date-time" },
+        "path_health": { "$ref": "#/$defs/path_health" }
+      }
+    },
+    "project_list_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["projects", "total"],
+      "properties": {
+        "projects": { "type": "array", "items": { "$ref": "#/$defs/project" } },
+        "total": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "python_probe": {
+      "type": "object",
+      "required": ["path", "version", "available"],
+      "properties": {
+        "path": { "type": ["string", "null"] },
+        "version": { "type": ["string", "null"] },
+        "available": { "type": "boolean" },
+        "error": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "lerobot_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "available", "import_error"],
+      "properties": {
+        "version": { "type": ["string", "null"] },
+        "available": { "type": "boolean" },
+        "import_error": { "type": ["string", "null"] }
+      }
+    },
+    "ffmpeg_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "version", "available", "codecs"],
+      "properties": {
+        "path": { "type": ["string", "null"] },
+        "version": { "type": ["string", "null"] },
+        "available": { "type": "boolean" },
+        "codecs": { "type": "array", "items": { "type": "string" }, "uniqueItems": true }
+      }
+    },
+    "compute_probe": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cpu", "cuda", "gpu", "torch_version"],
+      "properties": {
+        "cpu": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["model", "cores"],
+          "properties": {
+            "model": { "type": "string" },
+            "cores": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "cuda": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["available", "version", "driver", "runtime_error"],
+          "properties": {
+            "available": { "type": "boolean" },
+            "version": { "type": ["string", "null"] },
+            "driver": { "type": ["string", "null"] },
+            "runtime_error": { "type": ["string", "null"] }
+          }
+        },
+        "gpu": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "vram_mb"],
+            "properties": {
+              "name": { "type": "string" },
+              "vram_mb": { "type": "integer", "minimum": 0 }
+            }
+          }
+        },
+        "torch_version": { "type": ["string", "null"] }
+      }
+    },
+    "device_policy_result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["requested", "selected", "fallback_reason"],
+      "properties": {
+        "requested": { "enum": ["auto", "cpu-only", "gpu-only"] },
+        "selected": { "type": ["string", "null"] },
+        "fallback_reason": { "type": ["string", "null"] }
+      }
+    },
+    "doctor_report": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode", "compatible", "issues", "python", "lerobot", "ffmpeg",
+        "compute", "device_policy_result", "probe_environment_secret_seen"
+      ],
+      "properties": {
+        "mode": { "enum": ["embedded", "external"] },
+        "compatible": { "type": "boolean" },
+        "issues": { "type": "array", "items": { "type": "string" } },
+        "python": { "$ref": "#/$defs/python_probe" },
+        "lerobot": { "$ref": "#/$defs/lerobot_probe" },
+        "ffmpeg": { "$ref": "#/$defs/ffmpeg_probe" },
+        "compute": { "$ref": "#/$defs/compute_probe" },
+        "device_policy_result": { "$ref": "#/$defs/device_policy_result" },
+        "probe_environment_secret_seen": { "const": false }
+      }
+    }
+  }
+}

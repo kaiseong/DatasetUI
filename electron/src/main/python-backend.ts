@@ -23,7 +23,16 @@ export interface PythonSpawnSpec {
 export function buildPythonSpawnSpec(input: PythonSpawnInput): PythonSpawnSpec {
   const parent = input.parentEnv ?? process.env;
   const env: Record<string, string> = {};
-  for (const name of ["HOME", "LANG", "LC_ALL", "PATH"] as const) {
+  for (const name of [
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "PATH",
+    "XDG_CACHE_HOME",
+    "XDG_CONFIG_HOME",
+    "XDG_DATA_HOME",
+    "XDG_STATE_HOME",
+  ] as const) {
     const value = parent[name];
     if (value !== undefined) env[name] = value;
   }

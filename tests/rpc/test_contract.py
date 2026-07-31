@@ -21,7 +21,7 @@ def test_rpc_transport_schema_is_valid_and_freezes_framing() -> None:
         "max_content_length": 16777216,
     }
     assert schema["x-protocol-version"] == 1
-    assert schema["x-methods"] == ["initialize", "report.get", "shutdown", "system.ping"]
+    assert schema["x-methods"] == ["initialize", "project.get", "project.list", "project.register", "project.remove", "project.update", "report.get", "runtime.doctor", "runtime.select", "shutdown", "system.ping"]
 
 
 def test_rpc_transport_schema_accepts_all_envelope_kinds() -> None:

@@ -1,20 +1,20 @@
 # LeRobot Dataset Editor
 
-Standalone LeRobot dataset inspection/editing application under development in `/home/kgs/DatasetUI`. Task 1 freezes the format, annotation, Space-parity, fixture, RPC-report, and existing `dataset_tools.sh` behavior contracts. Task 2 adds a secure Electron↔Python vertical slice and an Ubuntu x86_64 AppImage feasibility spike. The characterized launcher and Python tools are vendored here byte-for-byte; the original `/home/kgs/lerobot-rby1` files remain unmodified.
+Standalone LeRobot dataset inspection/editing application under development in `/home/kgs/DatasetUI`. Task 1 freezes format, annotation, Space-parity, fixture, report, and existing `dataset_tools.sh` contracts. Task 2 provides the secure Electron↔Python vertical slice and Ubuntu x86_64 AppImage feasibility spike. Task 3 adds the local project registry and embedded/external runtime doctor. The characterized launcher and Python tools remain vendored byte-for-byte; the original `/home/kgs/lerobot-rby1` files are unmodified.
 
 ## Frozen baselines
 
 - LeRobot v2.1: official `lerobot==0.3.3`; canonical marker `v2.1`.
 - LeRobot v3: official `lerobot==0.6.0`; core layout marker `v3.0`.
 - Annotated v3: v3.1 Arrow `list<struct>` language columns.
-- Space parity: revision `d724744111cae6feb9a2194e607e71749813a97a`, with 37 explicitly planned capabilities and future executable test IDs.
+- Space parity: revision `d724744111cae6feb9a2194e607e71749813a97a`, with 37 explicitly planned capabilities and executable test IDs.
 - v2.1 editor annotations remain outside the strict core in `meta/lerobot_annotations.json`.
 
-Image-backed official datasets use `video_path: null`; the contracts also accept the canonical video templates for video-backed datasets. Official v0.3.3 always writes `info.json`, `episodes.jsonl`, `episodes_stats.jsonl`, and `tasks.jsonl` in the exercised writer flow, but does not always emit global `meta/stats.json`. The contract-derived v2.1 fixture includes global stats as an explicit editor fixture extension, and the report exposes whether that optional file is present.
+Image-backed official datasets use `video_path: null`; contracts also accept canonical video templates for video-backed datasets. Official v0.3.3 does not always emit global `meta/stats.json`, so the report identifies that optional extension explicitly.
 
 ## Reproducible setup and validation
 
-Python is packaged from `python/src/lerobot_dataset_editor` and dependencies are locked in `uv.lock` with exact direct pins.
+Python dependencies are exact-locked in `uv.lock`:
 
 ```bash
 cd /home/kgs/DatasetUI
@@ -23,105 +23,99 @@ uv run --extra test pytest -q
 uv run --extra test dataset-editor-report --regenerate-fixtures
 ```
 
-The report exits nonzero if a schema, fixture, Space pin, source fingerprint, golden fixture, or hash-bound official compatibility record is invalid. It conforms to `contracts/rpc.schema.json`.
-
-The desktop dependencies are exact-pinned in `package.json` and `package-lock.json`.
+Desktop dependencies are exact-pinned in `package.json` and `package-lock.json`:
 
 ```bash
 npm ci
 npm run typecheck
-npm run test:node       # TypeScript framing/client/security + real Python subprocess
-npm run test:electron   # production build + real Electron renderer/security E2E
+npm run test:node       # framing/client/security plus real Python subprocess
+npm run test:electron   # production build plus real Electron E2E
 ```
 
-## Secure Electron↔Python vertical slice
+The report fails on invalid schemas/fixtures, Space drift, source-fingerprint drift, or stale official compatibility evidence. It conforms to `contracts/rpc.schema.json`.
 
-Electron starts the backend with fixed arguments only:
+## Secure Electron↔Python boundary
+
+Electron starts only the fixed backend command `python -m lerobot_dataset_editor.rpc`. It uses `shell: false`, a fixed working directory, and an environment allowlist: `HOME`, `LANG`, `LC_ALL`, `PATH`, and the four safe XDG location variables. It adds fixed `PYTHONDONTWRITEBYTECODE`, `PYTHONUNBUFFERED`, and packaged-source `PYTHONPATH`; credentials and tokens are not copied. Stdout is framed protocol only and diagnostics use stderr.
+
+`contracts/rpc-transport.schema.json` freezes protocol version 1 and `Content-Length: N\r\n\r\n<payload>`. Length is UTF-8 bytes, payloads are capped at 16 MiB, headers at 8 KiB, batches are rejected, and IDs correlate requests. The fixed surface includes initialize/shutdown/ping/report plus project register/list/get/update/remove and runtime doctor/select. No generic method or IPC channel is exposed.
+
+The sandboxed CommonJS preload exposes one frozen `window.datasetEditor` object containing only those fixed methods. Main validates sender URLs. The window enables context isolation, sandboxing, and web security; disables renderer Node, webviews, insecure content, popups, external navigation, and permissions; and uses a CSP without `unsafe-inline` or `unsafe-eval`.
+
+## Project registry and runtime management
+
+Registry state never lives inside a dataset:
 
 ```text
-python -m lerobot_dataset_editor.rpc
+$XDG_CONFIG_HOME/lerobot-dataset-editor/
+$XDG_DATA_HOME/lerobot-dataset-editor/projects.sqlite
+$XDG_STATE_HOME/lerobot-dataset-editor/
+$XDG_CACHE_HOME/lerobot-dataset-editor/
 ```
 
-The subprocess uses `shell: false`, a fixed working directory, and an environment allowlist (`HOME`, `LANG`, `LC_ALL`, `PATH`) plus forced `PYTHONDONTWRITEBYTECODE`, `PYTHONUNBUFFERED`, and packaged-source `PYTHONPATH`. Parent credentials and tokens are not copied. Stdout is reserved for framed JSON-RPC; Python diagnostics go to stderr.
+The SQLite registry uses versioned idempotent migrations, WAL, private application directories, parameterized queries, and an explicit newer-schema refusal. It stores local source/output references, selected revision, an explicit preferred target (`v2.1` or `v3`), recent-open ordering, and embedded/external runtime paths. It never provides a token field and rejects detected Hub tokens. Removing or opening a project changes registry state only; it never deletes or writes source data. Missing and read-only source paths are reported rather than repaired silently.
 
-`contracts/rpc-transport.schema.json` freezes protocol version 1 and the `Content-Length: N\r\n\r\n<payload>` transport. Length is measured in UTF-8 bytes, payloads are capped at 16 MiB, headers at 8 KiB, batches are rejected, and requests are correlated by ID. The fixed method surface is `initialize`, `system.ping`, `report.get`, and `shutdown`; the server emits `server.ready` and `server.exit` notifications.
-
-The renderer has no Node integration. Its sandboxed CommonJS preload exposes one frozen object, `window.datasetEditor`, with only `ping()` and `report()`. Main-process handlers validate the sender URL and provide no arbitrary IPC channel. The window enables context isolation, sandboxing, and web security; disables Node in frames/workers, webviews, insecure content, popups, external navigation, and all permissions; and uses a CSP without `unsafe-inline` or `unsafe-eval`.
+The renderer can register multiple projects with an explicit target and switch runtimes. An external runtime is persisted only after a fixed-command handshake confirms Python 3.12, exact `lerobot==0.6.0`, and executable FFmpeg/codec reporting. Probe subprocesses receive a secret-free environment. The doctor reports Python, LeRobot, FFmpeg/codecs, CPU, Torch/CUDA runtime, NVIDIA driver/GPU/VRAM, compatibility issues, and device choice. `auto` falls back to CPU on missing/import/init/VRAM failures; `gpu-only` raises an explicit error and never falls back. Task 3 does not claim that production runtimes are bundled—that remains Task 22.
 
 ## Ubuntu x86_64 AppImage feasibility spike
-
-Run the complete spike after the Python and Node setup:
 
 ```bash
 npm run appimage:spike
 ```
 
-This command builds `release/DatasetUI-0.2.0-linux-x86_64.AppImage`, extracts it with `--appimage-extract` (so FUSE is not required), checks the packaged Python sources/contracts/fixtures/tools, and launches the extracted `AppRun --rpc-smoke`. The smoke path starts host Python, completes initialize and `system.ping`, shuts down cleanly, and requires the `DATASETUI_RPC_SMOKE=...` marker.
+This builds `release/DatasetUI-0.2.0-linux-x86_64.AppImage`, extracts it with `--appimage-extract` without FUSE, checks packaged sources/contracts/fixtures/tools, and launches extracted `AppRun --rpc-smoke`. Retained evidence is `appimage-spike/evidence/spike-result.json`, validated by `contracts/appimage-spike.schema.json`; generated artifacts/extraction trees are ignored.
 
-The retained result is `appimage-spike/evidence/spike-result.json`, validated by `contracts/appimage-spike.schema.json`. The generated AppImage and extraction trees are intentionally ignored.
-
-**Task 2 limitation:** this is a `host-python-spike`, not a distributable self-contained application. The verifier defaults to `.venv/bin/python` (or an absolute `LEROBOT_DATASET_EDITOR_PYTHON`) and therefore depends on host Python 3.12 with the locked DatasetUI runtime dependencies already installed. `self_contained` is explicitly `false`; Full/Lightweight production Python bundling, production icons/metadata, and final dependency pruning are deferred to Task 22.
+**Task 2 limitation:** this artifact remains `host-python-spike`, `self_contained=false`. It needs host Python 3.12 with locked DatasetUI dependencies. Full/Lightweight production Python bundling, production icons/metadata, and final dependency pruning are Task 22.
 
 ## Fixture provenance
 
-Two fixture classes are intentionally separate:
+Two fixture classes remain intentionally separate:
 
-1. `fixtures/` contains deterministic **CONTRACT-DERIVED** editor fixtures. Their `PROVENANCE.md` files state that they were not produced by an official writer.
-2. `tests/fixtures/official/` contains small **official-writer-generated** golden fixtures:
-   - `v21_v033`, generated with `LeRobotDataset.create/add_frame/save_episode` from `lerobot==0.3.3`.
-   - `v30_v060`, generated with `LeRobotDataset.create/add_frame/save_episode/finalize` from `lerobot==0.6.0`.
+1. `fixtures/`: deterministic **CONTRACT-DERIVED** editor fixtures.
+2. `tests/fixtures/official/`: small **official-writer-generated** `v21_v033` and `v30_v060` goldens.
 
-Each official fixture has a `PROVENANCE.json` manifest containing Python and dependency versions, generation script, metadata-only adapter disclosure, and SHA-256 hashes. `contracts/official-compatibility.json` binds successful full-loader results to exact fixture tree hashes, so the report cannot claim compatibility after fixture drift.
-
-The lightweight adapters in `tests/compat/stubs/` replace only unused Torch/Torchvision/Safetensors import surfaces; they do not implement model execution, training, CUDA, or encoding. Real official LeRobot data/metadata code, PyArrow/Hugging Face Datasets, Pillow, and (for v0.6.0) PyAV performed the writer/loader work. See `scripts/compat/README.md` for exact generation and opt-in validation commands.
+Official fixture manifests record generation/dependency provenance and hashes. `contracts/official-compatibility.json` binds full-loader evidence to exact tree hashes. Compatibility adapters replace only unused Torch/Torchvision/Safetensors import surfaces; real official LeRobot metadata/data code, PyArrow, Hugging Face Datasets, Pillow, and PyAV performed writer/loader work. See `scripts/compat/README.md`.
 
 ## Layout
 
 ```text
 DatasetUI/
-├── appimage-spike/evidence/           # retained, schema-validated spike result
+├── appimage-spike/evidence/
 ├── contracts/
 │   ├── appimage-spike.schema.json
-│   ├── dataset-tools-characterization.json
-│   ├── official-compatibility.json
+│   ├── project-registry.schema.json
+│   ├── rpc-transport.schema.json
 │   ├── lerobot-v21.schema.json
 │   ├── lerobot-v30.schema.json
 │   ├── language-v31.schema.json
-│   ├── rpc.schema.json
-│   ├── rpc-transport.schema.json
 │   └── space-parity.yaml
 ├── electron/
-│   ├── src/main/                      # backend lifecycle, trusted fixed IPC
-│   ├── src/preload/                   # frozen ping/report bridge
-│   ├── src/renderer/                  # strict-CSP React shell
+│   ├── src/main/                      # backend lifecycle and trusted fixed IPC
+│   ├── src/preload/                   # frozen typed bridge
+│   ├── src/renderer/                  # strict-CSP React shell/project UI
 │   └── tests/                         # Node and real-Electron tests
-├── fixtures/                          # deterministic contract-derived fixtures
+├── fixtures/
 ├── python/src/lerobot_dataset_editor/
+│   ├── registry/                      # XDG SQLite projects and migrations
+│   ├── runtime/                       # embedded/external doctor and devices
 │   ├── rpc/                           # bounded framed JSON-RPC server
 │   ├── characterization.py
 │   ├── cli.py
 │   ├── fixtures.py
 │   └── schemas.py
-├── scripts/
-│   ├── compat/                        # exact official generation/validation
-│   └── verify-appimage.mjs            # no-FUSE extraction and RPC smoke
-├── tests/
-│   ├── appimage/                      # packaging/evidence acceptance contract
-│   ├── compat/                        # adapters and opt-in official-loader gate
-│   └── fixtures/official/             # official writer goldens
-├── third_party/visualize_dataset.REVISION
-├── tools/lerobot_dataset_tools/       # vendored exact characterized sources
-├── dataset_tools.sh                   # vendored exact launcher
+├── scripts/compat/
+├── tests/{appimage,registry,rpc,runtime,compat}/
+├── tools/lerobot_dataset_tools/
+├── dataset_tools.sh
 ├── electron-builder.yml
 ├── package.json
 ├── package-lock.json
 ├── pyproject.toml
-├── uv.lock
-└── README.md
+└── uv.lock
 ```
 
 ## Exact direct dependencies
 
 Python runtime: `jsonschema==4.23.0`, `pyarrow==20.0.0`, `pyyaml==6.0.2`. Python test: `pytest==8.3.5`, `pytest-timeout==2.3.1`. Build backend: `hatchling==1.27.0`.
 
-Desktop runtime: `react==19.2.8`, `react-dom==19.2.8`. Desktop build/test pins include `electron==43.2.0`, `electron-builder==26.15.3`, `electron-vite==5.0.0`, `vite==7.3.6`, `vitest==4.1.10`, `typescript==7.0.2`, and `playwright-core==1.62.1`. The lockfile overrides transitive `brace-expansion` to patched exact version `5.0.9`.
+Desktop runtime: `react==19.2.8`, `react-dom==19.2.8`. Build/test pins include `electron==43.2.0`, `electron-builder==26.15.3`, `electron-vite==5.0.0`, `vite==7.3.6`, `vitest==4.1.10`, `typescript==7.0.2`, and `playwright-core==1.62.1`. The lockfile overrides transitive `brace-expansion` to patched exact `5.0.9`.

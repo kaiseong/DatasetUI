@@ -33,6 +33,13 @@ function assertTrustedSender(event: IpcMainInvokeEvent): void {
 function registerIpcHandlers(activeBackend: PythonBackend): void {
   ipcMain.removeHandler("rpc:ping");
   ipcMain.removeHandler("rpc:report");
+  ipcMain.removeHandler("rpc:project.register");
+  ipcMain.removeHandler("rpc:project.list");
+  ipcMain.removeHandler("rpc:project.get");
+  ipcMain.removeHandler("rpc:project.update");
+  ipcMain.removeHandler("rpc:project.remove");
+  ipcMain.removeHandler("rpc:runtime.doctor");
+  ipcMain.removeHandler("rpc:runtime.select");
   ipcMain.handle("rpc:ping", (event) => {
     assertTrustedSender(event);
     return activeBackend.request("system.ping");
@@ -40,6 +47,34 @@ function registerIpcHandlers(activeBackend: PythonBackend): void {
   ipcMain.handle("rpc:report", (event) => {
     assertTrustedSender(event);
     return activeBackend.request("report.get");
+  });
+  ipcMain.handle("rpc:project.register", (event, params) => {
+    assertTrustedSender(event);
+    return activeBackend.request("project.register", params);
+  });
+  ipcMain.handle("rpc:project.list", (event, params) => {
+    assertTrustedSender(event);
+    return activeBackend.request("project.list", params);
+  });
+  ipcMain.handle("rpc:project.get", (event, params) => {
+    assertTrustedSender(event);
+    return activeBackend.request("project.get", params);
+  });
+  ipcMain.handle("rpc:project.update", (event, params) => {
+    assertTrustedSender(event);
+    return activeBackend.request("project.update", params);
+  });
+  ipcMain.handle("rpc:project.remove", (event, params) => {
+    assertTrustedSender(event);
+    return activeBackend.request("project.remove", params);
+  });
+  ipcMain.handle("rpc:runtime.doctor", (event, params) => {
+    assertTrustedSender(event);
+    return activeBackend.request("runtime.doctor", params);
+  });
+  ipcMain.handle("rpc:runtime.select", (event, params) => {
+    assertTrustedSender(event);
+    return activeBackend.request("runtime.select", params);
   });
 }
 
@@ -52,7 +87,7 @@ function createMainWindow(): BrowserWindow {
     height: 760,
     minWidth: 800,
     minHeight: 600,
-    show: false,
+    show: isE2e,
     autoHideMenuBar: true,
     title: "DatasetUI",
     backgroundColor: "#0d1117",

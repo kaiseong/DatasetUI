@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { ProjectRegistry } from "./ProjectRegistry";
+
 interface Report {
   status: string;
   dataset_editor_version: string;
@@ -51,7 +53,7 @@ export function App(): React.JSX.Element {
       <header>
         <p className="eyebrow">LeRobot Dataset Editor</p>
         <h1>DatasetUI</h1>
-        <p className="subtitle">Secure Electron ↔ Python vertical slice</p>
+        <p className="subtitle">Secure local projects and runtime environments</p>
       </header>
       <section className="status-card" aria-live="polite">
         <div>
@@ -68,6 +70,7 @@ export function App(): React.JSX.Element {
         </div>
       </section>
       {error ? <p className="error">{error}</p> : null}
+      <ProjectRegistry />
       <output data-testid="csp-eval-blocked" hidden>{String(evalBlocked)}</output>
     </main>
   );

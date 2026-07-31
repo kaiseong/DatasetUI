@@ -10,7 +10,7 @@
     "max_content_length": 16777216
   },
   "x-protocol-version": 1,
-  "x-methods": ["initialize", "report.get", "shutdown", "system.ping"],
+  "x-methods": ["initialize", "project.get", "project.list", "project.register", "project.remove", "project.update", "report.get", "runtime.doctor", "runtime.select", "shutdown", "system.ping"],
   "oneOf": [
     { "$ref": "#/$defs/request" },
     { "$ref": "#/$defs/success" },
@@ -36,7 +36,7 @@
       "properties": {
         "jsonrpc": { "const": "2.0" },
         "id": { "$ref": "#/$defs/id" },
-        "method": { "enum": ["initialize", "report.get", "shutdown", "system.ping"] },
+        "method": { "enum": ["initialize", "project.get", "project.list", "project.register", "project.remove", "project.update", "report.get", "runtime.doctor", "runtime.select", "shutdown", "system.ping"] },
         "params": { "$ref": "#/$defs/params" }
       },
       "additionalProperties": false
