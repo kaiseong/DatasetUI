@@ -1,0 +1,77 @@
+{
+    "codebase_version": "v3.0",
+    "fps": 10,
+    "features": {
+        "observation.state": {
+            "dtype": "float32",
+            "shape": [
+                4
+            ],
+            "names": [
+                "s0",
+                "s1",
+                "s2",
+                "s3"
+            ]
+        },
+        "action": {
+            "dtype": "float32",
+            "shape": [
+                4
+            ],
+            "names": [
+                "a0",
+                "a1",
+                "a2",
+                "a3"
+            ]
+        },
+        "timestamp": {
+            "dtype": "float32",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "frame_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "episode_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        },
+        "task_index": {
+            "dtype": "int64",
+            "shape": [
+                1
+            ],
+            "names": null
+        }
+    },
+    "total_episodes": 2,
+    "total_frames": 10,
+    "total_tasks": 2,
+    "chunks_size": 1000,
+    "data_files_size_in_mb": 100,
+    "video_files_size_in_mb": 200,
+    "data_path": "data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
+    "video_path": null,
+    "robot_type": "test",
+    "splits": {
+        "train": "0:2"
+    }
+}

@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "origin": "official-writer-generated",
+  "format": "v3.0",
+  "generator": {"package": "lerobot", "version": "0.6.0"},
+  "python_version": "3.12.3",
+  "generated_at": "2026-07-31T13:07:00Z",
+  "generation_script": "scripts/compat/generate_v30_v060.py",
+  "writer_api": ["LeRobotDataset.create", "LeRobotDataset.add_frame", "LeRobotDataset.save_episode", "LeRobotDataset.finalize"],
+  "official_package_modified": false,
+  "metadata_only_adapter": {
+    "used": true,
+    "path": "tests/compat/stubs/v060",
+    "no_torch_cuda_runtime": true
+  },
+  "dependencies": [
+    "lerobot==0.6.0",
+    "datasets==4.7.0",
+    "numpy==2.2.6",
+    "pandas==2.3.3",
+    "pyarrow==21.0.0",
+    "huggingface-hub==1.0.1",
+    "av==15.1.0",
+    "pillow==12.0.0",
+    "packaging==25.0",
+    "safetensors==0.6.2",
+    "draccus==0.10.0"
+  ],
+  "artifacts": {
+    "data/chunk-000/file-000.parquet": "2af50ead9f86762a76feb7c83dba3f04fec609688bb674c91511ea85959f27db",
+    "meta/episodes/chunk-000/file-000.parquet": "0c59d3dc07f35873dc5b7e3bfaa87e5422f93e9c8e91b51511b0e9a39e9ab082",
+    "meta/info.json": "c2c950de6c8b77b4a43d35bcd7d5caef56c06f1208f54761e7908ff04e07fc03",
+    "meta/stats.json": "413fe72caebbe539f53987238945e1f576ff9b431fe114706fdf4f20f9c94287",
+    "meta/tasks.parquet": "ad7b7899e32ce84de0280be0375d4c4441d0b462ed69e10e9ccf1587d68b309b"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "baseline": "local /home/kgs/lerobot-rby1 custom dataset tools at Task 1 freeze",
+  "launcher": {
+    "path": "dataset_tools.sh",
+    "sha256": "ba503262c2b3111b978e437f8fee599c844dd0c5344f0bb5e1e83d5f2567cc43",
+    "commands": ["trim", "merge", "help"],
+    "aliases": {"trim-stationary": "trim", "trim_stationary": "trim"},
+    "unknown_command_exit": 2,
+    "no_arguments_exit": 2
+  },
+  "sources": {
+    "tools/lerobot_dataset_tools/cli.py": "c7779b72dca9310309f43f71c26a08ce5eab03945aa3e0fc8abeabb03c7418d8",
+    "tools/lerobot_dataset_tools/trim.py": "16482f1e694029c28161dd76cb5f503239673ab828b283a187a0f0387b87bac1",
+    "tools/lerobot_dataset_tools/merge.py": "0e5e0e977df7777606c16423eb440adab3fe106b7d6056423f5a532ea9a13ebd",
+    "tools/lerobot_dataset_tools/compat.py": "0d48f15e7b77b5d7d0d23ea05348f68e571a75ca7de6b8984ab70233aca626bd",
+    "tools/lerobot_dataset_tools/no_reencode.py": "2e8a65e4d63de6cb1e12cbbced70b75c3132ebc4c350a011cf92576b7e1f5bac",
+    "tools/lerobot_dataset_tools/reporting.py": "783313cb243a290f65ebcc54b9f3a49821f18f6a3372813edfeb2b6902ad96e5"
+  },
+  "trim": {
+    "state_key": "observation.state",
+    "state_epsilon": 0.0005,
+    "keep_start_seconds": 0.0,
+    "keep_end_seconds": 0.0,
+    "workers": "auto",
+    "video_copy_mode": "copy",
+    "dry_run": false,
+    "validate_only": false,
+    "push_to_hub": false,
+    "stationary_metric": "maximum absolute component displacement from the first/last state",
+    "threshold_inclusive": true,
+    "remove_all": "ValueError",
+    "videos": "copy referenced consolidated files without decode, trim, remux, or re-encode"
+  },
+  "merge": {
+    "minimum_sources": 2,
+    "copy_workers": "auto",
+    "remux_policy": "never",
+    "dry_run": false,
+    "validate_only": false,
+    "push_to_hub": false,
+    "compatibility_fields": ["fps", "robot_type", "feature schema", "video keys"],
+    "nonempty_destination": "FileExistsError"
+  },
+  "report": {
+    "format": "JSON",
+    "sort_keys": true,
+    "path_optional": true
+  }
+}

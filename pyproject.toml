@@ -1,0 +1,33 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lerobot-dataset-editor"
+version = "0.1.0"
+description = "Safe standalone LeRobot dataset inspection, editing, conversion, and publishing"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = "Apache-2.0"
+dependencies = [
+    "jsonschema==4.23.0",
+    "pyarrow==20.0.0",
+    "pyyaml==6.0.2",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==8.3.5",
+    "pytest-timeout==2.3.1",
+]
+
+[project.scripts]
+dataset-editor-report = "lerobot_dataset_editor.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["python/src/lerobot_dataset_editor"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["python/src"]
+timeout = 30

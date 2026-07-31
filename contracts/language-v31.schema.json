@@ -1,0 +1,201 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lerobot:dataset-editor:language-v31",
+  "title": "LeRobot v3.1 language-column contract",
+  "description": "Logical JSON contract for Arrow list<struct> language_persistent and language_events columns, including Space annotation editor atoms.",
+  "type": "object",
+  "required": ["language_persistent", "language_events"],
+  "properties": {
+    "language_persistent": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/persistent_row" }
+    },
+    "language_events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event_row" }
+    }
+  },
+  "additionalProperties": false,
+  "x-arrow-contract": {
+    "language_persistent": "list<struct<role:string,content:string?,style:string?,timestamp:float32,camera:string?,tool_calls:list<json>?>>",
+    "language_events": "list<struct<role:string,content:string?,style:string?,camera:string?,tool_calls:list<json>?>>"
+  },
+  "x-required-space-atoms": [
+    "task_aug",
+    "subtask",
+    "plan",
+    "memory",
+    "interjection",
+    "speech:say",
+    "vqa:bbox",
+    "vqa:keypoint",
+    "vqa:count",
+    "vqa:attribute",
+    "vqa:spatial"
+  ],
+  "$defs": {
+    "role": { "type": "string", "enum": ["system", "user", "assistant"] },
+    "tool_call": {
+      "type": "object",
+      "required": ["type", "function"],
+      "properties": {
+        "type": { "const": "function" },
+        "function": {
+          "type": "object",
+          "required": ["name", "arguments"],
+          "properties": {
+            "name": { "type": "string", "minLength": 1 },
+            "arguments": { "type": "object" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "say_tool_call": {
+      "allOf": [
+        { "$ref": "#/$defs/tool_call" },
+        {
+          "properties": {
+            "function": {
+              "properties": {
+                "name": { "const": "say" },
+                "arguments": {
+                  "type": "object",
+                  "required": ["text"],
+                  "properties": { "text": { "type": "string" } },
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "persistent_row": {
+      "type": "object",
+      "required": ["role", "content", "style", "timestamp", "camera", "tool_calls"],
+      "properties": {
+        "role": { "$ref": "#/$defs/role" },
+        "content": { "type": "string" },
+        "style": { "type": "string", "enum": ["task_aug", "subtask", "plan", "memory", "motion"] },
+        "timestamp": { "type": "number" },
+        "camera": { "type": "null" },
+        "tool_calls": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/tool_call" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "styled_event": {
+      "type": "object",
+      "required": ["role", "content", "style", "camera", "tool_calls"],
+      "properties": {
+        "role": { "$ref": "#/$defs/role" },
+        "content": { "type": "string" },
+        "style": { "type": "string", "enum": ["interjection", "vqa", "trace"] },
+        "camera": { "type": ["string", "null"] },
+        "tool_calls": {
+          "type": ["array", "null"],
+          "items": { "$ref": "#/$defs/tool_call" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "style": { "enum": ["vqa", "trace"] } }, "required": ["style"] },
+          "then": { "properties": { "camera": { "type": "string", "minLength": 1 } } },
+          "else": { "properties": { "camera": { "type": "null" } } }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "speech_atom": {
+      "type": "object",
+      "required": ["role", "content", "style", "camera", "tool_calls"],
+      "properties": {
+        "role": { "const": "assistant" },
+        "content": { "type": "null" },
+        "style": { "type": "null" },
+        "camera": { "type": "null" },
+        "tool_calls": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/say_tool_call" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "event_row": {
+      "oneOf": [
+        { "$ref": "#/$defs/styled_event" },
+        { "$ref": "#/$defs/speech_atom" }
+      ]
+    },
+    "vqa_bbox_answer": {
+      "type": "object",
+      "required": ["detections"],
+      "properties": {
+        "detections": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "bbox_format", "bbox"],
+            "properties": {
+              "label": { "type": "string" },
+              "bbox_format": { "const": "xyxy" },
+              "bbox": { "type": "array", "minItems": 4, "maxItems": 4, "items": { "type": "number" } }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "vqa_keypoint_answer": {
+      "type": "object",
+      "required": ["label", "point_format", "point"],
+      "properties": {
+        "label": { "type": "string" },
+        "point_format": { "const": "xy" },
+        "point": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "number" } }
+      },
+      "additionalProperties": false
+    },
+    "vqa_count_answer": {
+      "type": "object",
+      "required": ["label", "count"],
+      "properties": { "label": { "type": "string" }, "count": { "type": "integer", "minimum": 0 } },
+      "additionalProperties": false
+    },
+    "vqa_attribute_answer": {
+      "type": "object",
+      "required": ["label", "attribute", "value"],
+      "properties": {
+        "label": { "type": "string" },
+        "attribute": { "type": "string" },
+        "value": {}
+      },
+      "additionalProperties": false
+    },
+    "vqa_spatial_answer": {
+      "type": "object",
+      "required": ["subject", "relation", "object"],
+      "properties": {
+        "subject": { "type": "string" },
+        "relation": { "type": "string" },
+        "object": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "vqa_answer": {
+      "oneOf": [
+        { "$ref": "#/$defs/vqa_bbox_answer" },
+        { "$ref": "#/$defs/vqa_keypoint_answer" },
+        { "$ref": "#/$defs/vqa_count_answer" },
+        { "$ref": "#/$defs/vqa_attribute_answer" },
+        { "$ref": "#/$defs/vqa_spatial_answer" }
+      ]
+    }
+  }
+}

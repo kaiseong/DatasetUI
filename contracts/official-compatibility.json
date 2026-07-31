@@ -1,0 +1,72 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-07-31T13:17:43Z",
+  "python_version": "3.12.3",
+  "baselines": {
+    "v2.1": "lerobot==0.3.3",
+    "v3.0": "lerobot==0.6.0"
+  },
+  "validator": "scripts/compat/validate_official.py",
+  "validations": {
+    "v21_valid": {
+      "format": "v2.1",
+      "fixture": "fixtures/v21_valid",
+      "fixture_sha256": "8c3788fb3c86805edb4f5b28ef3d1758be02052a47f5f801280969b5f8f4ead2",
+      "loader": "lerobot==0.3.3",
+      "metadata_loaded": true,
+      "full_loader_passed": true,
+      "timestamp_validation_passed": true,
+      "all_frames_loaded": 20,
+      "episodes_loaded": 2,
+      "adapter": "tests/compat/stubs/v033"
+    },
+    "v30_valid": {
+      "format": "v3.0",
+      "fixture": "fixtures/v30_valid",
+      "fixture_sha256": "dd5b366546cca69d0057aedd832910cb51468eaa798b74f0d7a2176e5e4a9b6b",
+      "loader": "lerobot==0.6.0",
+      "metadata_loaded": true,
+      "full_loader_passed": true,
+      "timestamp_validation_passed": null,
+      "all_frames_loaded": 30,
+      "episodes_loaded": 3,
+      "adapter": "tests/compat/stubs/v060"
+    },
+    "v30_annotated": {
+      "format": "v3.1-language-columns",
+      "fixture": "fixtures/v30_annotated",
+      "fixture_sha256": "3ac454be95996dc6e7d992772b385f9f367c521fd344e62a5e79f5a82c0b02b1",
+      "loader": "lerobot==0.6.0",
+      "metadata_loaded": true,
+      "full_loader_passed": true,
+      "timestamp_validation_passed": null,
+      "all_frames_loaded": 20,
+      "episodes_loaded": 2,
+      "adapter": "tests/compat/stubs/v060"
+    },
+    "official_v21_v033": {
+      "format": "v2.1",
+      "fixture": "tests/fixtures/official/v21_v033",
+      "fixture_sha256": "f9ec7d3270b6414f2cb735fcd752a4171b38d28c9d8f86fc02c77d4fb62b8a64",
+      "loader": "lerobot==0.3.3",
+      "metadata_loaded": true,
+      "full_loader_passed": true,
+      "timestamp_validation_passed": true,
+      "all_frames_loaded": 20,
+      "episodes_loaded": 2,
+      "adapter": "tests/compat/stubs/v033"
+    },
+    "official_v30_v060": {
+      "format": "v3.0",
+      "fixture": "tests/fixtures/official/v30_v060",
+      "fixture_sha256": "a9ff3179b4d69a1bff5a3cbf06f669a2998b61dae8ef917b6ecbe7d3c4ac4e0d",
+      "loader": "lerobot==0.6.0",
+      "metadata_loaded": true,
+      "full_loader_passed": true,
+      "timestamp_validation_passed": null,
+      "all_frames_loaded": 10,
+      "episodes_loaded": 2,
+      "adapter": "tests/compat/stubs/v060"
+    }
+  }
+}

@@ -1,0 +1,230 @@
+# Executable parity inventory for the pinned Hugging Face Space revision.
+# `planned` is deliberate: Task 1 freezes acceptance tests but does not claim UI parity.
+space_repo: lerobot/visualize_dataset
+space_commit: d724744111cae6feb9a2194e607e71749813a97a
+status_definitions:
+  contract-tested: The data/schema prerequisite is exercised in Task 1.
+  planned: The acceptance test is named here and must pass in its implementation task.
+parity_features:
+  - id: dataset-search-private-access
+    category: access
+    description: Dataset-ID search plus authenticated access to public and private Hub datasets.
+    implementation_task: 21
+    test_id: tests/e2e/hub.spec.ts::test_private_dataset_search_and_open
+    status: planned
+  - id: episode-navigation-pagination
+    category: viewer
+    description: Episode sidebar, 100-item pagination, direct selection, and keyboard navigation.
+    implementation_task: 5
+    test_id: tests/e2e/viewer.spec.ts::test_episode_sidebar_pagination_and_keys
+    status: planned
+  - id: synchronized-multi-camera-video
+    category: viewer
+    description: Multiple cameras remain synchronized to one playhead within the pinned Space tolerance.
+    implementation_task: 5
+    test_id: tests/e2e/viewer.spec.ts::test_synchronized_multi_camera_playback
+    status: planned
+  - id: segmented-video-looping
+    category: viewer
+    description: Consolidated v3 video segments seek and loop at episode boundaries.
+    implementation_task: 5
+    test_id: tests/e2e/viewer.spec.ts::test_segment_seek_and_episode_loop
+    status: planned
+  - id: camera-controls
+    category: viewer
+    description: Hide, restore, and enlarge individual cameras without losing synchronization.
+    implementation_task: 5
+    test_id: tests/e2e/viewer.spec.ts::test_camera_hide_restore_and_enlarge
+    status: planned
+  - id: depth-grayscale-colormaps
+    category: viewer
+    description: Grayscale and depth imagery use the Space-compatible colormap controls.
+    implementation_task: 5
+    test_id: tests/e2e/viewer.spec.ts::test_depth_and_grayscale_colormaps
+    status: planned
+  - id: synchronized-action-state-charts
+    category: viewer
+    description: Action/state charts follow playback and support split/combine, toggles, values, and click-to-seek.
+    implementation_task: 5
+    test_id: tests/e2e/charts.spec.ts::test_chart_groups_toggles_values_and_seek
+    status: planned
+  - id: statistics-histogram
+    category: quality
+    description: Summary statistics and episode-length histogram match the pinned Space.
+    implementation_task: 6
+    test_id: tests/e2e/statistics.spec.ts::test_summary_and_episode_length_histogram
+    status: planned
+  - id: first-last-frame-gallery
+    category: quality
+    description: Paginated first/last frame gallery supports camera selection and lazy thumbnails.
+    implementation_task: 6
+    test_id: tests/e2e/frames.spec.ts::test_first_last_gallery_pagination
+    status: planned
+  - id: episode-flags-export
+    category: quality
+    description: Episode flags persist and export IDs plus a LeRobot CLI command preview.
+    implementation_task: 6
+    test_id: tests/e2e/flags.spec.ts::test_flag_persistence_id_and_cli_export
+    status: planned
+  - id: length-low-movement-filtering
+    category: quality
+    description: Filter episodes by duration and low action/state movement.
+    implementation_task: 6
+    test_id: tests/e2e/filtering.spec.ts::test_length_and_low_movement_filters
+    status: planned
+  - id: action-autocorrelation-chunk
+    category: action-insights
+    description: Action autocorrelation and the 0.5-decorrelation suggested chunk length match golden values.
+    implementation_task: 7
+    test_id: tests/e2e/action_insights.spec.ts::test_autocorrelation_and_chunk_suggestion
+    status: planned
+  - id: action-velocity-activity-discrete
+    category: action-insights
+    description: Normalized velocity, activity, inactive dimensions, and discrete motors are diagnosed.
+    implementation_task: 7
+    test_id: tests/e2e/action_insights.spec.ts::test_velocity_activity_and_discrete_diagnostics
+    status: planned
+  - id: jerky-episode-ranking
+    category: action-insights
+    description: Episodes are ranked by jerk with the pinned Space sampling defaults.
+    implementation_task: 7
+    test_id: tests/e2e/action_insights.spec.ts::test_jerky_episode_ranking
+    status: planned
+  - id: cross-episode-variance-heatmap
+    category: action-insights
+    description: The 50-bin cross-episode action variance heatmap matches numeric goldens.
+    implementation_task: 7
+    test_id: tests/e2e/action_insights.spec.ts::test_cross_episode_variance_heatmap
+    status: planned
+  - id: demonstrator-speed-cv
+    category: action-insights
+    description: Demonstrator speed and coefficient-of-variation verdict are reproduced.
+    implementation_task: 7
+    test_id: tests/e2e/action_insights.spec.ts::test_demonstrator_speed_cv
+    status: planned
+  - id: state-action-temporal-alignment
+    category: action-insights
+    description: State/action lag analysis reports the correct temporal alignment.
+    implementation_task: 7
+    test_id: tests/e2e/action_insights.spec.ts::test_state_action_temporal_alignment
+    status: planned
+  - id: progress-parquet
+    category: progress
+    description: Optional sarm_progress.parquet and srm_progress.parquet overlays are displayed.
+    implementation_task: 8
+    test_id: tests/e2e/progress.spec.ts::test_progress_parquet_overlay
+    status: planned
+  - id: urdf-replay-robots
+    category: replay
+    description: SO-series, OpenArm, and Unitree G1 mappings replay with unit and gripper handling.
+    implementation_task: 8
+    test_id: tests/e2e/replay3d.spec.ts::test_supported_robot_joint_mapping_and_units
+    status: planned
+  - id: end-effector-trails
+    category: replay
+    description: Orbit controls and one-second end-effector trails follow the selected episode.
+    implementation_task: 8
+    test_id: tests/e2e/replay3d.spec.ts::test_orbit_episode_switch_and_end_effector_trail
+    status: planned
+  - id: doctor-link
+    category: doctor
+    description: The Space Doctor external-link tab behavior is preserved and a local doctor is available.
+    implementation_task: 8
+    test_id: tests/e2e/doctor.spec.ts::test_external_and_local_doctor
+    status: planned
+  - id: annotation-task-aug
+    category: annotations
+    description: Create, edit, render, and persist task_aug atoms.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_task_aug_atom
+    status: planned
+  - id: annotation-subtask
+    category: annotations
+    description: Create and resize persistent subtask spans.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_subtask_span
+    status: planned
+  - id: annotation-plan
+    category: annotations
+    description: Create and edit plan spans including interjection-time refreshes.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_plan_span_and_refresh
+    status: planned
+  - id: annotation-memory
+    category: annotations
+    description: Create and edit persistent memory atoms.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_memory_atom
+    status: planned
+  - id: annotation-interjection
+    category: annotations
+    description: Create frame-snapped interjection events and pair them with speech.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_interjection_and_speech_pair
+    status: planned
+  - id: annotation-speech-say
+    category: annotations
+    description: Speech is a style-null assistant atom with a canonical say tool call.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_say_tool_call_atom
+    status: planned
+  - id: annotation-vqa-bbox
+    category: annotations
+    description: VQA bounding-box answers render and persist in xyxy format.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_vqa_bbox
+    status: planned
+  - id: annotation-vqa-keypoint
+    category: annotations
+    description: VQA keypoint answers render and persist in xy format.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_vqa_keypoint
+    status: planned
+  - id: annotation-vqa-count
+    category: annotations
+    description: VQA count answers are editable and schema-valid.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_vqa_count
+    status: planned
+  - id: annotation-vqa-attribute
+    category: annotations
+    description: VQA attribute answers are editable and schema-valid.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_vqa_attribute
+    status: planned
+  - id: annotation-vqa-spatial
+    category: annotations
+    description: VQA subject/relation/object answers are editable and schema-valid.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_vqa_spatial_relation
+    status: planned
+  - id: annotation-frame-snapping
+    category: annotations
+    description: Event timestamps snap to exact source frame timestamps and never recompute time.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_exact_source_frame_snapping
+    status: planned
+  - id: annotation-editable-timeline
+    category: annotations
+    description: Timeline spans and ticks support create, move, resize, inspect, and delete.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_timeline_span_and_tick_editing
+    status: planned
+  - id: annotation-camera-overlays
+    category: annotations
+    description: View-dependent atoms are shown only on their selected camera overlay.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_per_camera_overlay_routing
+    status: planned
+  - id: annotation-bbox-drag
+    category: annotations
+    description: Bounding boxes can be drawn and dragged on the camera canvas.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_bbox_draw_and_drag
+    status: planned
+  - id: annotation-keypoint-click
+    category: annotations
+    description: Keypoints can be placed and moved by canvas click.
+    implementation_task: 13
+    test_id: tests/e2e/annotations.spec.ts::test_keypoint_click_and_move
+    status: planned

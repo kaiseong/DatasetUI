@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lerobot:dataset-editor:rpc",
+  "title": "Dataset Editor report/RPC envelope contract",
+  "type": "object",
+  "required": ["operation", "status", "timestamp", "dataset_editor_version", "contracts", "fixtures", "official_compatibility", "space_parity", "dataset_tools", "errors"],
+  "properties": {
+    "operation": { "enum": ["report", "trim_stationary_dataset", "merge_datasets", "fixture_generate"] },
+    "status": { "enum": ["ok", "error", "validated", "written", "unsupported", "dry_run"] },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "dataset_editor_version": { "type": "string" },
+    "contracts": {
+      "type": "object",
+      "required": ["v21_schema_valid", "v30_schema_valid", "language_v31_valid", "rpc_schema_valid", "space_parity_commit"],
+      "properties": {
+        "v21_schema_valid": { "type": "boolean" },
+        "v30_schema_valid": { "type": "boolean" },
+        "language_v31_valid": { "type": "boolean" },
+        "rpc_schema_valid": { "type": "boolean" },
+        "space_parity_commit": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "fixtures": {
+      "type": "object",
+      "required": ["v21_valid", "v30_valid", "v30_annotated", "official_v21_v033", "official_v30_v060", "corrupt"],
+      "properties": {
+        "v21_valid": { "$ref": "#/$defs/valid_fixture" },
+        "v30_valid": { "$ref": "#/$defs/valid_fixture" },
+        "v30_annotated": { "$ref": "#/$defs/valid_fixture" },
+        "official_v21_v033": { "$ref": "#/$defs/valid_fixture" },
+        "official_v30_v060": { "$ref": "#/$defs/valid_fixture" },
+        "corrupt": {
+          "type": "object",
+          "required": ["valid", "rejected_as_expected"],
+          "properties": {
+            "valid": { "const": false },
+            "rejected_as_expected": { "type": "boolean" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "official_compatibility": {
+      "type": "object",
+      "required": ["evidence_valid", "baselines", "contract_fixtures", "golden_fixtures", "errors"],
+      "properties": {
+        "evidence_valid": { "type": "boolean" },
+        "baselines": {
+          "type": "object",
+          "required": ["v2.1", "v3.0"],
+          "properties": {
+            "v2.1": { "const": "lerobot==0.3.3" },
+            "v3.0": { "const": "lerobot==0.6.0" }
+          },
+          "additionalProperties": false
+        },
+        "contract_fixtures": { "type": "object" },
+        "golden_fixtures": { "type": "object" },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    },
+    "space_parity": {
+      "type": "object",
+      "required": ["commit", "total", "planned", "implemented", "all_mapped"],
+      "properties": {
+        "commit": { "type": "string" },
+        "total": { "type": "integer", "minimum": 1 },
+        "planned": { "type": "integer", "minimum": 0 },
+        "implemented": { "type": "integer", "minimum": 0 },
+        "all_mapped": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "dataset_tools": {
+      "type": "object",
+      "required": ["status", "source_fingerprints_match", "commands", "aliases", "defaults", "trim_no_reencode", "merge_no_reencode"],
+      "properties": {
+        "status": { "enum": ["current", "stale"] },
+        "source_fingerprints_match": { "type": "boolean" },
+        "commands": { "type": "array", "items": { "type": "string" } },
+        "aliases": { "type": "object", "additionalProperties": { "type": "string" } },
+        "defaults": { "type": "object" },
+        "trim_no_reencode": { "type": "boolean" },
+        "merge_no_reencode": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "errors": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "valid_fixture": {
+      "type": "object",
+      "required": ["valid", "detected_version", "episodes", "frames", "tasks", "cameras", "provenance", "official_loader_validated", "errors"],
+      "properties": {
+        "valid": { "type": "boolean" },
+        "detected_version": { "type": "string" },
+        "episodes": { "type": "integer", "minimum": 0 },
+        "frames": { "type": "integer", "minimum": 0 },
+        "tasks": { "type": "integer", "minimum": 0 },
+        "cameras": { "type": "array", "items": { "type": "string" } },
+        "provenance": { "type": "string" },
+        "official_loader_validated": { "type": "boolean" },
+        "errors": { "type": "array", "items": { "type": "string" } }
+      },
+      "additionalProperties": true
+    }
+  }
+}

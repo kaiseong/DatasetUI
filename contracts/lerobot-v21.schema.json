@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:lerobot:dataset-editor:lerobot-v21",
+  "title": "Strict LeRobot v2.1 meta/info.json contract",
+  "description": "Executable contract derived from the official LeRobot v0.3.3 writer/loader. The core layout remains unextended; editor annotations live in meta/lerobot_annotations.json.",
+  "type": "object",
+  "required": [
+    "codebase_version",
+    "total_episodes",
+    "total_frames",
+    "total_tasks",
+    "total_videos",
+    "total_chunks",
+    "chunks_size",
+    "fps",
+    "splits",
+    "data_path",
+    "video_path",
+    "features"
+  ],
+  "properties": {
+    "codebase_version": { "const": "v2.1" },
+    "robot_type": { "type": ["string", "null"] },
+    "total_episodes": { "type": "integer", "minimum": 0 },
+    "total_frames": { "type": "integer", "minimum": 0 },
+    "total_tasks": { "type": "integer", "minimum": 0 },
+    "total_videos": { "type": "integer", "minimum": 0 },
+    "total_chunks": { "type": "integer", "minimum": 0 },
+    "chunks_size": { "type": "integer", "minimum": 1 },
+    "fps": { "type": "integer", "minimum": 1 },
+    "splits": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "pattern": "^[0-9]+:[0-9]+$" }
+    },
+    "data_path": {
+      "const": "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
+    },
+    "video_path": {
+      "type": ["string", "null"],
+      "enum": ["videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4", null]
+    },
+    "features": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "$ref": "#/$defs/feature" }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "feature": {
+      "type": "object",
+      "required": ["dtype", "shape", "names"],
+      "properties": {
+        "dtype": {
+          "type": "string",
+          "enum": ["float16", "float32", "float64", "int8", "int16", "int32", "int64", "uint8", "uint16", "uint32", "uint64", "bool", "string", "image", "video"]
+        },
+        "shape": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": "integer", "minimum": 1 }
+        },
+        "names": {
+          "type": ["array", "null"],
+          "items": { "type": "string" }
+        },
+        "info": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  }
+}
