@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-07-31T15:18:31.184Z",
+  "status": "passed",
+  "host": {
+    "os": "linux",
+    "distribution": "ubuntu",
+    "version": "24.04",
+    "architecture": "x86_64"
+  },
+  "artifact": {
+    "name": "DatasetUI-0.2.0-linux-x86_64.AppImage",
+    "target": "AppImage",
+    "architecture": "x86_64",
+    "electron_version": "43.2.0",
+    "size_bytes": 128619143,
+    "sha256": "7082204d810d354f7d40b3eb4407950aae1d206aed18d9b300c1f77425a42080"
+  },
+  "extraction": {
+    "method": "--appimage-extract",
+    "fuse_required": false,
+    "exit_code": 0,
+    "resources": [
+      {
+        "path": "resources/app.asar",
+        "present": true
+      },
+      {
+        "path": "resources/python/src/lerobot_dataset_editor/rpc/__main__.py",
+        "present": true
+      },
+      {
+        "path": "resources/contracts/rpc.schema.json",
+        "present": true
+      },
+      {
+        "path": "resources/contracts/rpc-transport.schema.json",
+        "present": true
+      },
+      {
+        "path": "resources/fixtures/v21_valid/meta/info.json",
+        "present": true
+      },
+      {
+        "path": "resources/tests/fixtures/official/v21_v033/meta/info.json",
+        "present": true
+      },
+      {
+        "path": "resources/third_party/visualize_dataset.REVISION",
+        "present": true
+      },
+      {
+        "path": "resources/tools/lerobot_dataset_tools/cli.py",
+        "present": true
+      },
+      {
+        "path": "resources/dataset_tools.sh",
+        "present": true
+      }
+    ]
+  },
+  "rpc_smoke": {
+    "command": "AppRun --rpc-smoke",
+    "exit_code": 0,
+    "marker": "DATASETUI_RPC_SMOKE",
+    "service": "lerobot-dataset-editor",
+    "protocol_version": 1,
+    "timestamp": "2026-07-31T15:18:31.129382+00:00"
+  },
+  "python_runtime": {
+    "python_mode": "host-python-spike",
+    "executable": ".venv/bin/python",
+    "version": "3.12.3",
+    "dependency_source": "host-environment",
+    "self_contained": false,
+    "production_packaging_task": 22,
+    "limitation": "This feasibility artifact is not self-contained: it requires a compatible host Python 3.12 environment with DatasetUI runtime dependencies; production Python bundling is deferred to Task 22."
+  }
+}

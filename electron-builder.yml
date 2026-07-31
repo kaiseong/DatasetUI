@@ -1,0 +1,33 @@
+appId: io.github.kaiseong.datasetui
+productName: DatasetUI
+copyright: Copyright © 2026 DatasetUI contributors
+artifactName: DatasetUI-${version}-linux-x86_64.${ext}
+asar: true
+npmRebuild: false
+directories:
+  output: release
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: python/src
+    to: python/src
+  - from: contracts
+    to: contracts
+  - from: fixtures
+    to: fixtures
+  - from: tests/fixtures/official
+    to: tests/fixtures/official
+  - from: third_party
+    to: third_party
+  - from: tools
+    to: tools
+  - from: dataset_tools.sh
+    to: dataset_tools.sh
+linux:
+  category: Utility
+  executableName: datasetui
+  target:
+    - target: AppImage
+      arch:
+        - x64

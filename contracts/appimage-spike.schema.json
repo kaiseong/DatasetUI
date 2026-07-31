@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kaiseong/DatasetUI/contracts/appimage-spike.schema.json",
+  "title": "DatasetUI Ubuntu x86_64 AppImage Feasibility Spike Evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "status",
+    "host",
+    "artifact",
+    "extraction",
+    "rpc_smoke",
+    "python_runtime"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "status": { "const": "passed" },
+    "host": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["os", "distribution", "version", "architecture"],
+      "properties": {
+        "os": { "const": "linux" },
+        "distribution": { "const": "ubuntu" },
+        "version": { "type": "string", "pattern": "^[0-9]{2}\\.[0-9]{2}$" },
+        "architecture": { "const": "x86_64" }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "target", "architecture", "electron_version", "size_bytes", "sha256"],
+      "properties": {
+        "name": { "const": "DatasetUI-0.2.0-linux-x86_64.AppImage" },
+        "target": { "const": "AppImage" },
+        "architecture": { "const": "x86_64" },
+        "electron_version": { "const": "43.2.0" },
+        "size_bytes": { "type": "integer", "minimum": 1 },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "extraction": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["method", "fuse_required", "exit_code", "resources"],
+      "properties": {
+        "method": { "const": "--appimage-extract" },
+        "fuse_required": { "const": false },
+        "exit_code": { "const": 0 },
+        "resources": {
+          "type": "array",
+          "minItems": 9,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["path", "present"],
+            "properties": {
+              "path": { "type": "string", "minLength": 1 },
+              "present": { "const": true }
+            }
+          }
+        }
+      }
+    },
+    "rpc_smoke": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "exit_code", "marker", "service", "protocol_version", "timestamp"],
+      "properties": {
+        "command": { "const": "AppRun --rpc-smoke" },
+        "exit_code": { "const": 0 },
+        "marker": { "const": "DATASETUI_RPC_SMOKE" },
+        "service": { "const": "lerobot-dataset-editor" },
+        "protocol_version": { "const": 1 },
+        "timestamp": { "type": "string", "format": "date-time" }
+      }
+    },
+    "python_runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "python_mode",
+        "executable",
+        "version",
+        "dependency_source",
+        "self_contained",
+        "production_packaging_task",
+        "limitation"
+      ],
+      "properties": {
+        "python_mode": { "const": "host-python-spike" },
+        "executable": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "pattern": "^3\\.12(?:\\.[0-9]+)?$" },
+        "dependency_source": { "const": "host-environment" },
+        "self_contained": { "const": false },
+        "production_packaging_task": { "const": 22 },
+        "limitation": { "type": "string", "minLength": 40 }
+      }
+    }
+  }
+}

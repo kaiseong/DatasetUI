@@ -11,6 +11,11 @@ node_modules/
 dist/
 out/
 release/
+*.AppImage
+*.AppImage.blockmap
+squashfs-root/
+appimage-spike/extracted/
+appimage-spike/work/
 playwright-report/
 test-results/
 

@@ -1,0 +1,43 @@
+{
+  "name": "datasetui",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Secure standalone LeRobot Dataset Editor",
+  "main": "out/main/index.js",
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "packageManager": "npm@11.11.0",
+  "scripts": {
+    "build": "electron-vite build --config electron/electron.vite.config.ts",
+    "typecheck": "tsc --noEmit -p electron/tsconfig.node.json && tsc --noEmit -p electron/tsconfig.web.json",
+    "test:node": "vitest run --config electron/vitest.config.ts",
+    "test:electron": "npm run build && vitest run --config electron/vitest.e2e.config.ts",
+    "test": "npm run typecheck && npm run test:node",
+    "appimage:build": "npm run build && electron-builder --linux AppImage --x64 --config electron-builder.yml",
+    "appimage:verify": "node scripts/verify-appimage.mjs",
+    "appimage:spike": "npm run appimage:build && npm run appimage:verify"
+  },
+  "dependencies": {
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "26.1.2",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "5.2.0",
+    "electron": "43.2.0",
+    "electron-builder": "26.15.3",
+    "electron-vite": "5.0.0",
+    "playwright-core": "1.62.1",
+    "typescript": "7.0.2",
+    "vite": "7.3.6",
+    "vitest": "4.1.10"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.9"
+  }
+}
