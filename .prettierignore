@@ -2,6 +2,9 @@
 .next/
 out/
 node_modules/
+.runtime/
+.venv/
+release/
 
 # Backend (Python)
 backend/.venv/

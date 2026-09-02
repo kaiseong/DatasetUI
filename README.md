@@ -141,7 +141,20 @@ The backend exposes:
 
 ## Docker Deployment
 
-This application can be deployed using Docker with bun for optimal performance and self-contained builds.
+The production-shaped deployment uses Docker Compose with Caddy HTTPS, the
+existing Next.js viewer and FastAPI service, Redis, and isolated worker queues.
+
+```bash
+cp .env.example .env
+# Confirm DATASETUI_HOST, DATASETUI_DATA_ROOT, and DATASETUI_NAS_ROOT.
+docker compose up -d --build
+```
+
+See [`docs/deployment/phase-1.md`](docs/deployment/phase-1.md) for the service,
+storage, certificate, and security boundaries.
+
+The standalone frontend image remains available for Hugging Face Spaces and
+development use.
 
 ### Build the Docker image
 

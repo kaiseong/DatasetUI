@@ -1,0 +1,42 @@
+{
+	admin off
+	default_sni {$DATASETUI_HOST}
+	skip_install_trust
+}
+
+http://{$DATASETUI_HOST} {
+	redir https://{$DATASETUI_HOST}{uri} 308
+}
+
+https://{$DATASETUI_HOST} {
+	tls internal
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "same-origin"
+	}
+
+	# Phase 1 exposes liveness only. Dataset write/export/push endpoints remain
+	# private until profile authorization and server-side secret handling land.
+	@api_health path /api/health
+	handle @api_health {
+		reverse_proxy api:7861
+	}
+
+	@private_api path /api/dataset/* /api/episodes/* /api/export /api/push_to_hub
+	handle @private_api {
+		respond "Not Found" 404
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

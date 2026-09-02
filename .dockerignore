@@ -4,7 +4,15 @@ node_modules
 .gitignore
 README.md
 .env*.local
+.env
 *.log
 .DS_Store
 .vscode
 .idea
+.venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+out
+release
+.runtime

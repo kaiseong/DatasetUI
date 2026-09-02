@@ -1,25 +1,25 @@
-FROM oven/bun:1 AS base
+FROM oven/bun:1 AS dependencies
 
-# Set working directory
 WORKDIR /app
-
-# Copy package files
-COPY package.json bun.lock* ./
-
-# Install dependencies
+COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile
 
-# Copy the rest of the application
-COPY . .
+FROM oven/bun:1 AS build
 
-# Build the application
+WORKDIR /app
+COPY --from=dependencies /app/node_modules ./node_modules
+COPY . .
 RUN bun run build
 
-# Expose port 7860
-EXPOSE 7860
+FROM oven/bun:1 AS runtime
 
-# Set environment variable for port
+WORKDIR /app
+ENV NODE_ENV=production
+ENV HOSTNAME=0.0.0.0
 ENV PORT=7860
 
-# Start the application
+COPY --from=build /app ./
+
+EXPOSE 7860
+
 CMD ["bun", "start"]

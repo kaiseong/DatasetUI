@@ -1,0 +1,13 @@
+FROM python:3.10-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+COPY requirements-worker.txt ./
+RUN pip install --no-cache-dir -r requirements-worker.txt
+
+# Phase 12 will pin the legacy LeRobot converter dependencies and register
+# conversion jobs. Phase 1 deliberately provides only the isolated queue.
+CMD ["rq", "worker", "--url", "redis://redis:6379/0", "converter-v21"]

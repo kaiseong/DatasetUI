@@ -1,0 +1,145 @@
+name: datasetui
+
+x-backend-environment: &backend-environment
+  TZ: ${DATASETUI_TZ:-Asia/Seoul}
+  REDIS_URL: redis://redis:6379/0
+  LEROBOT_ANNOTATE_CACHE: /data/cache/annotations
+  LEROBOT_ANNOTATE_EXPORT: /data/staging/annotation-exports
+
+x-backend-read-volumes: &backend-read-volumes
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/cache:/data/cache
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/staging:/data/staging
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/jobs:/data/jobs
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/registry:/data/registry
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/logs:/data/logs
+  - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/raw:/mnt/datasetui-nas/DatasetUI/raw:ro
+  - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/derived:/mnt/datasetui-nas/DatasetUI/derived
+  - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/exports:/mnt/datasetui-nas/DatasetUI/exports
+  - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/manifests:/mnt/datasetui-nas/DatasetUI/manifests
+
+x-backend-io-volumes: &backend-io-volumes
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/cache:/data/cache
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/staging:/data/staging
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/jobs:/data/jobs
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/registry:/data/registry
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/logs:/data/logs
+  - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/raw:/mnt/datasetui-nas/DatasetUI/raw
+  - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/derived:/mnt/datasetui-nas/DatasetUI/derived
+  - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/exports:/mnt/datasetui-nas/DatasetUI/exports
+  - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/manifests:/mnt/datasetui-nas/DatasetUI/manifests
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    environment:
+      DATASETUI_HOST: ${DATASETUI_HOST:-192.168.0.3}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${DATASETUI_DATA_ROOT:-./.runtime/data}:/data
+      - ${DATASETUI_DATA_ROOT:-./.runtime/data}/caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "3000"
+      HOSTNAME: 0.0.0.0
+      DATASET_URL: ${DATASET_URL:-https://huggingface.co/datasets}
+    expose:
+      - "3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "bun",
+          "-e",
+          "const r=await fetch('http://127.0.0.1:3000/');if(!r.ok)process.exit(1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
+    environment: *backend-environment
+    volumes: *backend-read-volumes
+    expose:
+      - "7861"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7861/api/health', timeout=3)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ${DATASETUI_DATA_ROOT:-./.runtime/data}/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  worker-io:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
+    command: ["rq", "worker", "--url", "redis://redis:6379/0", "io"]
+    environment: *backend-environment
+    volumes: *backend-io-volumes
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker-cpu:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
+    command: ["rq", "worker", "--url", "redis://redis:6379/0", "cpu"]
+    environment: *backend-environment
+    volumes: *backend-read-volumes
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker-converter-v21:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.converter-v21
+    restart: unless-stopped
+    user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
+    environment: *backend-environment
+    volumes: *backend-read-volumes
+    depends_on:
+      redis:
+        condition: service_healthy
