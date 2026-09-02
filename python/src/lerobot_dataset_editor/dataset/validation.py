@@ -292,43 +292,77 @@ def _check_missing_videos(
     dataset_path: Path, info: dict[str, Any], episodes: list[dict[str, Any]]
 ) -> list[str]:
     """Check every path referenced by image or video features."""
-    video_path_template = info.get("video_path")
-    if not isinstance(video_path_template, str) or not video_path_template:
-        return []
     features = info.get("features", {})
     if not isinstance(features, dict):
         return []
-    video_keys = [
+    media_keys = [
         name
         for name, spec in features.items()
         if isinstance(spec, dict) and spec.get("dtype") in {"image", "video"}
     ]
     errors: list[str] = []
-    for episode in episodes:
-        episode_index = int(episode.get("episode_index", episode.get("index", 0)))
-        data_chunk = int(episode.get("data/chunk_index", episode.get("chunk_index", 0)))
-        data_file = int(episode.get("data/file_index", episode.get("file_index", episode_index)))
-        for video_key in video_keys:
-            video_chunk = int(
-                episode.get(f"videos/{video_key}/chunk_index", data_chunk)
-            )
-            video_file = int(
-                episode.get(f"videos/{video_key}/file_index", data_file)
-            )
-            substitutions = {
-                "episode_chunk": data_chunk,
-                "episode_index": episode_index,
-                "chunk_index": video_chunk,
-                "file_index": video_file,
-                "video_key": video_key,
-            }
-            try:
-                relative_path = video_path_template.format(**substitutions)
-            except (KeyError, ValueError) as exc:
-                errors.append(f"Invalid video_path template: {exc}")
-                return errors
-            if not (dataset_path / relative_path).is_file():
-                errors.append(f"Missing video file: {relative_path}")
+    video_path_template = info.get("video_path")
+    # Older LeRobot metadata labels decoded video frames as dtype=image while
+    # still providing video_path. Every media feature therefore participates.
+    video_keys = media_keys
+    if isinstance(video_path_template, str) and video_path_template:
+        for episode in episodes:
+            episode_index = int(episode.get("episode_index", episode.get("index", 0)))
+            data_chunk = int(episode.get("data/chunk_index", episode.get("chunk_index", 0)))
+            data_file = int(episode.get("data/file_index", episode.get("file_index", episode_index)))
+            for video_key in video_keys:
+                video_chunk = int(
+                    episode.get(f"videos/{video_key}/chunk_index", data_chunk)
+                )
+                video_file = int(
+                    episode.get(f"videos/{video_key}/file_index", data_file)
+                )
+                substitutions = {
+                    "episode_chunk": data_chunk,
+                    "episode_index": episode_index,
+                    "chunk_index": video_chunk,
+                    "file_index": video_file,
+                    "video_key": video_key,
+                }
+                try:
+                    relative_path = video_path_template.format(**substitutions)
+                except (KeyError, ValueError) as exc:
+                    errors.append(f"Invalid video_path template: {exc}")
+                    return errors
+                candidate = (dataset_path / relative_path).resolve()
+                if dataset_path.resolve() not in candidate.parents or not candidate.is_file():
+                    errors.append(f"Missing video file: {relative_path}")
+
+    # Image features may store either embedded bytes or a source-relative path in
+    # their Arrow struct. Validate every referenced path; this catches partial
+    # datasets that still have valid Parquet footers.
+    for parquet_path in sorted((dataset_path / "data").rglob("*.parquet")):
+        try:
+            available = set(pq.read_schema(parquet_path).names)
+            columns = [key for key in media_keys if key in available]
+            if not columns:
+                continue
+            table = pq.read_table(parquet_path, columns=columns)
+        except Exception:
+            continue
+        episode_values = (pq.read_table(parquet_path, columns=["episode_index"])["episode_index"].to_pylist()
+                          if "episode_index" in available else [_episode_from_path(parquet_path)] * table.num_rows)
+        for media_key in columns:
+            for row_index, value in enumerate(table[media_key].to_pylist()):
+                relative_path = value.get("path") if isinstance(value, dict) else value if isinstance(value, str) else None
+                if not relative_path:
+                    continue
+                candidates = [
+                    (dataset_path / relative_path).resolve(),
+                    (dataset_path / "images" / media_key /
+                     f"episode_{int(episode_values[row_index]):06d}" / relative_path).resolve(),
+                ]
+                safe = [candidate for candidate in candidates if dataset_path.resolve() in candidate.parents]
+                if not any(candidate.is_file() for candidate in safe):
+                    errors.append(
+                        f"Missing image file: {relative_path} "
+                        f"(referenced by {parquet_path.relative_to(dataset_path)} row {row_index})"
+                    )
     return errors
 
 

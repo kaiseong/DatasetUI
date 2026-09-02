@@ -76,11 +76,15 @@ export class RpcClient {
     return result;
   }
 
-  request<T>(method: string, params?: Record<string, unknown> | unknown[]): Promise<T> {
+  request<T>(
+    method: string,
+    params?: Record<string, unknown> | unknown[],
+    timeoutMs = this.options.requestTimeoutMs,
+  ): Promise<T> {
     if (!this.initialized) {
       return Promise.reject(new Error("RPC client is not initialized"));
     }
-    return this.sendRequest<T>(method, params);
+    return this.sendRequest<T>(method, params, timeoutMs);
   }
 
   dispose(reason = new Error("RPC client disposed")): void {
@@ -90,6 +94,7 @@ export class RpcClient {
   private sendRequest<T>(
     method: string,
     params?: Record<string, unknown> | unknown[],
+    timeoutMs = this.options.requestTimeoutMs,
   ): Promise<T> {
     if (this.closedError) {
       return Promise.reject(this.closedError);
@@ -102,8 +107,8 @@ export class RpcClient {
     return new Promise<T>((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`RPC request timed out after ${this.options.requestTimeoutMs}ms: ${method}`));
-      }, this.options.requestTimeoutMs);
+        reject(new Error(`RPC request timed out after ${timeoutMs}ms: ${method}`));
+      }, timeoutMs);
       this.pending.set(id, {
         resolve: resolve as (value: unknown) => void,
         reject,

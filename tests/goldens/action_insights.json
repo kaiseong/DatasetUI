@@ -1,0 +1,17 @@
+{
+  "jerk": [
+    {"episode_index": 0, "name": "Episode 0", "score": 0.3333333333333333},
+    {"episode_index": 1, "name": "Episode 1", "score": 0.0}
+  ],
+  "speed_cv": 1.0,
+  "speed_verdict": "high",
+  "velocity": {
+    "inactive": false,
+    "discrete": false,
+    "std": 0.0816496580927726,
+    "max_abs": 0.3,
+    "lo": 0.1,
+    "hi": 0.3
+  },
+  "speed_edges": [0.0, 1.0, 2.0]
+}

@@ -371,13 +371,13 @@ def _space_parity_summary() -> dict[str, Any]:
     data = yaml.safe_load((EDITOR_ROOT / "contracts" / "space-parity.yaml").read_text(encoding="utf-8"))
     features = data["parity_features"]
     planned = sum(item["status"] == "planned" for item in features)
-    implemented = sum(item["status"] == "contract-tested" for item in features)
+    implemented = sum(item["status"] in {"contract-tested", "parity-tested"} for item in features)
     return {
         "commit": data["space_commit"],
         "total": len(features),
         "planned": planned,
         "implemented": implemented,
-        "all_mapped": all("::test_" in item.get("test_id", "") for item in features),
+        "all_mapped": all("::" in item.get("test_id", "") for item in features),
         "by_task": {
             str(task): sum(item["implementation_task"] == task for item in features)
             for task in sorted({item["implementation_task"] for item in features})

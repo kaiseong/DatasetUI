@@ -9,10 +9,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-import pytest
 
 
-CONTRACTS_DIR = Path(__file__).resolve().parent.parent / "contracts"
+ROOT = Path(__file__).resolve().parent.parent
+CONTRACTS_DIR = ROOT / "contracts"
 
 
 class TestSpaceParityContract:
@@ -53,12 +53,23 @@ class TestSpaceParityContract:
         assert len(ids) == len(set(ids))
 
     def test_all_features_have_truthful_status(self):
-        """Task 1 must not claim that later UI parity tests already pass."""
+        """All 37 capabilities must be implemented and parity-tested."""
+        data = yaml.safe_load((CONTRACTS_DIR / "space-parity.yaml").read_text())
+        assert len(data["parity_features"]) == 37
+        for feature in data["parity_features"]:
+            assert feature["status"] == "parity-tested"
+            assert 1 <= feature["implementation_task"] <= 23
+
+    def test_all_test_ids_resolve_to_vitest_titles(self):
+        """Every contract mapping names an existing test file and exact it() title."""
         data = yaml.safe_load((CONTRACTS_DIR / "space-parity.yaml").read_text())
         for feature in data["parity_features"]:
-            assert feature["status"] in {"contract-tested", "planned"}
-            assert "::test_" in feature["test_id"]
-            assert 1 <= feature["implementation_task"] <= 23
+            relative_path, separator, title = feature["test_id"].partition("::")
+            assert separator and title == feature["id"]
+            test_path = ROOT / relative_path
+            assert test_path.is_file(), f"Missing parity test file: {relative_path}"
+            source = test_path.read_text(encoding="utf-8")
+            assert f'it("{title}"' in source, f"Missing Vitest title: {feature['test_id']}"
 
     def test_revision_file_matches(self):
         """third_party/visualize_dataset.REVISION should match the contract."""
@@ -67,7 +78,7 @@ class TestSpaceParityContract:
         data = yaml.safe_load((CONTRACTS_DIR / "space-parity.yaml").read_text())
         assert revision_path.read_text().strip() == data["space_commit"]
 
-    def test_minimum_feature_coverage(self):
-        """Should have at least 15 parity features defined."""
+    def test_exact_feature_coverage(self):
+        """The pinned Space inventory contains exactly 37 capabilities."""
         data = yaml.safe_load((CONTRACTS_DIR / "space-parity.yaml").read_text())
-        assert len(data["parity_features"]) >= 15
+        assert len(data["parity_features"]) == 37

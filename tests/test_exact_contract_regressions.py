@@ -188,8 +188,8 @@ def test_space_parity_contract_is_feature_complete_and_truthful() -> None:
         "annotation-bbox-drag",
         "annotation-keypoint-click",
     }
-    assert required <= by_id.keys(), f"missing parity capabilities: {sorted(required - by_id.keys())}"
+    assert required == by_id.keys(), f"parity capability mismatch: {sorted(required ^ by_id.keys())}"
     for item in by_id.values():
-        assert item["status"] in {"contract-tested", "planned"}
-        assert "::test_" in item["test_id"]
+        assert item["status"] == "parity-tested"
+        assert "::" in item["test_id"]
         assert 1 <= item["implementation_task"] <= 23

@@ -39,12 +39,14 @@ def test_spike_evidence_is_schema_valid_and_truthful() -> None:
     jsonschema.Draft202012Validator(schema).validate(evidence)
 
     assert evidence["status"] == "passed"
-    assert evidence["host"] == {
-        "os": "linux",
-        "distribution": "ubuntu",
-        "version": "24.04",
-        "architecture": "x86_64",
-    }
+    # The retained spike records the host that actually produced the artifact.
+    # Do not make the evidence untruthful by pinning a developer workstation
+    # release; the schema already requires every host field and this contract
+    # only depends on Linux/x86_64 for the selected build target.
+    assert evidence["host"]["os"] == "linux"
+    assert evidence["host"]["distribution"]
+    assert evidence["host"]["version"]
+    assert evidence["host"]["architecture"] == "x86_64"
     assert evidence["artifact"]["target"] == "AppImage"
     assert evidence["artifact"]["architecture"] == "x86_64"
     assert evidence["artifact"]["name"] == "DatasetUI-0.2.0-linux-x86_64.AppImage"

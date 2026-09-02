@@ -10,7 +10,7 @@
     "max_content_length": 16777216
   },
   "x-protocol-version": 1,
-  "x-methods": ["dataset.browse", "dataset.open", "dataset.validate", "initialize", "project.get", "project.list", "project.register", "project.remove", "project.update", "report.get", "runtime.doctor", "runtime.select", "shutdown", "system.ping"],
+  "x-methods": ["annotations.export", "annotations.list", "annotations.save", "dataset.analytics", "dataset.browse", "dataset.episode", "dataset.open", "dataset.summary", "dataset.validate", "hub.import", "hub.info", "hub.search", "initialize", "media.resolve", "progress.read", "project.get", "project.list", "project.register", "project.remove", "project.update", "report.get", "replay.map", "runtime.doctor", "runtime.select", "shutdown", "system.ping"],
   "oneOf": [
     { "$ref": "#/$defs/request" },
     { "$ref": "#/$defs/success" },
@@ -36,7 +36,7 @@
       "properties": {
         "jsonrpc": { "const": "2.0" },
         "id": { "$ref": "#/$defs/id" },
-        "method": { "enum": ["dataset.browse", "dataset.open", "dataset.validate", "initialize", "project.get", "project.list", "project.register", "project.remove", "project.update", "report.get", "runtime.doctor", "runtime.select", "shutdown", "system.ping"] },
+        "method": { "enum": ["annotations.export", "annotations.list", "annotations.save", "dataset.analytics", "dataset.browse", "dataset.episode", "dataset.open", "dataset.summary", "dataset.validate", "hub.import", "hub.info", "hub.search", "initialize", "media.resolve", "progress.read", "project.get", "project.list", "project.register", "project.remove", "project.update", "report.get", "replay.map", "runtime.doctor", "runtime.select", "shutdown", "system.ping"] },
         "params": { "$ref": "#/$defs/params" }
       },
       "additionalProperties": false

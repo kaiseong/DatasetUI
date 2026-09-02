@@ -14,8 +14,11 @@
     "build": "electron-vite build --config electron/electron.vite.config.ts",
     "typecheck": "tsc --noEmit -p electron/tsconfig.node.json && tsc --noEmit -p electron/tsconfig.web.json",
     "test:node": "vitest run --config electron/vitest.config.ts",
+    "test:python": "if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=python3; fi; TMP_XDG=$(mktemp -d); trap 'rm -rf \"$TMP_XDG\"' EXIT; XDG_CONFIG_HOME=$TMP_XDG/config XDG_DATA_HOME=$TMP_XDG/data XDG_STATE_HOME=$TMP_XDG/state XDG_CACHE_HOME=$TMP_XDG/cache PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 $PY -m pytest -q -p pytest_timeout",
+    "test:parity": "vitest run --config electron/vitest.config.ts electron/tests/parity && if [ -x .venv/bin/python ]; then PY=.venv/bin/python; else PY=python3; fi; TMP_XDG=$(mktemp -d); trap 'rm -rf \"$TMP_XDG\"' EXIT; XDG_CONFIG_HOME=$TMP_XDG/config XDG_DATA_HOME=$TMP_XDG/data XDG_STATE_HOME=$TMP_XDG/state XDG_CACHE_HOME=$TMP_XDG/cache PYTEST_DISABLE_PLUGIN_AUTOLOAD=1 $PY -m pytest -q -p pytest_timeout tests/parity tests/test_space_parity.py tests/test_exact_contract_regressions.py",
     "test:electron": "npm run build && vitest run --config electron/vitest.e2e.config.ts",
     "test": "npm run typecheck && npm run test:node",
+    "verify": "npm run typecheck && npm run test:node && npm run test:python && npm run build",
     "appimage:build": "npm run build && electron-builder --linux AppImage --x64 --config electron-builder.yml",
     "appimage:verify": "node scripts/verify-appimage.mjs",
     "appimage:spike": "npm run appimage:build && npm run appimage:verify"
@@ -38,6 +41,8 @@
     "vitest": "4.1.10"
   },
   "overrides": {
-    "brace-expansion": "5.0.9"
+    "brace-expansion": "5.0.9",
+    "js-yaml": "4.3.1",
+    "nanoid": "3.3.17"
   }
 }

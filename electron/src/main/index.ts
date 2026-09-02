@@ -1,18 +1,73 @@
-import { app, BrowserWindow, ipcMain, session, type IpcMainInvokeEvent } from "electron";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  net,
+  protocol,
+  session,
+  shell,
+  type IpcMainInvokeEvent,
+} from "electron";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { PythonBackend } from "./python-backend.js";
-import { createSecureWebPreferences, installWebContentsGuards, isAllowedNavigation } from "./security.js";
+import {
+  createSecureWebPreferences,
+  installWebContentsGuards,
+  isAllowedExternalUrl,
+  isAllowedNavigation,
+  parseDatasetMediaUrl,
+} from "./security.js";
+
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: "datasetui-media",
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+    },
+  },
+]);
 
 const isE2e = process.argv.includes("--e2e");
 const isRpcSmoke = process.argv.includes("--rpc-smoke");
+const HUB_IMPORT_TIMEOUT_MS = 30 * 60 * 1000;
 if (isE2e || isRpcSmoke) app.disableHardwareAcceleration();
 
 let backend: PythonBackend | undefined;
 let mainWindow: BrowserWindow | undefined;
 let applicationUrl = "";
 let quitting = false;
+let mediaProtocolRegistered = false;
+
+const RPC_CHANNELS = {
+  "rpc:ping": "system.ping",
+  "rpc:report": "report.get",
+  "rpc:project.register": "project.register",
+  "rpc:project.list": "project.list",
+  "rpc:project.get": "project.get",
+  "rpc:project.update": "project.update",
+  "rpc:project.remove": "project.remove",
+  "rpc:runtime.doctor": "runtime.doctor",
+  "rpc:runtime.select": "runtime.select",
+  "rpc:dataset.open": "dataset.open",
+  "rpc:dataset.browse": "dataset.browse",
+  "rpc:dataset.validate": "dataset.validate",
+  "rpc:dataset.summary": "dataset.summary",
+  "rpc:dataset.episode": "dataset.episode",
+  "rpc:dataset.analytics": "dataset.analytics",
+  "rpc:progress.read": "progress.read",
+  "rpc:replay.map": "replay.map",
+  "rpc:hub.search": "hub.search",
+  "rpc:hub.info": "hub.info",
+  "rpc:hub.import": "hub.import",
+  "rpc:annotations.list": "annotations.list",
+  "rpc:annotations.save": "annotations.save",
+  "rpc:annotations.export": "annotations.export",
+} as const;
 
 function rootPath(): string {
   return app.isPackaged ? process.resourcesPath : resolve(import.meta.dirname, "../..");
@@ -31,65 +86,50 @@ function assertTrustedSender(event: IpcMainInvokeEvent): void {
 }
 
 function registerIpcHandlers(activeBackend: PythonBackend): void {
-  ipcMain.removeHandler("rpc:ping");
-  ipcMain.removeHandler("rpc:report");
-  ipcMain.removeHandler("rpc:project.register");
-  ipcMain.removeHandler("rpc:project.list");
-  ipcMain.removeHandler("rpc:project.get");
-  ipcMain.removeHandler("rpc:project.update");
-  ipcMain.removeHandler("rpc:project.remove");
-  ipcMain.removeHandler("rpc:runtime.doctor");
-  ipcMain.removeHandler("rpc:runtime.select");
-  ipcMain.removeHandler("rpc:dataset.open");
-  ipcMain.removeHandler("rpc:dataset.browse");
-  ipcMain.removeHandler("rpc:dataset.validate");
-  ipcMain.handle("rpc:ping", (event) => {
+  for (const [channel, method] of Object.entries(RPC_CHANNELS)) {
+    ipcMain.removeHandler(channel);
+    ipcMain.handle(channel, (event, params: Record<string, unknown> | unknown[] | undefined) => {
+      assertTrustedSender(event);
+      return activeBackend.request(
+        method,
+        params,
+        method === "hub.import" ? HUB_IMPORT_TIMEOUT_MS : undefined,
+      );
+    });
+  }
+  ipcMain.removeHandler("app:open-external");
+  ipcMain.handle("app:open-external", async (event, params: unknown) => {
     assertTrustedSender(event);
-    return activeBackend.request("system.ping");
+    const url =
+      params && typeof params === "object" && typeof (params as { url?: unknown }).url === "string"
+        ? (params as { url: string }).url
+        : "";
+    if (!isAllowedExternalUrl(url)) throw new Error("Blocked unsafe external URL");
+    await shell.openExternal(url);
+    return { opened: true };
   });
-  ipcMain.handle("rpc:report", (event) => {
-    assertTrustedSender(event);
-    return activeBackend.request("report.get");
-  });
-  ipcMain.handle("rpc:project.register", (event, params) => {
-    assertTrustedSender(event);
-    return activeBackend.request("project.register", params);
-  });
-  ipcMain.handle("rpc:project.list", (event, params) => {
-    assertTrustedSender(event);
-    return activeBackend.request("project.list", params);
-  });
-  ipcMain.handle("rpc:project.get", (event, params) => {
-    assertTrustedSender(event);
-    return activeBackend.request("project.get", params);
-  });
-  ipcMain.handle("rpc:project.update", (event, params) => {
-    assertTrustedSender(event);
-    return activeBackend.request("project.update", params);
-  });
-  ipcMain.handle("rpc:project.remove", (event, params) => {
-    assertTrustedSender(event);
-    return activeBackend.request("project.remove", params);
-  });
-  ipcMain.handle("rpc:runtime.doctor", (event, params) => {
-    assertTrustedSender(event);
-    return activeBackend.request("runtime.doctor", params);
-  });
-  ipcMain.handle("rpc:runtime.select", (event, params) => {
-    assertTrustedSender(event);
-    return activeBackend.request("runtime.select", params);
-  });
-  ipcMain.handle("rpc:dataset.open", (event, params) => {
-    assertTrustedSender(event);
-    return activeBackend.request("dataset.open", params);
-  });
-  ipcMain.handle("rpc:dataset.browse", (event, params) => {
-    assertTrustedSender(event);
-    return activeBackend.request("dataset.browse", params);
-  });
-  ipcMain.handle("rpc:dataset.validate", (event, params) => {
-    assertTrustedSender(event);
-    return activeBackend.request("dataset.validate", params);
+}
+
+function registerMediaProtocol(activeBackend: PythonBackend): void {
+  if (mediaProtocolRegistered) return;
+  mediaProtocolRegistered = true;
+  protocol.handle("datasetui-media", async (request) => {
+    const parsed = parseDatasetMediaUrl(request.url);
+    if (!parsed) return new Response("Not found", { status: 404 });
+    try {
+      const resolved = await activeBackend.request<{ path?: unknown }>("media.resolve", {
+        project_id: parsed.projectId,
+        relative_path: parsed.relativePath,
+      });
+      if (typeof resolved.path !== "string") {
+        return new Response("Not found", { status: 404 });
+      }
+      return net.fetch(pathToFileURL(resolved.path).href, {
+        bypassCustomProtocolHandlers: true,
+      });
+    } catch {
+      return new Response("Not found", { status: 404 });
+    }
   });
 }
 
@@ -141,6 +181,7 @@ async function bootstrap(): Promise<void> {
   }
 
   registerIpcHandlers(backend);
+  registerMediaProtocol(backend);
   mainWindow = createMainWindow();
 }
 

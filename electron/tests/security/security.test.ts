@@ -6,7 +6,9 @@ import { buildPythonSpawnSpec } from "../../src/main/python-backend.js";
 import {
   CONTENT_SECURITY_POLICY,
   createSecureWebPreferences,
+  isAllowedExternalUrl,
   isAllowedNavigation,
+  parseDatasetMediaUrl,
 } from "../../src/main/security.js";
 import { createDatasetEditorApi } from "../../src/preload/api.js";
 
@@ -37,21 +39,48 @@ describe("Electron security invariants", () => {
     expect(CONTENT_SECURITY_POLICY).toContain("script-src 'self'");
     expect(CONTENT_SECURITY_POLICY).not.toContain("unsafe-inline");
     expect(CONTENT_SECURITY_POLICY).not.toContain("unsafe-eval");
+    expect(CONTENT_SECURITY_POLICY).toContain("img-src 'self' data: datasetui-media:");
+    expect(CONTENT_SECURITY_POLICY).toContain("media-src 'self' data: blob: datasetui-media:");
+  });
+
+  it("allows only the pinned Doctor URL and source-scoped media URLs", () => {
+    expect(isAllowedExternalUrl("https://jashshah999-lerobot-doctor.hf.space/?dataset=org/data")).toBe(true);
+    expect(isAllowedExternalUrl("https://evil.example/?dataset=org/data")).toBe(false);
+    expect(isAllowedExternalUrl("javascript:alert(1)")).toBe(false);
+    expect(parseDatasetMediaUrl("datasetui-media://project-1/images/frame.png")).toEqual({
+      projectId: "project-1",
+      relativePath: "images/frame.png",
+    });
+    expect(parseDatasetMediaUrl("datasetui-media://project-1/%2e%2e/secret")).toBeUndefined();
+    expect(parseDatasetMediaUrl("datasetui-media://project-1/%2Fetc/passwd")).toBeUndefined();
   });
 
   it("exposes only frozen fixed-contract methods over fixed IPC channels", async () => {
     const invoke = vi.fn(async (channel: string, _params?: unknown) => ({ channel }));
     const api = createDatasetEditorApi(invoke);
     expect(Object.keys(api).sort()).toEqual([
+      "annotationsExport",
+      "annotationsList",
+      "annotationsSave",
+      "datasetAnalytics",
       "datasetBrowse",
+      "datasetEpisode",
       "datasetOpen",
+      "datasetSummary",
       "datasetValidate",
+      "hubImport",
+      "hubInfo",
+      "hubSearch",
+      "mediaUrl",
+      "openExternal",
       "ping",
+      "progressRead",
       "projectGet",
       "projectList",
       "projectRegister",
       "projectRemove",
       "projectUpdate",
+      "replayMap",
       "report",
       "runtimeDoctor",
       "runtimeSelect",

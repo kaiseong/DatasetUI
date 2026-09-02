@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { DatasetBrowser } from "./DatasetBrowser";
 import { ProjectRegistry } from "./ProjectRegistry";
+import { ParityWorkspace } from "./parity/index.js";
 
 interface Report {
   status: string;
@@ -73,6 +74,7 @@ export function App(): React.JSX.Element {
       {error ? <p className="error">{error}</p> : null}
       <ProjectRegistry />
       <DatasetBrowser />
+      <ParityWorkspace />
       <output data-testid="csp-eval-blocked" hidden>{String(evalBlocked)}</output>
     </main>
   );

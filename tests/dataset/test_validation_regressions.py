@@ -118,3 +118,23 @@ def test_video_dtype_participates_in_missing_media_validation(
     result = validate_dataset(dataset)
     assert result.valid is False
     assert any("Missing video file" in error for error in result.errors)
+
+
+def test_parquet_referenced_image_path_must_exist(v21_fixture: Path, tmp_path: Path) -> None:
+    dataset = tmp_path / "missing-image"
+    shutil.copytree(v21_fixture, dataset)
+    parquet_path = sorted((dataset / "data").rglob("*.parquet"))[0]
+    table = pq.read_table(parquet_path)
+    media = table["observation.images.top"].to_pylist()
+    image_path = dataset / "images" / "observation.images.top" / "episode_000000" / "frame_000000.png"
+    image_path.parent.mkdir(parents=True)
+    image_path.write_bytes(media[0]["bytes"])
+    media[0] = {"bytes": None, "path": image_path.name}
+    index = table.schema.get_field_index("observation.images.top")
+    table = table.set_column(index, "observation.images.top", pa.array(media, type=table.schema.field(index).type))
+    pq.write_table(table, parquet_path)
+    image_path.unlink()
+
+    result = validate_dataset(dataset)
+    assert result.valid is False
+    assert any("Missing image file" in error and "frame_000000.png" in error for error in result.errors)

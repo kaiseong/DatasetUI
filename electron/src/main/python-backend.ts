@@ -109,9 +109,9 @@ export class PythonBackend {
     }
   }
 
-  request<T>(method: string, params?: Record<string, unknown> | unknown[]): Promise<T> {
+  request<T>(method: string, params?: Record<string, unknown> | unknown[], timeoutMs?: number): Promise<T> {
     if (!this.client) return Promise.reject(new Error("Python backend is not started"));
-    return this.client.request<T>(method, params);
+    return this.client.request<T>(method, params, timeoutMs);
   }
 
   async stop(): Promise<void> {

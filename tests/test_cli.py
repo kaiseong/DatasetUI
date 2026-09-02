@@ -102,9 +102,9 @@ def test_report_contains_executable_fixture_summaries():
 def test_report_contains_truthful_space_parity_progress():
     parity = generate_report()["space_parity"]
     assert parity["commit"] == "d724744111cae6feb9a2194e607e71749813a97a"
-    assert parity["total"] >= 37
-    assert parity["planned"] == parity["total"]
-    assert parity["implemented"] == 0
+    assert parity["total"] == 37
+    assert parity["planned"] == 0
+    assert parity["implemented"] == parity["total"]
     assert parity["all_mapped"] is True
 
 

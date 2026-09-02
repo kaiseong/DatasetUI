@@ -32,16 +32,28 @@ from .protocol import (
 
 PROTOCOL_VERSION = 1
 METHODS = [
+    "annotations.export",
+    "annotations.list",
+    "annotations.save",
+    "dataset.analytics",
     "dataset.browse",
+    "dataset.episode",
     "dataset.open",
+    "dataset.summary",
     "dataset.validate",
+    "hub.import",
+    "hub.info",
+    "hub.search",
     "initialize",
+    "media.resolve",
+    "progress.read",
     "project.get",
     "project.list",
     "project.register",
     "project.remove",
     "project.update",
     "report.get",
+    "replay.map",
     "runtime.doctor",
     "runtime.select",
     "shutdown",
@@ -115,6 +127,14 @@ class RpcServer:
             return self._dataset_browse(request.params)
         if request.method == "dataset.validate":
             return self._dataset_validate(request.params)
+        if request.method in {
+            "dataset.summary", "dataset.episode", "dataset.analytics", "progress.read",
+            "replay.map", "annotations.list", "annotations.save", "annotations.export",
+            "media.resolve",
+        }:
+            return self._parity_dispatch(request.method, request.params)
+        if request.method in {"hub.search", "hub.info", "hub.import"}:
+            return self._hub_dispatch(request.method, request.params)
         raise RpcDispatchError(
             METHOD_NOT_FOUND,
             "Method not found",
@@ -423,6 +443,96 @@ class RpcServer:
             "errors": list(result.errors),
             "warnings": list(result.warnings),
         }
+
+    def _project_source(self, params: Any) -> tuple[dict[str, Any], "Path"]:
+        from pathlib import Path
+        from ..registry.repository import get_project
+
+        if not isinstance(params, dict) or not isinstance(params.get("project_id"), str):
+            raise RpcDispatchError(INVALID_PARAMS, "project_id is required")
+        try:
+            project = get_project(self._get_registry(), params["project_id"])
+        except KeyError as exc:
+            raise RpcDispatchError(INVALID_PARAMS, str(exc)) from exc
+        source = Path(str(project.get("source_path", ""))).resolve()
+        if not source.is_dir():
+            raise RpcDispatchError(INVALID_PARAMS, "project source_path is not a directory")
+        return project, source
+
+    def _parity_dispatch(self, method: str, params: Any) -> dict[str, Any]:
+        import mimetypes
+        from pathlib import Path
+
+        from ..parity import (
+            dataset_analytics, dataset_episode, dataset_summary, export_annotations,
+            list_annotations, map_replay, read_progress, save_annotations,
+        )
+
+        project, source = self._project_source(params)
+        assert isinstance(params, dict)
+        try:
+            if method == "dataset.summary":
+                return dataset_summary(source)
+            if method == "dataset.episode":
+                return dataset_episode(source, params.get("episode_index"))
+            if method == "dataset.analytics":
+                return dataset_analytics(source)
+            if method == "progress.read":
+                return read_progress(source, params.get("episode_index"), params.get("duration"))
+            if method == "replay.map":
+                values = params.get("values")
+                if not isinstance(values, list) or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in values):
+                    raise ValueError("values must be a numeric array")
+                ranges = params.get("joint_ranges")
+                if ranges is not None and (not isinstance(ranges, list) or not all(
+                    isinstance(item, dict) and isinstance(item.get("min"), (int, float))
+                    and isinstance(item.get("max"), (int, float)) for item in ranges
+                )):
+                    raise ValueError("joint_ranges must contain numeric min/max objects")
+                return map_replay(source, values, params.get("joint_names"), params.get("urdf_joints"), ranges)
+            if method == "annotations.list":
+                return list_annotations(source, params["project_id"], params.get("episode_index"))
+            if method == "annotations.save":
+                return save_annotations(source, params["project_id"], params.get("episode_index"), params.get("atoms"))
+            if method == "annotations.export":
+                output = params.get("output_path") or project.get("output_path")
+                if not isinstance(output, str) or not output:
+                    raise ValueError("output_path is required")
+                return export_annotations(source, params["project_id"], Path(output))
+            if method == "media.resolve":
+                relative = params.get("relative_path")
+                if not isinstance(relative, str) or not relative or Path(relative).is_absolute():
+                    raise ValueError("relative_path must be a non-empty relative path")
+                candidate = (source / relative).resolve()
+                if source not in candidate.parents or not candidate.is_file():
+                    raise ValueError("media path is outside the project or missing")
+                mime = mimetypes.guess_type(candidate.name)[0] or "application/octet-stream"
+                if not (mime.startswith("image/") or mime.startswith("video/")):
+                    raise ValueError("path is not a supported media file")
+                return {"path": str(candidate), "mime_type": mime}
+        except (KeyError, TypeError, ValueError, OSError) as exc:
+            raise RpcDispatchError(INVALID_PARAMS, str(exc)) from exc
+        raise RpcDispatchError(METHOD_NOT_FOUND, "Method not found", {"method": method})
+
+    def _hub_dispatch(self, method: str, params: Any) -> dict[str, Any]:
+        from pathlib import Path
+        from ..parity.hub import hub_import, hub_info, hub_search
+
+        if not isinstance(params, dict):
+            raise RpcDispatchError(INVALID_PARAMS, "params must be an object")
+        try:
+            if method == "hub.search":
+                return hub_search(params.get("query"), params.get("token"))
+            if method == "hub.info":
+                return hub_info(params.get("repo_id"), params.get("token"), revision=params.get("revision"))
+            destination = params.get("destination")
+            if not isinstance(destination, str) or not destination:
+                raise ValueError("destination is required")
+            return hub_import(params.get("repo_id"), Path(destination), params.get("token"),
+                              revision=params.get("revision"))
+        except (TypeError, ValueError, OSError) as exc:
+            # Hub helpers intentionally produce redacted messages.
+            raise RpcDispatchError(INVALID_PARAMS, str(exc)) from exc
 
 
 def _write(stream: BinaryIO, message: dict[str, Any]) -> None:

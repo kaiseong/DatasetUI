@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "source": {
+    "repository": "https://huggingface.co/spaces/lerobot/visualize_dataset",
+    "commit": "d724744111cae6feb9a2194e607e71749813a97a",
+    "license": "Apache-2.0",
+    "characterized_at": "2026-08-12"
+  },
+  "viewer": {
+    "episode_page_size": 100,
+    "gallery_page_size": 48,
+    "gallery_episode_cap": 3000,
+    "gallery_intersection_root_margin_px": 200,
+    "playhead_render_interval_ms": 80,
+    "camera_sync_tolerance_seconds": 0.2,
+    "camera_ready_timeout_ms": 10000,
+    "segment_end_tolerance_seconds": 0.05,
+    "playback_step_seconds": 0.01,
+    "playback_skip_seconds": 5,
+    "chart_scale_log10_tolerance": 2,
+    "chart_max_series_per_group": 6,
+    "current_value_selection": "first-timestamp-greater-than-or-equal",
+    "frame_preload_radius_episodes": 2
+  },
+  "colormap": {
+    "entries": 256,
+    "default": "viridis",
+    "luminance_weights": [0.299, 0.587, 0.114],
+    "range_quantiles": [0.01, 0.99],
+    "fallback_range": [0, 1],
+    "depth_millimetres_to_metres": 0.001
+  },
+  "statistics": {
+    "variance": "population",
+    "percentile_clip": [0.01, 0.99],
+    "bin_count": "max(10,min(50,ceil(log2(n)+1)))",
+    "nice_width_multipliers": [1, 2, 2.5, 5, 10],
+    "duration_round_decimals": 2,
+    "movement_round_decimals": 4,
+    "low_movement_count": 10,
+    "duration_input_minimum_step": 0.01,
+    "flag_storage_key": "flagged-episodes"
+  },
+  "action_insights": {
+    "max_episodes": 120,
+    "max_frames_per_episode": 2500,
+    "normalized_time_bins": 50,
+    "velocity_bins": 30,
+    "max_autocorrelation_lag": 100,
+    "autocorrelation_crossing": 0.5,
+    "active_delta_fraction_of_range": 0.001,
+    "discrete_unique_value_max": 4,
+    "speed_cv_thresholds": [0.2, 0.4],
+    "smoothness_thresholds": [0.4, 0.7],
+    "temporal_lag_range": [-30, 30],
+    "temporal_min_samples": 10,
+    "sampling": "round(i*(n-1)/(target-1))-with-endpoints"
+  },
+  "progress": {
+    "filenames": ["sarm_progress.parquet", "srm_progress.parquet"],
+    "column_priority": ["progress_sparse", "progress_dense", "progress"],
+    "remaining_columns": "progress_*-alphabetical",
+    "sort_priority": ["index", "frame_index", "row-ordinal"],
+    "maximum_points": 4000
+  },
+  "replay": {
+    "supported": ["so100", "so101", "so_follower", "openarm", "g1", "unitree"],
+    "urdf_scales": {"so": 10, "openarm": 3, "g1": 1},
+    "servo_tick_threshold": 360,
+    "degree_threshold": 6.3,
+    "servo_center": 2048,
+    "servo_span": 2048,
+    "gripper_max_metres": 0.044,
+    "trail_seconds": 1,
+    "trail_max_points": 300,
+    "skip_joint": "finger_joint2"
+  },
+  "annotations": {
+    "persistent_styles": ["task_aug", "subtask", "plan", "memory"],
+    "event_styles": ["interjection", "vqa", "speech"],
+    "event_overlay_tolerance_seconds": 0.05,
+    "auto_bbox_drag_threshold_px": 4,
+    "coordinate_round_decimals": 4,
+    "bbox_format": "xyxy",
+    "point_format": "xy",
+    "draft_storage_prefix": "lerobot-annotations:v2:",
+    "snap_tie_break": "first-source-frame"
+  },
+  "hub": {
+    "search_debounce_ms": 150,
+    "info_timeout_ms": 10000,
+    "proxy_timeout_ms": 30000,
+    "cache_ttl_ms": 300000,
+    "cache_default_max_entries": 64,
+    "supported_versions": ["v3.0", "v2.1", "v2.0"],
+    "credential_persistence": "none-in-DatasetUI"
+  }
+}

@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
-  "generated_at": "2026-07-31T15:18:31.184Z",
+  "generated_at": "2026-08-12T15:42:58.185Z",
   "status": "passed",
   "host": {
     "os": "linux",
     "distribution": "ubuntu",
-    "version": "24.04",
+    "version": "22.04",
     "architecture": "x86_64"
   },
   "artifact": {
@@ -13,8 +13,8 @@
     "target": "AppImage",
     "architecture": "x86_64",
     "electron_version": "43.2.0",
-    "size_bytes": 128619143,
-    "sha256": "7082204d810d354f7d40b3eb4407950aae1d206aed18d9b300c1f77425a42080"
+    "size_bytes": 128889730,
+    "sha256": "e4bfcf9eff8f7bc3cbd5a6bfe0b09fffaa92e5f23aba2126b112c454875d43e0"
   },
   "extraction": {
     "method": "--appimage-extract",
@@ -65,12 +65,12 @@
     "marker": "DATASETUI_RPC_SMOKE",
     "service": "lerobot-dataset-editor",
     "protocol_version": 1,
-    "timestamp": "2026-07-31T15:18:31.129382+00:00"
+    "timestamp": "2026-08-12T15:42:58.157137+00:00"
   },
   "python_runtime": {
     "python_mode": "host-python-spike",
     "executable": ".venv/bin/python",
-    "version": "3.12.3",
+    "version": "3.12.13",
     "dependency_source": "host-environment",
     "self_contained": false,
     "production_packaging_task": 22,
