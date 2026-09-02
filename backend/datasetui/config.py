@@ -10,6 +10,8 @@ class Settings:
     database_path: Path
     redis_url: str
     allowed_origins: tuple[str, ...]
+    nas_root: Path
+    dataset_scan_max_depth: int = 6
     job_timeout_seconds: int = 900
 
     @classmethod
@@ -30,6 +32,13 @@ class Settings:
             ),
             redis_url=os.environ.get("REDIS_URL", "redis://redis:6379/0"),
             allowed_origins=allowed_origins,
+            nas_root=Path(
+                os.environ.get(
+                    "DATASETUI_NAS_ROOT",
+                    "/mnt/datasetui-nas/DatasetUI",
+                )
+            ),
+            dataset_scan_max_depth=int(os.environ.get("DATASETUI_SCAN_MAX_DEPTH", "6")),
             job_timeout_seconds=int(
                 os.environ.get("DATASETUI_JOB_TIMEOUT_SECONDS", "900")
             ),

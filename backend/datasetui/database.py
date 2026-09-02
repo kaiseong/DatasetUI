@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import time
 import unicodedata
 import uuid
 from collections.abc import Iterator
@@ -20,6 +21,10 @@ class ProfileNotFoundError(LookupError):
 
 
 class JobNotFoundError(LookupError):
+    pass
+
+
+class DatasetNotFoundError(LookupError):
     pass
 
 
@@ -82,6 +87,46 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
             "CREATE INDEX job_events_job_idx ON job_events(job_id, sequence)",
         ),
     ),
+    (
+        2,
+        (
+            """
+            CREATE TABLE datasets (
+                id TEXT PRIMARY KEY,
+                storage_area TEXT NOT NULL CHECK (storage_area IN ('raw', 'derived')),
+                relative_path TEXT NOT NULL,
+                name TEXT NOT NULL,
+                codebase_version TEXT,
+                readiness TEXT NOT NULL CHECK (
+                    readiness IN ('ready', 'incomplete', 'unsupported', 'invalid')
+                ),
+                robot_type TEXT,
+                total_episodes INTEGER,
+                total_frames INTEGER,
+                total_tasks INTEGER,
+                fps REAL,
+                fingerprint TEXT NOT NULL,
+                info_mtime_ns INTEGER NOT NULL,
+                info_size INTEGER NOT NULL,
+                scan_error TEXT,
+                first_seen_at TEXT NOT NULL,
+                last_seen_at TEXT NOT NULL,
+                last_scan_generation INTEGER NOT NULL,
+                missing_since TEXT,
+                UNIQUE (storage_area, relative_path)
+            )
+            """,
+            """
+            CREATE TABLE dataset_scan_generations (
+                storage_area TEXT PRIMARY KEY CHECK (storage_area IN ('raw', 'derived')),
+                generation INTEGER NOT NULL,
+                started_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX datasets_library_idx ON datasets(missing_since, readiness, name)",
+            "CREATE INDEX datasets_storage_idx ON datasets(storage_area, relative_path)",
+        ),
+    ),
 )
 
 
@@ -136,8 +181,17 @@ class Database:
         connection = sqlite3.connect(self.path, timeout=5.0)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA journal_mode = WAL")
         connection.execute("PRAGMA busy_timeout = 5000")
+        deadline = time.monotonic() + 5.0
+        while True:
+            try:
+                connection.execute("PRAGMA journal_mode = WAL")
+                break
+            except sqlite3.OperationalError as exc:
+                if "locked" not in str(exc).lower() or time.monotonic() >= deadline:
+                    connection.close()
+                    raise
+                time.sleep(0.025)
         try:
             with connection:
                 yield connection
@@ -464,6 +518,174 @@ class Database:
             for row in rows
         ]
 
+    def begin_dataset_scan(self, storage_area: str) -> int:
+        if storage_area not in {"raw", "derived"}:
+            raise ValueError("unsupported dataset storage area")
+        now = utc_now()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO dataset_scan_generations(storage_area, generation, started_at)
+                VALUES (?, 1, ?)
+                ON CONFLICT(storage_area) DO UPDATE SET
+                    generation = dataset_scan_generations.generation + 1,
+                    started_at = excluded.started_at
+                """,
+                (storage_area, now),
+            )
+            generation = connection.execute(
+                """
+                SELECT generation FROM dataset_scan_generations
+                WHERE storage_area = ?
+                """,
+                (storage_area,),
+            ).fetchone()[0]
+        return generation
+
+    def synchronize_datasets(
+        self,
+        *,
+        storage_area: str,
+        records: list[dict[str, Any]],
+        scan_generation: int,
+    ) -> dict[str, int]:
+        """Atomically merge one complete storage-area scan into the registry."""
+
+        discovered = 0
+        now = utc_now()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            current_generation_row = connection.execute(
+                """
+                SELECT generation FROM dataset_scan_generations
+                WHERE storage_area = ?
+                """,
+                (storage_area,),
+            ).fetchone()
+            if (
+                current_generation_row is None
+                or current_generation_row["generation"] != scan_generation
+            ):
+                return {"discovered": 0, "missing": 0, "stale": 1}
+            for record in records:
+                if record["storage_area"] != storage_area:
+                    raise ValueError("dataset record belongs to another storage area")
+                dataset_id = str(uuid.uuid4())
+                connection.execute(
+                    """
+                    INSERT INTO datasets(
+                        id, storage_area, relative_path, name, codebase_version,
+                        readiness, robot_type, total_episodes, total_frames,
+                        total_tasks, fps, fingerprint, info_mtime_ns, info_size,
+                        scan_error, first_seen_at, last_seen_at, missing_since,
+                        last_scan_generation
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+                    ON CONFLICT(storage_area, relative_path) DO UPDATE SET
+                        name = excluded.name,
+                        codebase_version = excluded.codebase_version,
+                        readiness = excluded.readiness,
+                        robot_type = excluded.robot_type,
+                        total_episodes = excluded.total_episodes,
+                        total_frames = excluded.total_frames,
+                        total_tasks = excluded.total_tasks,
+                        fps = excluded.fps,
+                        fingerprint = excluded.fingerprint,
+                        info_mtime_ns = excluded.info_mtime_ns,
+                        info_size = excluded.info_size,
+                        scan_error = excluded.scan_error,
+                        last_seen_at = excluded.last_seen_at,
+                        last_scan_generation = excluded.last_scan_generation,
+                        missing_since = NULL
+                    WHERE excluded.last_scan_generation >= datasets.last_scan_generation
+                    """,
+                    (
+                        dataset_id,
+                        storage_area,
+                        record["relative_path"],
+                        record["name"],
+                        record["codebase_version"],
+                        record["readiness"],
+                        record["robot_type"],
+                        record["total_episodes"],
+                        record["total_frames"],
+                        record["total_tasks"],
+                        record["fps"],
+                        record["fingerprint"],
+                        record["info_mtime_ns"],
+                        record["info_size"],
+                        record["scan_error"],
+                        now,
+                        now,
+                        scan_generation,
+                    ),
+                )
+                discovered += 1
+
+            missing = connection.execute(
+                """
+                UPDATE datasets
+                SET missing_since = ?, last_scan_generation = ?
+                WHERE storage_area = ?
+                  AND missing_since IS NULL
+                  AND last_scan_generation < ?
+                """,
+                (now, scan_generation, storage_area, scan_generation),
+            ).rowcount
+
+        return {"discovered": discovered, "missing": missing}
+
+    def get_dataset(self, dataset_id: str) -> dict[str, Any]:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, storage_area, relative_path, name, codebase_version,
+                       readiness, robot_type, total_episodes, total_frames,
+                       total_tasks, fps, fingerprint, scan_error, first_seen_at,
+                       last_seen_at, missing_since
+                FROM datasets WHERE id = ?
+                """,
+                (dataset_id,),
+            ).fetchone()
+        if row is None:
+            raise DatasetNotFoundError(dataset_id)
+        return self._decode_dataset(row)
+
+    def list_datasets(
+        self,
+        *,
+        storage_area: str | None = None,
+        readiness: str | None = None,
+        include_missing: bool = False,
+        limit: int = 100,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if storage_area:
+            clauses.append("storage_area = ?")
+            parameters.append(storage_area)
+        if readiness:
+            clauses.append("readiness = ?")
+            parameters.append(readiness)
+        if not include_missing:
+            clauses.append("missing_since IS NULL")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        parameters.append(limit)
+        with self.connect() as connection:
+            rows = connection.execute(
+                f"""
+                SELECT id, storage_area, relative_path, name, codebase_version,
+                       readiness, robot_type, total_episodes, total_frames,
+                       total_tasks, fps, fingerprint, scan_error, first_seen_at,
+                       last_seen_at, missing_since
+                FROM datasets
+                {where}
+                ORDER BY name COLLATE NOCASE, storage_area, relative_path
+                LIMIT ?
+                """,
+                parameters,
+            ).fetchall()
+        return [self._decode_dataset(row) for row in rows]
+
     def _job_for_idempotency(
         self, profile_id: str, idempotency_key: str
     ) -> dict[str, Any] | None:
@@ -561,3 +783,9 @@ class Database:
         result_json = job.pop("result_json")
         job["result"] = json.loads(result_json) if result_json else None
         return job
+
+    @staticmethod
+    def _decode_dataset(row: sqlite3.Row) -> dict[str, Any]:
+        dataset = dict(row)
+        dataset["available"] = dataset.pop("missing_since") is None
+        return dataset

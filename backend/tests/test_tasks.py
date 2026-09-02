@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from datasetui.database import Database
 from datasetui.tasks import run_job
@@ -28,4 +29,51 @@ def test_worker_claims_and_completes_job(tmp_path: Path, monkeypatch) -> None:
         "queued",
         "running",
         "succeeded",
+    ]
+
+
+def test_worker_scans_nas_dataset_into_registry(tmp_path: Path, monkeypatch) -> None:
+    database_path = tmp_path / "datasetui.sqlite3"
+    nas_root = tmp_path / "nas"
+    for area in ("raw", "derived"):
+        (nas_root / area).mkdir(parents=True)
+    dataset_root = nas_root / "raw" / "lab" / "demo"
+    (dataset_root / "meta").mkdir(parents=True)
+    (dataset_root / "data").mkdir()
+    (dataset_root / "meta" / "info.json").write_text(
+        json.dumps(
+            {
+                "codebase_version": "v2.1",
+                "features": {},
+                "total_episodes": 1,
+                "total_frames": 10,
+                "total_tasks": 1,
+                "fps": 10,
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("DATASETUI_DB_PATH", str(database_path))
+    monkeypatch.setenv("DATASETUI_NAS_ROOT", str(nas_root))
+
+    database = Database(database_path)
+    database.initialize()
+    profile = database.create_profile("Researcher")
+    job, _ = database.create_job(
+        kind="datasets.scan",
+        queue_name="io",
+        profile_id=profile["id"],
+        payload={"storage_areas": ["raw"]},
+        idempotency_key="worker-scan",
+    )
+
+    result = run_job(job["id"])
+    assert result["status"] == "succeeded"
+    stored = database.get_job(job["id"])
+    assert stored["result"] == {
+        "storage_areas": {"raw": {"discovered": 1, "missing": 0}}
+    }
+    datasets = database.list_datasets()
+    assert [(item["storage_area"], item["relative_path"]) for item in datasets] == [
+        ("raw", "lab/demo")
     ]

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, Response, status
 
 from datasetui.database import (
     Database,
+    DatasetNotFoundError,
     DuplicateProfileNameError,
     IdempotencyConflictError,
     JobNotFoundError,
@@ -22,6 +23,9 @@ from datasetui.models import (
     ProfileCreate,
     ProfileUpdate,
     SystemHealth,
+    Dataset,
+    DatasetReadiness,
+    StorageArea,
 )
 from datasetui.queueing import QueueDispatcher
 
@@ -174,5 +178,26 @@ def create_router(database: Database, dispatcher: QueueDispatcher) -> APIRouter:
             return database.list_job_events(job_id)
         except JobNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Job not found") from exc
+
+    @router.get("/datasets", response_model=list[Dataset])
+    def list_datasets(
+        storage_area: StorageArea | None = None,
+        readiness: DatasetReadiness | None = None,
+        include_missing: bool = False,
+        limit: int = Query(default=100, ge=1, le=500),
+    ) -> list[dict[str, Any]]:
+        return database.list_datasets(
+            storage_area=storage_area,
+            readiness=readiness,
+            include_missing=include_missing,
+            limit=limit,
+        )
+
+    @router.get("/datasets/{dataset_id}", response_model=Dataset)
+    def get_dataset(dataset_id: str) -> dict[str, Any]:
+        try:
+            return database.get_dataset(dataset_id)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
 
     return router

@@ -127,6 +127,34 @@ def test_job_uses_a_strict_kind_specific_payload(client: TestClient) -> None:
     assert unknown.status_code == 422
 
 
+def test_dataset_scan_job_payload_is_allowlisted(
+    client: TestClient, dispatcher: RecordingDispatcher
+) -> None:
+    profile_id = _profile_id(client)
+    accepted = client.post(
+        "/api/v1/jobs",
+        json={
+            "kind": "datasets.scan",
+            "profile_id": profile_id,
+            "payload": {"storage_areas": ["raw"]},
+            "idempotency_key": "scan-raw",
+        },
+    )
+    assert accepted.status_code == 202
+    assert dispatcher.enqueued == [(accepted.json()["id"], "io")]
+
+    rejected = client.post(
+        "/api/v1/jobs",
+        json={
+            "kind": "datasets.scan",
+            "profile_id": profile_id,
+            "payload": {"storage_areas": ["raw"], "path": "/etc"},
+            "idempotency_key": "scan-arbitrary-path",
+        },
+    )
+    assert rejected.status_code == 422
+
+
 def test_queue_failure_is_persisted(
     database: Database, dispatcher: RecordingDispatcher
 ) -> None:
@@ -177,7 +205,7 @@ def test_system_health_reports_both_dependencies(
         "service": "datasetui-workbench",
         "database": "ok",
         "queue": "ok",
-        "schema_versions": [1],
+        "schema_versions": [1, 2],
     }
 
     dispatcher.available = False

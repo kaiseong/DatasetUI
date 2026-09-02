@@ -16,6 +16,8 @@ JobStatus = Literal[
     "cancelled",
     "interrupted",
 ]
+StorageArea = Literal["raw", "derived"]
+DatasetReadiness = Literal["ready", "incomplete", "unsupported", "invalid"]
 
 
 def normalize_profile_name(value: str) -> str:
@@ -101,3 +103,22 @@ class SystemHealth(StrictModel):
     database: Literal["ok", "error"]
     queue: Literal["ok", "error"]
     schema_versions: list[int]
+
+
+class Dataset(StrictModel):
+    id: str
+    storage_area: StorageArea
+    relative_path: str
+    name: str
+    codebase_version: str | None
+    readiness: DatasetReadiness
+    robot_type: str | None
+    total_episodes: int | None
+    total_frames: int | None
+    total_tasks: int | None
+    fps: float | None
+    fingerprint: str
+    scan_error: str | None
+    first_seen_at: str
+    last_seen_at: str
+    available: bool
