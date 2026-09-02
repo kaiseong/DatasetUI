@@ -2,7 +2,11 @@ name: datasetui
 
 x-backend-environment: &backend-environment
   TZ: ${DATASETUI_TZ:-Asia/Seoul}
+  DATASETUI_HOST: ${DATASETUI_HOST:-192.168.0.3}
+  DATASETUI_ALLOWED_ORIGINS: ${DATASETUI_ALLOWED_ORIGINS:-}
   REDIS_URL: redis://redis:6379/0
+  DATASETUI_DB_PATH: /data/registry/datasetui.sqlite3
+  DATASETUI_JOB_TIMEOUT_SECONDS: ${DATASETUI_JOB_TIMEOUT_SECONDS:-900}
   LEROBOT_ANNOTATE_CACHE: /data/cache/annotations
   LEROBOT_ANNOTATE_EXPORT: /data/staging/annotation-exports
 
@@ -79,6 +83,9 @@ services:
     user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
     environment: *backend-environment
     volumes: *backend-read-volumes
+    depends_on:
+      redis:
+        condition: service_healthy
     expose:
       - "7861"
     healthcheck:
@@ -112,7 +119,16 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
-    command: ["rq", "worker", "--url", "redis://redis:6379/0", "io"]
+    command:
+      [
+        "rq",
+        "worker",
+        "--url",
+        "redis://redis:6379/0",
+        "--serializer",
+        "rq.serializers.JSONSerializer",
+        "io",
+      ]
     environment: *backend-environment
     volumes: *backend-io-volumes
     depends_on:
@@ -125,7 +141,16 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
-    command: ["rq", "worker", "--url", "redis://redis:6379/0", "cpu"]
+    command:
+      [
+        "rq",
+        "worker",
+        "--url",
+        "redis://redis:6379/0",
+        "--serializer",
+        "rq.serializers.JSONSerializer",
+        "cpu",
+      ]
     environment: *backend-environment
     volumes: *backend-read-volumes
     depends_on:

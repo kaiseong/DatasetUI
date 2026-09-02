@@ -26,6 +26,13 @@ https://{$DATASETUI_HOST} {
 		reverse_proxy api:7861
 	}
 
+	# Versioned Workbench APIs are the persistent-state boundary introduced
+	# in Phase 2. They never accept raw commands or credentials in job payloads.
+	@workbench_api path /api/v1/*
+	handle @workbench_api {
+		reverse_proxy api:7861
+	}
+
 	@private_api path /api/dataset/* /api/episodes/* /api/export /api/push_to_hub
 	handle @private_api {
 		respond "Not Found" 404

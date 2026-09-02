@@ -8,6 +8,8 @@ WORKDIR /app
 COPY requirements-worker.txt ./
 RUN pip install --no-cache-dir -r requirements-worker.txt
 
+COPY datasetui ./datasetui
+
 # Phase 12 will pin the legacy LeRobot converter dependencies and register
 # conversion jobs. Phase 1 deliberately provides only the isolated queue.
-CMD ["rq", "worker", "--url", "redis://redis:6379/0", "converter-v21"]
+CMD ["rq", "worker", "--url", "redis://redis:6379/0", "--serializer", "rq.serializers.JSONSerializer", "converter-v21"]

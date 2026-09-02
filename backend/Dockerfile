@@ -9,7 +9,8 @@ COPY requirements.txt requirements-worker.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py ./
+COPY datasetui ./datasetui
 
 EXPOSE 7861
 
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "7861"]
+CMD ["uvicorn", "datasetui.main:app", "--host", "0.0.0.0", "--port", "7861"]
