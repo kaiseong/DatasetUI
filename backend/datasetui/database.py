@@ -32,6 +32,26 @@ class DatasetNotFoundError(LookupError):
     pass
 
 
+class DatasetNotReadyError(RuntimeError):
+    pass
+
+
+class FlagRevisionConflictError(RuntimeError):
+    pass
+
+
+class DuplicateRecipeNameError(ValueError):
+    pass
+
+
+class RecipeNotFoundError(LookupError):
+    pass
+
+
+class RecipeRevisionMismatchError(RuntimeError):
+    pass
+
+
 class IdempotencyConflictError(ValueError):
     pass
 
@@ -183,6 +203,76 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
             "CREATE INDEX hf_revisions_repo_idx ON hf_revisions(repo_id, imported_at DESC)",
         ),
     ),
+    (
+        4,
+        (
+            """
+            CREATE TABLE flag_sets (
+                dataset_id TEXT NOT NULL REFERENCES datasets(id),
+                dataset_fingerprint TEXT NOT NULL,
+                profile_id TEXT NOT NULL REFERENCES profiles(id),
+                revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (dataset_id, dataset_fingerprint, profile_id)
+            )
+            """,
+            """
+            CREATE TABLE episode_flags (
+                dataset_id TEXT NOT NULL,
+                dataset_fingerprint TEXT NOT NULL,
+                profile_id TEXT NOT NULL,
+                episode_index INTEGER NOT NULL CHECK (episode_index >= 0),
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (
+                    dataset_id, dataset_fingerprint, profile_id, episode_index
+                ),
+                FOREIGN KEY (dataset_id, dataset_fingerprint, profile_id)
+                    REFERENCES flag_sets(
+                        dataset_id, dataset_fingerprint, profile_id
+                    ) ON DELETE CASCADE
+            )
+            """,
+            """
+            CREATE TABLE curation_recipes (
+                id TEXT PRIMARY KEY,
+                dataset_id TEXT NOT NULL REFERENCES datasets(id),
+                dataset_fingerprint TEXT NOT NULL,
+                profile_id TEXT NOT NULL REFERENCES profiles(id),
+                name TEXT NOT NULL,
+                name_key TEXT NOT NULL,
+                selection_mode TEXT NOT NULL CHECK (
+                    selection_mode IN ('all', 'flagged', 'unflagged')
+                ),
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                archived_at TEXT,
+                UNIQUE (
+                    dataset_id, dataset_fingerprint, profile_id, name_key
+                )
+            )
+            """,
+            """
+            CREATE TABLE curation_recipe_snapshots (
+                id TEXT PRIMARY KEY,
+                recipe_id TEXT NOT NULL REFERENCES curation_recipes(id),
+                dataset_id TEXT NOT NULL REFERENCES datasets(id),
+                dataset_fingerprint TEXT NOT NULL,
+                profile_id TEXT NOT NULL REFERENCES profiles(id),
+                recipe_name TEXT NOT NULL,
+                selection_mode TEXT NOT NULL CHECK (
+                    selection_mode IN ('all', 'flagged', 'unflagged')
+                ),
+                flag_revision INTEGER NOT NULL CHECK (flag_revision >= 0),
+                flagged_episode_indices_json TEXT NOT NULL,
+                selected_episode_indices_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX episode_flags_lookup_idx ON episode_flags(dataset_id, dataset_fingerprint, profile_id, episode_index)",
+            "CREATE INDEX curation_recipes_lookup_idx ON curation_recipes(dataset_id, dataset_fingerprint, profile_id, archived_at, updated_at DESC)",
+            "CREATE INDEX curation_recipe_snapshots_recipe_idx ON curation_recipe_snapshots(recipe_id, created_at DESC)",
+        ),
+    ),
 )
 
 
@@ -207,6 +297,10 @@ def _json_dump(value: Any) -> str:
 
 
 def _profile_name_key(name: str) -> str:
+    return unicodedata.normalize("NFKC", name).casefold()
+
+
+def _recipe_name_key(name: str) -> str:
     return unicodedata.normalize("NFKC", name).casefold()
 
 
@@ -1101,6 +1195,403 @@ class Database:
                 parameters,
             ).fetchall()
         return [self._decode_dataset(row) for row in rows]
+
+    @staticmethod
+    def _curation_source(
+        connection: sqlite3.Connection,
+        *,
+        dataset_id: str,
+        profile_id: str,
+    ) -> sqlite3.Row:
+        profile = connection.execute(
+            "SELECT id FROM profiles WHERE id = ? AND archived_at IS NULL",
+            (profile_id,),
+        ).fetchone()
+        if profile is None:
+            raise ProfileNotFoundError(profile_id)
+
+        dataset = connection.execute(
+            """
+            SELECT id, fingerprint, total_episodes, readiness, missing_since
+            FROM datasets WHERE id = ?
+            """,
+            (dataset_id,),
+        ).fetchone()
+        if dataset is None:
+            raise DatasetNotFoundError(dataset_id)
+        if (
+            dataset["missing_since"] is not None
+            or dataset["readiness"] != "ready"
+            or dataset["total_episodes"] is None
+        ):
+            raise DatasetNotReadyError(dataset_id)
+        return dataset
+
+    @staticmethod
+    def _episode_flags_record(
+        connection: sqlite3.Connection,
+        *,
+        dataset_id: str,
+        dataset_fingerprint: str,
+        profile_id: str,
+    ) -> dict[str, Any]:
+        flag_set = connection.execute(
+            """
+            SELECT revision, updated_at FROM flag_sets
+            WHERE dataset_id = ? AND dataset_fingerprint = ? AND profile_id = ?
+            """,
+            (dataset_id, dataset_fingerprint, profile_id),
+        ).fetchone()
+        indices = [
+            row["episode_index"]
+            for row in connection.execute(
+                """
+                SELECT episode_index FROM episode_flags
+                WHERE dataset_id = ? AND dataset_fingerprint = ? AND profile_id = ?
+                ORDER BY episode_index
+                """,
+                (dataset_id, dataset_fingerprint, profile_id),
+            )
+        ]
+        return {
+            "dataset_id": dataset_id,
+            "dataset_fingerprint": dataset_fingerprint,
+            "profile_id": profile_id,
+            "revision": flag_set["revision"] if flag_set else 0,
+            "episode_indices": indices,
+            "updated_at": flag_set["updated_at"] if flag_set else None,
+        }
+
+    def get_episode_flags(self, *, dataset_id: str, profile_id: str) -> dict[str, Any]:
+        with self.connect() as connection:
+            connection.execute("BEGIN")
+            dataset = self._curation_source(
+                connection, dataset_id=dataset_id, profile_id=profile_id
+            )
+            return self._episode_flags_record(
+                connection,
+                dataset_id=dataset_id,
+                dataset_fingerprint=dataset["fingerprint"],
+                profile_id=profile_id,
+            )
+
+    def update_episode_flags(
+        self,
+        *,
+        dataset_id: str,
+        profile_id: str,
+        expected_revision: int,
+        changes: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            dataset = self._curation_source(
+                connection, dataset_id=dataset_id, profile_id=profile_id
+            )
+            total_episodes = dataset["total_episodes"]
+            for change in changes:
+                if change["episode_index"] >= total_episodes:
+                    raise ValueError("episode index is outside the dataset")
+
+            fingerprint = dataset["fingerprint"]
+            flag_set = connection.execute(
+                """
+                SELECT revision FROM flag_sets
+                WHERE dataset_id = ? AND dataset_fingerprint = ? AND profile_id = ?
+                """,
+                (dataset_id, fingerprint, profile_id),
+            ).fetchone()
+            current_revision = flag_set["revision"] if flag_set else 0
+            if current_revision != expected_revision:
+                raise FlagRevisionConflictError(str(current_revision))
+
+            existing = {
+                row["episode_index"]
+                for row in connection.execute(
+                    """
+                    SELECT episode_index FROM episode_flags
+                    WHERE dataset_id = ? AND dataset_fingerprint = ? AND profile_id = ?
+                    """,
+                    (dataset_id, fingerprint, profile_id),
+                )
+            }
+            effective = [
+                change
+                for change in changes
+                if (change["episode_index"] in existing) != change["flagged"]
+            ]
+            if effective:
+                connection.execute(
+                    """
+                    INSERT INTO flag_sets(
+                        dataset_id, dataset_fingerprint, profile_id,
+                        revision, updated_at
+                    ) VALUES (?, ?, ?, 0, ?)
+                    ON CONFLICT(dataset_id, dataset_fingerprint, profile_id)
+                    DO NOTHING
+                    """,
+                    (dataset_id, fingerprint, profile_id, now),
+                )
+                for change in effective:
+                    key = (
+                        dataset_id,
+                        fingerprint,
+                        profile_id,
+                        change["episode_index"],
+                    )
+                    if change["flagged"]:
+                        connection.execute(
+                            """
+                            INSERT INTO episode_flags(
+                                dataset_id, dataset_fingerprint, profile_id,
+                                episode_index, created_at
+                            ) VALUES (?, ?, ?, ?, ?)
+                            """,
+                            (*key, now),
+                        )
+                    else:
+                        connection.execute(
+                            """
+                            DELETE FROM episode_flags
+                            WHERE dataset_id = ? AND dataset_fingerprint = ?
+                              AND profile_id = ? AND episode_index = ?
+                            """,
+                            key,
+                        )
+                connection.execute(
+                    """
+                    UPDATE flag_sets SET revision = revision + 1, updated_at = ?
+                    WHERE dataset_id = ? AND dataset_fingerprint = ?
+                      AND profile_id = ?
+                    """,
+                    (now, dataset_id, fingerprint, profile_id),
+                )
+
+            return self._episode_flags_record(
+                connection,
+                dataset_id=dataset_id,
+                dataset_fingerprint=fingerprint,
+                profile_id=profile_id,
+            )
+
+    def create_curation_recipe(
+        self,
+        *,
+        dataset_id: str,
+        profile_id: str,
+        name: str,
+        selection_mode: str,
+    ) -> dict[str, Any]:
+        recipe_id = str(uuid.uuid4())
+        now = utc_now()
+        try:
+            with self.connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                dataset = self._curation_source(
+                    connection, dataset_id=dataset_id, profile_id=profile_id
+                )
+                connection.execute(
+                    """
+                    INSERT INTO curation_recipes(
+                        id, dataset_id, dataset_fingerprint, profile_id,
+                        name, name_key, selection_mode, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        recipe_id,
+                        dataset_id,
+                        dataset["fingerprint"],
+                        profile_id,
+                        name,
+                        _recipe_name_key(name),
+                        selection_mode,
+                        now,
+                        now,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            if "curation_recipes.dataset_id" in str(exc):
+                raise DuplicateRecipeNameError(name) from exc
+            raise
+        return self.get_curation_recipe(recipe_id, profile_id=profile_id)
+
+    def list_curation_recipes(
+        self,
+        *,
+        dataset_id: str,
+        profile_id: str,
+        include_archived: bool = False,
+    ) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            connection.execute("BEGIN")
+            dataset = self._curation_source(
+                connection, dataset_id=dataset_id, profile_id=profile_id
+            )
+            archived_clause = "" if include_archived else "AND archived_at IS NULL"
+            rows = connection.execute(
+                f"""
+                SELECT id, dataset_id, dataset_fingerprint, profile_id, name,
+                       selection_mode, created_at, updated_at, archived_at
+                FROM curation_recipes
+                WHERE dataset_id = ? AND dataset_fingerprint = ?
+                  AND profile_id = ? {archived_clause}
+                ORDER BY updated_at DESC, name_key
+                """,
+                (dataset_id, dataset["fingerprint"], profile_id),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_curation_recipe(self, recipe_id: str, *, profile_id: str) -> dict[str, Any]:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, dataset_id, dataset_fingerprint, profile_id, name,
+                       selection_mode, created_at, updated_at, archived_at
+                FROM curation_recipes WHERE id = ? AND profile_id = ?
+                """,
+                (recipe_id, profile_id),
+            ).fetchone()
+        if row is None:
+            raise RecipeNotFoundError(recipe_id)
+        return dict(row)
+
+    def update_curation_recipe(
+        self,
+        recipe_id: str,
+        *,
+        profile_id: str,
+        name: str | None,
+        selection_mode: str | None,
+        archived: bool | None,
+    ) -> dict[str, Any]:
+        now = utc_now()
+        try:
+            with self.connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                recipe = connection.execute(
+                    "SELECT * FROM curation_recipes WHERE id = ? AND profile_id = ?",
+                    (recipe_id, profile_id),
+                ).fetchone()
+                if recipe is None:
+                    raise RecipeNotFoundError(recipe_id)
+                dataset = self._curation_source(
+                    connection,
+                    dataset_id=recipe["dataset_id"],
+                    profile_id=profile_id,
+                )
+                if dataset["fingerprint"] != recipe["dataset_fingerprint"]:
+                    raise RecipeRevisionMismatchError(recipe_id)
+                next_name = name if name is not None else recipe["name"]
+                next_selection = (
+                    selection_mode
+                    if selection_mode is not None
+                    else recipe["selection_mode"]
+                )
+                next_archived_at = recipe["archived_at"]
+                if archived is True:
+                    next_archived_at = now
+                elif archived is False:
+                    next_archived_at = None
+                connection.execute(
+                    """
+                    UPDATE curation_recipes
+                    SET name = ?, name_key = ?, selection_mode = ?,
+                        archived_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        next_name,
+                        _recipe_name_key(next_name),
+                        next_selection,
+                        next_archived_at,
+                        now,
+                        recipe_id,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            if "curation_recipes.dataset_id" in str(exc):
+                raise DuplicateRecipeNameError(name or "") from exc
+            raise
+        return self.get_curation_recipe(recipe_id, profile_id=profile_id)
+
+    def snapshot_curation_recipe(
+        self, recipe_id: str, *, profile_id: str
+    ) -> dict[str, Any]:
+        snapshot_id = str(uuid.uuid4())
+        now = utc_now()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            recipe = connection.execute(
+                """
+                SELECT * FROM curation_recipes
+                WHERE id = ? AND profile_id = ? AND archived_at IS NULL
+                """,
+                (recipe_id, profile_id),
+            ).fetchone()
+            if recipe is None:
+                raise RecipeNotFoundError(recipe_id)
+            dataset = self._curation_source(
+                connection,
+                dataset_id=recipe["dataset_id"],
+                profile_id=profile_id,
+            )
+            if dataset["fingerprint"] != recipe["dataset_fingerprint"]:
+                raise RecipeRevisionMismatchError(recipe_id)
+            flags = self._episode_flags_record(
+                connection,
+                dataset_id=recipe["dataset_id"],
+                dataset_fingerprint=recipe["dataset_fingerprint"],
+                profile_id=profile_id,
+            )
+            flagged = flags["episode_indices"]
+            flagged_set = set(flagged)
+            if recipe["selection_mode"] == "all":
+                selected = list(range(dataset["total_episodes"]))
+            elif recipe["selection_mode"] == "flagged":
+                selected = flagged
+            else:
+                selected = [
+                    index
+                    for index in range(dataset["total_episodes"])
+                    if index not in flagged_set
+                ]
+            connection.execute(
+                """
+                INSERT INTO curation_recipe_snapshots(
+                    id, recipe_id, dataset_id, dataset_fingerprint, profile_id,
+                    recipe_name, selection_mode, flag_revision,
+                    flagged_episode_indices_json, selected_episode_indices_json,
+                    created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    snapshot_id,
+                    recipe_id,
+                    recipe["dataset_id"],
+                    recipe["dataset_fingerprint"],
+                    profile_id,
+                    recipe["name"],
+                    recipe["selection_mode"],
+                    flags["revision"],
+                    _json_dump(flagged),
+                    _json_dump(selected),
+                    now,
+                ),
+            )
+        return {
+            "id": snapshot_id,
+            "recipe_id": recipe_id,
+            "dataset_id": recipe["dataset_id"],
+            "dataset_fingerprint": recipe["dataset_fingerprint"],
+            "profile_id": profile_id,
+            "recipe_name": recipe["name"],
+            "selection_mode": recipe["selection_mode"],
+            "flag_revision": flags["revision"],
+            "flagged_episode_indices": flagged,
+            "selected_episode_indices": selected,
+            "created_at": now,
+        }
 
     def _job_for_idempotency(
         self, profile_id: str, idempotency_key: str

@@ -205,7 +205,7 @@ def test_system_health_reports_both_dependencies(
         "service": "datasetui-workbench",
         "database": "ok",
         "queue": "ok",
-        "schema_versions": [1, 2, 3],
+        "schema_versions": [1, 2, 3, 4],
     }
 
     dispatcher.available = False

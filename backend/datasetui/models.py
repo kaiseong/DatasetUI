@@ -40,6 +40,17 @@ def normalize_profile_name(value: str) -> str:
     return name
 
 
+def normalize_recipe_name(value: str) -> str:
+    name = " ".join(unicodedata.normalize("NFKC", value).strip().split())
+    if not name:
+        raise ValueError("recipe name cannot be empty")
+    if len(name) > 100:
+        raise ValueError("recipe name must be at most 100 characters")
+    if not PROFILE_NAME_PATTERN.fullmatch(name):
+        raise ValueError("recipe name cannot contain control characters")
+    return name
+
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -131,6 +142,95 @@ class Dataset(StrictModel):
     first_seen_at: str
     last_seen_at: str
     available: bool
+
+
+class EpisodeFlagChange(StrictModel):
+    episode_index: int = Field(ge=0)
+    flagged: bool
+
+
+class EpisodeFlagPatch(StrictModel):
+    profile_id: str
+    expected_revision: int = Field(ge=0)
+    changes: list[EpisodeFlagChange] = Field(min_length=1, max_length=500)
+
+    @field_validator("changes")
+    @classmethod
+    def require_unique_episodes(
+        cls, value: list[EpisodeFlagChange]
+    ) -> list[EpisodeFlagChange]:
+        indices = [change.episode_index for change in value]
+        if len(indices) != len(set(indices)):
+            raise ValueError("each episode may appear only once")
+        return value
+
+
+class EpisodeFlags(StrictModel):
+    dataset_id: str
+    dataset_fingerprint: str
+    profile_id: str
+    revision: int
+    episode_indices: list[int]
+    updated_at: str | None
+
+
+CurationSelectionMode = Literal["all", "flagged", "unflagged"]
+
+
+class CurationRecipeCreate(StrictModel):
+    profile_id: str
+    name: str
+    selection_mode: CurationSelectionMode
+
+    _normalize_name = field_validator("name")(normalize_recipe_name)
+
+
+class CurationRecipeUpdate(StrictModel):
+    profile_id: str
+    name: str | None = None
+    selection_mode: CurationSelectionMode | None = None
+    archived: bool | None = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str | None) -> str | None:
+        return normalize_recipe_name(value) if value is not None else None
+
+    @model_validator(mode="after")
+    def require_change(self) -> "CurationRecipeUpdate":
+        if self.name is None and self.selection_mode is None and self.archived is None:
+            raise ValueError("name, selection_mode, or archived is required")
+        return self
+
+
+class CurationRecipe(StrictModel):
+    id: str
+    dataset_id: str
+    dataset_fingerprint: str
+    profile_id: str
+    name: str
+    selection_mode: CurationSelectionMode
+    created_at: str
+    updated_at: str
+    archived_at: str | None
+
+
+class CurationRecipeSnapshotCreate(StrictModel):
+    profile_id: str
+
+
+class CurationRecipeSnapshot(StrictModel):
+    id: str
+    recipe_id: str
+    dataset_id: str
+    dataset_fingerprint: str
+    profile_id: str
+    recipe_name: str
+    selection_mode: CurationSelectionMode
+    flag_revision: int
+    flagged_episode_indices: list[int]
+    selected_episode_indices: list[int]
+    created_at: str
 
 
 class HuggingFaceDataset(StrictModel):

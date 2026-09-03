@@ -12,11 +12,16 @@ from fastapi.responses import StreamingResponse
 
 from datasetui.database import (
     Database,
+    DatasetNotReadyError,
     DatasetNotFoundError,
+    DuplicateRecipeNameError,
     DuplicateProfileNameError,
+    FlagRevisionConflictError,
     IdempotencyConflictError,
     JobNotFoundError,
     ProfileNotFoundError,
+    RecipeNotFoundError,
+    RecipeRevisionMismatchError,
 )
 from datasetui.dataset_files import (
     DatasetFilePathError,
@@ -38,6 +43,15 @@ from datasetui.hf_errors import (
 )
 from datasetui.jobs import queue_for_kind, validate_job_payload
 from datasetui.models import (
+    CurationRecipe,
+    CurationRecipeCreate,
+    CurationRecipeSnapshot,
+    CurationRecipeSnapshotCreate,
+    CurationRecipeUpdate,
+    Dataset,
+    DatasetReadiness,
+    EpisodeFlagPatch,
+    EpisodeFlags,
     Job,
     JobCreate,
     JobEvent,
@@ -49,8 +63,6 @@ from datasetui.models import (
     ProfileCreate,
     ProfileUpdate,
     SystemHealth,
-    Dataset,
-    DatasetReadiness,
     StorageArea,
 )
 from datasetui.queueing import QueueDispatcher
@@ -380,6 +392,150 @@ def create_router(
             include_missing=include_missing,
             limit=limit,
         )
+
+    @router.get("/datasets/{dataset_id}/flags", response_model=EpisodeFlags)
+    def get_episode_flags(dataset_id: str, profile_id: str) -> dict[str, Any]:
+        try:
+            return database.get_episode_flags(
+                dataset_id=dataset_id, profile_id=profile_id
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Dataset is not ready for curation",
+            ) from exc
+
+    @router.patch("/datasets/{dataset_id}/flags", response_model=EpisodeFlags)
+    def update_episode_flags(
+        dataset_id: str, payload: EpisodeFlagPatch
+    ) -> dict[str, Any]:
+        try:
+            return database.update_episode_flags(
+                dataset_id=dataset_id,
+                profile_id=payload.profile_id,
+                expected_revision=payload.expected_revision,
+                changes=[change.model_dump() for change in payload.changes],
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Dataset is not ready for curation",
+            ) from exc
+        except FlagRevisionConflictError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Flags changed in another session. Reload and try again.",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+
+    @router.get("/datasets/{dataset_id}/recipes", response_model=list[CurationRecipe])
+    def list_curation_recipes(
+        dataset_id: str,
+        profile_id: str,
+        include_archived: bool = False,
+    ) -> list[dict[str, Any]]:
+        try:
+            return database.list_curation_recipes(
+                dataset_id=dataset_id,
+                profile_id=profile_id,
+                include_archived=include_archived,
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Dataset is not ready for curation",
+            ) from exc
+
+    @router.post(
+        "/datasets/{dataset_id}/recipes",
+        response_model=CurationRecipe,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_curation_recipe(
+        dataset_id: str, payload: CurationRecipeCreate
+    ) -> dict[str, Any]:
+        try:
+            return database.create_curation_recipe(
+                dataset_id=dataset_id,
+                profile_id=payload.profile_id,
+                name=payload.name,
+                selection_mode=payload.selection_mode,
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Dataset is not ready for curation",
+            ) from exc
+        except DuplicateRecipeNameError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A recipe with this name already exists",
+            ) from exc
+
+    @router.patch("/recipes/{recipe_id}", response_model=CurationRecipe)
+    def update_curation_recipe(
+        recipe_id: str, payload: CurationRecipeUpdate
+    ) -> dict[str, Any]:
+        try:
+            return database.update_curation_recipe(
+                recipe_id,
+                profile_id=payload.profile_id,
+                name=payload.name,
+                selection_mode=payload.selection_mode,
+                archived=payload.archived,
+            )
+        except (RecipeNotFoundError, ProfileNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail="Recipe not found") from exc
+        except DuplicateRecipeNameError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A recipe with this name already exists",
+            ) from exc
+        except (DatasetNotReadyError, RecipeRevisionMismatchError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The recipe belongs to a different dataset revision",
+            ) from exc
+
+    @router.post(
+        "/recipes/{recipe_id}/snapshots",
+        response_model=CurationRecipeSnapshot,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def snapshot_curation_recipe(
+        recipe_id: str, payload: CurationRecipeSnapshotCreate
+    ) -> dict[str, Any]:
+        try:
+            return database.snapshot_curation_recipe(
+                recipe_id, profile_id=payload.profile_id
+            )
+        except (RecipeNotFoundError, ProfileNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail="Recipe not found") from exc
+        except (DatasetNotReadyError, RecipeRevisionMismatchError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The recipe belongs to a different dataset revision",
+            ) from exc
 
     @router.api_route(
         "/datasets/{dataset_id}/files/{file_path:path}",

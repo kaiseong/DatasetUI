@@ -13,7 +13,7 @@ before the next dataset mutation capability is enabled.
 | 4     | Library, profile selector, and Jobs user interface               | Complete |
 | 5     | Hugging Face listing, revision selection, and managed import     | Complete |
 | 6     | Open registered NAS datasets in the existing Viewer              | Complete |
-| 7     | Per-profile flags and reusable curation recipes                  | Planned  |
+| 7     | Per-profile flags and reusable curation recipes                  | Complete |
 | 8     | Trim, edit, and train/eval split workflows                       | Planned  |
 | 9     | Task and VQA annotation workflows                                | Planned  |
 | 10    | Relative-action derivation                                       | Planned  |

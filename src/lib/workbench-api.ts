@@ -31,6 +31,48 @@ export type DatasetSummary = {
   available: boolean;
 };
 
+export type EpisodeFlags = {
+  dataset_id: string;
+  dataset_fingerprint: string;
+  profile_id: string;
+  revision: number;
+  episode_indices: number[];
+  updated_at: string | null;
+};
+
+export type EpisodeFlagChange = {
+  episode_index: number;
+  flagged: boolean;
+};
+
+export type CurationSelectionMode = "all" | "flagged" | "unflagged";
+
+export type CurationRecipe = {
+  id: string;
+  dataset_id: string;
+  dataset_fingerprint: string;
+  profile_id: string;
+  name: string;
+  selection_mode: CurationSelectionMode;
+  created_at: string;
+  updated_at: string;
+  archived_at: string | null;
+};
+
+export type CurationRecipeSnapshot = {
+  id: string;
+  recipe_id: string;
+  dataset_id: string;
+  dataset_fingerprint: string;
+  profile_id: string;
+  recipe_name: string;
+  selection_mode: CurationSelectionMode;
+  flag_revision: number;
+  flagged_episode_indices: number[];
+  selected_episode_indices: number[];
+  created_at: string;
+};
+
 export type JobStatus =
   | "queued"
   | "running"
@@ -169,6 +211,92 @@ export function listDatasets(): Promise<DatasetSummary[]> {
 
 export function getDataset(datasetId: string): Promise<DatasetSummary> {
   return requestJson(`/api/v1/datasets/${encodeURIComponent(datasetId)}`);
+}
+
+export function getEpisodeFlags(
+  datasetId: string,
+  profileId: string,
+): Promise<EpisodeFlags> {
+  const query = new URLSearchParams({ profile_id: profileId });
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/flags?${query}`,
+  );
+}
+
+export function updateEpisodeFlags(
+  datasetId: string,
+  profileId: string,
+  expectedRevision: number,
+  changes: EpisodeFlagChange[],
+): Promise<EpisodeFlags> {
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/flags`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({
+        profile_id: profileId,
+        expected_revision: expectedRevision,
+        changes,
+      }),
+    },
+  );
+}
+
+export function listCurationRecipes(
+  datasetId: string,
+  profileId: string,
+): Promise<CurationRecipe[]> {
+  const query = new URLSearchParams({ profile_id: profileId });
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/recipes?${query}`,
+  );
+}
+
+export function createCurationRecipe(
+  datasetId: string,
+  profileId: string,
+  name: string,
+  selectionMode: CurationSelectionMode,
+): Promise<CurationRecipe> {
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/recipes`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        profile_id: profileId,
+        name,
+        selection_mode: selectionMode,
+      }),
+    },
+  );
+}
+
+export function updateCurationRecipe(
+  recipeId: string,
+  profileId: string,
+  change: {
+    name?: string;
+    selection_mode?: CurationSelectionMode;
+    archived?: boolean;
+  },
+): Promise<CurationRecipe> {
+  return requestJson(`/api/v1/recipes/${encodeURIComponent(recipeId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ profile_id: profileId, ...change }),
+  });
+}
+
+export function snapshotCurationRecipe(
+  recipeId: string,
+  profileId: string,
+): Promise<CurationRecipeSnapshot> {
+  return requestJson(
+    `/api/v1/recipes/${encodeURIComponent(recipeId)}/snapshots`,
+    {
+      method: "POST",
+      body: JSON.stringify({ profile_id: profileId }),
+    },
+  );
 }
 
 export function listJobs(

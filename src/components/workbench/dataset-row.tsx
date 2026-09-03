@@ -9,6 +9,7 @@ import {
   LuCopy,
   LuDatabase,
   LuFileWarning,
+  LuListChecks,
   LuPlay,
 } from "react-icons/lu";
 import type { DatasetReadiness, DatasetSummary } from "@/lib/workbench-api";
@@ -104,12 +105,20 @@ export default function DatasetRow({ dataset }: { dataset: DatasetSummary }) {
           {dataset.available && dataset.readiness === "ready" ? (
             <div className="dataset-row__actions">
               <p>원본 파일을 변경하지 않고 Viewer에서 엽니다.</p>
-              <Link
-                href={registeredDatasetViewerPath(dataset.id)}
-                className="workbench-button workbench-button--primary"
-              >
-                <LuPlay aria-hidden /> Viewer에서 열기
-              </Link>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Link
+                  href={`/datasets/${encodeURIComponent(dataset.id)}/curate`}
+                  className="workbench-button"
+                >
+                  <LuListChecks aria-hidden /> Curate
+                </Link>
+                <Link
+                  href={registeredDatasetViewerPath(dataset.id)}
+                  className="workbench-button workbench-button--primary"
+                >
+                  <LuPlay aria-hidden /> Viewer에서 열기
+                </Link>
+              </div>
             </div>
           ) : (
             <p className="dataset-row__phase-note">

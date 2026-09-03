@@ -7,7 +7,10 @@ import { postParentMessageWithParams } from "@/utils/postParentMessage";
 import { SimpleVideosPlayer } from "@/components/simple-videos-player";
 import PlaybackBar from "@/components/playback-bar";
 import { TimeProvider, useTime } from "@/context/time-context";
-import { FlaggedEpisodesProvider } from "@/context/flagged-episodes-context";
+import {
+  FlaggedEpisodesProvider,
+  useFlaggedEpisodes,
+} from "@/context/flagged-episodes-context";
 import {
   AnnotationsProvider,
   useAnnotations,
@@ -206,7 +209,11 @@ export default function EpisodeViewer({
 
   return (
     <TimeProvider duration={data!.duration}>
-      <FlaggedEpisodesProvider>
+      <FlaggedEpisodesProvider
+        datasetId={registeredDatasetId(data.datasetInfo.repoId) ?? undefined}
+        storageScope={data.datasetInfo.repoId}
+        totalEpisodes={data.datasetInfo.total_episodes}
+      >
         <AnnotationsProvider>
           <EpisodeBootstrap data={data!} />
           <EpisodeViewerInner data={data!} org={org} dataset={dataset} />
@@ -253,7 +260,8 @@ function EpisodeViewerInner({
     episodes,
     task,
   } = data;
-  const isRegisteredDataset = registeredDatasetId(datasetInfo.repoId) !== null;
+  const registeredId = registeredDatasetId(datasetInfo.repoId);
+  const isRegisteredDataset = registeredId !== null;
 
   const [videosReady, setVideosReady] = useState(!videosInfo.length);
   const [chartsReady, setChartsReady] = useState(false);
@@ -631,13 +639,22 @@ function EpisodeViewerInner({
             "Dataset quality diagnostics (powered by lerobot-doctor)",
           )}
         <div className="ml-auto">
-          {isRegisteredDataset ? (
-            <Link
-              href="/library"
-              className="mr-3 text-xs text-slate-400 transition-colors hover:text-cyan-300"
-            >
-              ← Library
-            </Link>
+          {registeredId ? (
+            <div className="mr-3 flex items-center gap-3">
+              <FlagSyncIndicator />
+              <Link
+                href={`/datasets/${encodeURIComponent(registeredId)}/curate`}
+                className="text-xs text-slate-400 transition-colors hover:text-cyan-300"
+              >
+                Recipe
+              </Link>
+              <Link
+                href="/library"
+                className="text-xs text-slate-400 transition-colors hover:text-cyan-300"
+              >
+                ← Library
+              </Link>
+            </div>
           ) : (
             <HfAuthButton variant="tab" />
           )}
@@ -885,5 +902,33 @@ function EpisodeViewerInner({
         </div>
       </div>
     </div>
+  );
+}
+
+function FlagSyncIndicator() {
+  const { count, loading, syncing, error, profileRequired } =
+    useFlaggedEpisodes();
+  const label = loading
+    ? "Flag 확인 중"
+    : syncing
+      ? "Flag 저장 중"
+      : profileRequired
+        ? "작업자 선택 필요"
+        : error
+          ? "Flag 연결 오류"
+          : `Flag ${count}`;
+
+  return (
+    <span
+      className={`rounded-full border px-2 py-1 text-[10px] tabular ${
+        error || profileRequired
+          ? "border-amber-400/25 bg-amber-400/8 text-amber-200"
+          : "border-orange-400/20 bg-orange-400/6 text-orange-200"
+      }`}
+      title={error ?? "현재 작업자의 Flag는 서버에 저장됩니다."}
+      role={error ? "status" : undefined}
+    >
+      {label}
+    </span>
   );
 }

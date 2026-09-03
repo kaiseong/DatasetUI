@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
   WorkbenchApiError,
+  createCurationRecipe,
   createProfile,
+  getEpisodeFlags,
   getDataset,
   importHuggingFaceDataset,
   isActiveJob,
@@ -9,6 +11,7 @@ import {
   listProfiles,
   publicJobError,
   refreshLibrary,
+  updateEpisodeFlags,
 } from "../workbench-api";
 
 const originalFetch = globalThis.fetch;
@@ -96,6 +99,65 @@ describe("Workbench API client", () => {
 
     await getDataset("dataset/id");
     expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/datasets/dataset%2Fid");
+  });
+
+  test("loads flags for only the selected profile and opaque dataset", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({ revision: 0, episode_indices: [] }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await getEpisodeFlags("dataset/id", "profile/id");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/datasets/dataset%2Fid/flags?profile_id=profile%2Fid",
+    );
+  });
+
+  test("updates flags with optimistic concurrency and no server path", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({ revision: 4, episode_indices: [2] }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await updateEpisodeFlags("dataset-1", "profile-1", 3, [
+      { episode_index: 2, flagged: true },
+    ]);
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("PATCH");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body).toEqual({
+      profile_id: "profile-1",
+      expected_revision: 3,
+      changes: [{ episode_index: 2, flagged: true }],
+    });
+    expect(JSON.stringify(body).toLowerCase()).not.toContain("path");
+    expect(JSON.stringify(body).toLowerCase()).not.toContain("password");
+  });
+
+  test("creates a strict revision-bound recipe definition", async () => {
+    const fetchMock = mock(async () =>
+      Response.json(
+        { id: "recipe-1", selection_mode: "flagged" },
+        { status: 201 },
+      ),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await createCurationRecipe(
+      "dataset-1",
+      "profile-1",
+      "Review failures",
+      "flagged",
+    );
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/datasets/dataset-1/recipes",
+    );
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({
+      profile_id: "profile-1",
+      name: "Review failures",
+      selection_mode: "flagged",
+    });
   });
 
   test("library refresh cannot supply a server path", async () => {

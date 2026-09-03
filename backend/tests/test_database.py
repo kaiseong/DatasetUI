@@ -13,7 +13,7 @@ from datasetui.database import Database
 
 def test_initialize_is_idempotent(database: Database) -> None:
     database.initialize()
-    assert database.schema_versions() == [1, 2, 3]
+    assert database.schema_versions() == [1, 2, 3, 4]
 
 
 def test_api_database_reopen_does_not_interrupt_running_job(database: Database) -> None:
@@ -37,7 +37,7 @@ def test_concurrent_initialization_applies_each_migration_once(tmp_path: Path) -
     path = tmp_path / "concurrent.sqlite3"
     with ThreadPoolExecutor(max_workers=4) as executor:
         list(executor.map(lambda _: Database(path).initialize(), range(4)))
-    assert Database(path).schema_versions() == [1, 2, 3]
+    assert Database(path).schema_versions() == [1, 2, 3, 4]
 
 
 def test_failed_migration_is_rolled_back(tmp_path: Path, monkeypatch) -> None:

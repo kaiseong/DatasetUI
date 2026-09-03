@@ -17,8 +17,7 @@ import {
   listProfiles,
   type Profile,
 } from "@/lib/workbench-api";
-
-const PROFILE_STORAGE_KEY = "datasetui.v1.profile-id";
+import { PROFILE_STORAGE_KEY } from "@/lib/profile-selection";
 
 type ProfileContextValue = {
   profiles: Profile[];
