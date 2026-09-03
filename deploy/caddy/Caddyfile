@@ -11,6 +11,7 @@ http://{$DATASETUI_HOST} {
 https://{$DATASETUI_HOST} {
 	tls internal
 	encode zstd gzip
+	rewrite / /library
 
 	header {
 		Strict-Transport-Security "max-age=31536000"

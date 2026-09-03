@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
+import pytest
+
 from datasetui.database import Database
 from datasetui.tasks import run_job
 
@@ -77,3 +79,35 @@ def test_worker_scans_nas_dataset_into_registry(tmp_path: Path, monkeypatch) -> 
     assert [(item["storage_area"], item["relative_path"]) for item in datasets] == [
         ("raw", "lab/demo")
     ]
+
+
+def test_worker_does_not_persist_internal_exception_details(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database_path = tmp_path / "datasetui.sqlite3"
+    monkeypatch.setenv("DATASETUI_DB_PATH", str(database_path))
+    database = Database(database_path)
+    database.initialize()
+    profile = database.create_profile("Researcher")
+    job, _ = database.create_job(
+        kind="phase2.smoke",
+        queue_name="cpu",
+        profile_id=profile["id"],
+        payload={},
+        idempotency_key="worker-safe-error",
+    )
+    private_path = "/mnt/datasetui-nas/private/location"
+
+    def fail_with_private_detail(kind: str, payload: dict[str, object]) -> dict:
+        raise RuntimeError(f"unable to read {private_path}")
+
+    monkeypatch.setattr("datasetui.tasks.run_registered_job", fail_with_private_detail)
+
+    with pytest.raises(RuntimeError, match=private_path):
+        run_job(job["id"])
+
+    stored = database.get_job(job["id"])
+    assert stored["status"] == "failed"
+    assert stored["error_code"] == "job_failed"
+    assert stored["error_message"] == "The job could not be completed"
+    assert private_path not in stored["error_message"]

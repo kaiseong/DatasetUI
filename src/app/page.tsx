@@ -123,7 +123,7 @@ function HomeInner() {
   const navigate = useCallback(
     (value: string) => {
       setShowSuggestions(false);
-      router.push(value);
+      router.push(value.startsWith("/") ? value : `/${value}`);
     },
     [router],
   );
