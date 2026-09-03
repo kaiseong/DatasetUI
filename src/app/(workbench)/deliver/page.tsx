@@ -124,7 +124,7 @@ export default function DeliverPage() {
           <p>내보내기 검사를 통과한 현재 리비전만 전달할 수 있습니다.</p>
         </div>
       </section>
-      <div className="curation-trim-fields">
+      <div className="delivery-dataset-picker">
         <label>
           <span>데이터셋</span>
           <select
@@ -139,48 +139,63 @@ export default function DeliverPage() {
           </select>
         </label>
       </div>
-      <section className="curation-recipe-list">
-        <form onSubmit={nas}>
-          <LuHardDrive aria-hidden />
+      <section className="delivery-grid">
+        <form className="delivery-card" onSubmit={nas}>
+          <span className="delivery-card__icon">
+            <LuHardDrive aria-hidden />
+          </span>
           <h2>NAS Export</h2>
           <p>공유 exports 영역에 검증된 복사본을 만듭니다.</p>
-          <input
-            value={nasName}
-            onChange={(event) => setNasName(event.target.value)}
-            required
-          />
+          <label className="delivery-field">
+            <span>Export 이름</span>
+            <input
+              value={nasName}
+              onChange={(event) => setNasName(event.target.value)}
+              required
+            />
+          </label>
           <button className="workbench-button" disabled={busy || !datasetId}>
             <LuSend aria-hidden /> 저장
           </button>
         </form>
-        <form onSubmit={hf}>
-          <LuCloudUpload aria-hidden />
+        <form className="delivery-card" onSubmit={hf}>
+          <span className="delivery-card__icon">
+            <LuCloudUpload aria-hidden />
+          </span>
           <h2>Hugging Face</h2>
           <p>rainbowrobotics 아래 새 저장소만 만들며 기본값은 비공개입니다.</p>
-          <input
-            value={repoName}
-            onChange={(event) => setRepoName(event.target.value)}
-            required
-          />
-          <select
-            value={visibility}
-            onChange={(event) =>
-              setVisibility(event.target.value as "private" | "public")
-            }
-          >
-            <option value="private">비공개</option>
-            <option value="public">공개</option>
-          </select>
+          <label className="delivery-field">
+            <span>저장소 이름</span>
+            <input
+              value={repoName}
+              onChange={(event) => setRepoName(event.target.value)}
+              required
+            />
+          </label>
+          <label className="delivery-field">
+            <span>공개 범위</span>
+            <select
+              value={visibility}
+              onChange={(event) =>
+                setVisibility(event.target.value as "private" | "public")
+              }
+            >
+              <option value="private">비공개</option>
+              <option value="public">공개</option>
+            </select>
+          </label>
           <button className="workbench-button" disabled={busy || !datasetId}>
             <LuSend aria-hidden /> 업로드
           </button>
         </form>
-        <form onSubmit={pc}>
-          <LuLaptop aria-hidden />
+        <form className="delivery-card delivery-card--wide" onSubmit={pc}>
+          <span className="delivery-card__icon">
+            <LuLaptop aria-hidden />
+          </span>
           <h2>Ubuntu PC</h2>
           <p>SSH로 복사합니다. 비밀번호는 이 요청 중에만 메모리에 있습니다.</p>
-          <div className="curation-trim-fields">
-            <label>
+          <div className="delivery-card__fields">
+            <label className="delivery-field">
               <span>IP</span>
               <input
                 value={host}
@@ -189,7 +204,7 @@ export default function DeliverPage() {
                 required
               />
             </label>
-            <label>
+            <label className="delivery-field">
               <span>포트</span>
               <input
                 type="number"
@@ -198,7 +213,7 @@ export default function DeliverPage() {
                 required
               />
             </label>
-            <label>
+            <label className="delivery-field">
               <span>사용자 이름</span>
               <input
                 value={username}
@@ -206,7 +221,7 @@ export default function DeliverPage() {
                 required
               />
             </label>
-            <label>
+            <label className="delivery-field">
               <span>저장 위치</span>
               <input
                 value={destination}
@@ -215,31 +230,36 @@ export default function DeliverPage() {
               />
             </label>
           </div>
-          <label>
-            <input
-              type="radio"
-              checked={auth === "key"}
-              onChange={() => setAuth("key")}
-            />{" "}
-            등록된 SSH key
-          </label>
-          <label>
-            <input
-              type="radio"
-              checked={auth === "password"}
-              onChange={() => setAuth("password")}
-            />{" "}
-            일회용 비밀번호
-          </label>
+          <div className="delivery-auth">
+            <label>
+              <input
+                type="radio"
+                checked={auth === "key"}
+                onChange={() => setAuth("key")}
+              />{" "}
+              등록된 SSH key
+            </label>
+            <label>
+              <input
+                type="radio"
+                checked={auth === "password"}
+                onChange={() => setAuth("password")}
+              />{" "}
+              일회용 비밀번호
+            </label>
+          </div>
           {auth === "password" && (
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="new-password"
-              required
-              aria-label="일회용 SSH 비밀번호"
-            />
+            <label className="delivery-field delivery-password">
+              <span>일회용 SSH 비밀번호</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                autoComplete="new-password"
+                required
+                aria-label="일회용 SSH 비밀번호"
+              />
+            </label>
           )}
           <button className="workbench-button" disabled={busy || !datasetId}>
             <LuSend aria-hidden /> PC로 복사
