@@ -15,6 +15,13 @@ fi
 
 data_root="${DATASETUI_DATA_ROOT:-${repo_root}/.runtime/data}"
 nas_root="${DATASETUI_NAS_ROOT:-${repo_root}/.runtime/nas}"
+service_uid="${DATASETUI_UID:-$(id -u)}"
+service_gid="${DATASETUI_GID:-$(id -g)}"
+
+if [[ ! "${service_uid}" =~ ^[0-9]+$ || ! "${service_gid}" =~ ^[0-9]+$ ]]; then
+  echo "DATASETUI_UID and DATASETUI_GID must be numeric." >&2
+  exit 1
+fi
 
 if [[ "${data_root}" != /* ]]; then
   data_root="${repo_root}/${data_root}"
@@ -40,7 +47,8 @@ if [[ "${production_mode}" == true ]]; then
   esac
 fi
 
-install -d -m 0755 \
+install -d -m 0755 -o "${service_uid}" -g "${service_gid}" \
+  "${data_root}" \
   "${data_root}/cache" \
   "${data_root}/staging" \
   "${data_root}/jobs" \
@@ -48,6 +56,12 @@ install -d -m 0755 \
   "${data_root}/logs" \
   "${data_root}/redis" \
   "${data_root}/caddy-config" \
+  "${data_root}/ssh-known-hosts"
+
+install -d -m 0700 -o "${service_uid}" -g "${service_gid}" \
+  "${data_root}/ssh-private"
+
+install -d -m 0755 \
   "${nas_root}/raw" \
   "${nas_root}/derived" \
   "${nas_root}/exports" \
@@ -63,3 +77,4 @@ fi
 echo "DatasetUI host directories are ready."
 echo "Data root: ${data_root}"
 echo "NAS root:  ${nas_root}"
+echo "Service identity: ${service_uid}:${service_gid}"

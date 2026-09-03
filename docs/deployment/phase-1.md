@@ -50,14 +50,15 @@ the mounted directory; it does not store NAS credentials or mount the share.
 The UID/GID must identify the host service account that can write the
 DatasetUI NAS directories.
 
-Run the host preflight before Compose. In production mode it refuses to start
-unless the configured NAS root is on NFS or CIFS, creates the required
-directories, and warns when Redis' recommended `vm.overcommit_memory=1`
-setting is missing:
+Run the host preflight before Compose. Use `sudo` when the configured data root
+is under a root-owned path such as `/data`. The script assigns runtime
+directories to `DATASETUI_UID:DATASETUI_GID`, refuses production startup unless
+the configured NAS root is on NFS or CIFS, and warns when Redis' recommended
+`vm.overcommit_memory=1` setting is missing:
 
 ```bash
-bash scripts/prepare-host.sh
-docker compose up -d --build
+sudo bash scripts/prepare-host.sh
+sudo docker compose up -d --build
 ```
 
 The API, CPU worker, and v2.1 converter see `raw/` as read-only. Only the I/O
