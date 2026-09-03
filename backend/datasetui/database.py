@@ -337,6 +337,21 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
             'ALTER TABLE curation_recipe_snapshots ADD COLUMN relative_action_json TEXT NOT NULL DEFAULT \'{"enabled":false,"dimensions":[]}\'',
         ),
     ),
+    (
+        8,
+        (
+            """
+            CREATE TABLE validation_runs (
+                job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+                dataset_id TEXT NOT NULL REFERENCES datasets(id),
+                dataset_fingerprint TEXT NOT NULL,
+                mode TEXT NOT NULL CHECK (mode IN ('quick', 'full', 'export_gate')),
+                created_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX validation_runs_dataset_idx ON validation_runs(dataset_id, created_at DESC)",
+        ),
+    ),
 )
 
 
@@ -1939,6 +1954,50 @@ class Database:
                 """,
                 (job_id, snapshot_id, output_name, utc_now()),
             )
+
+    def record_validation_run(
+        self,
+        *,
+        job_id: str,
+        dataset_id: str,
+        dataset_fingerprint: str,
+        mode: str,
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO validation_runs(
+                    job_id, dataset_id, dataset_fingerprint, mode, created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (job_id, dataset_id, dataset_fingerprint, mode, utc_now()),
+            )
+
+    def list_validation_runs(
+        self, dataset_id: str, *, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        self.get_dataset(dataset_id)
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT v.job_id, v.dataset_id, v.dataset_fingerprint, v.mode,
+                       v.created_at, j.status, j.result_json, j.error_code,
+                       j.error_message, j.finished_at
+                FROM validation_runs v
+                JOIN jobs j ON j.id = v.job_id
+                WHERE v.dataset_id = ?
+                ORDER BY v.created_at DESC
+                LIMIT ?
+                """,
+                (dataset_id, limit),
+            ).fetchall()
+        return [
+            {
+                **dict(row),
+                "result": json.loads(row["result_json"]) if row["result_json"] else None,
+            }
+            for row in rows
+        ]
 
     @staticmethod
     def _decode_recipe(row: sqlite3.Row) -> dict[str, Any]:

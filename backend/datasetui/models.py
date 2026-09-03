@@ -617,3 +617,43 @@ class DatasetMergeCreate(StrictModel):
         if not normalized or any(ord(character) < 32 for character in normalized):
             raise ValueError("invalid robot type")
         return normalized
+
+
+ValidationMode = Literal["quick", "full", "export_gate"]
+
+
+class DatasetValidationCreate(StrictModel):
+    profile_id: str
+    mode: ValidationMode = "quick"
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+
+class DatasetConversionCreate(StrictModel):
+    profile_id: str
+    output_name: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?$",
+    )
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+    @field_validator("output_name")
+    @classmethod
+    def safe_output_name(cls, value: str) -> str:
+        if ".." in value:
+            raise ValueError("invalid output name")
+        return value
+
+
+class ValidationRun(StrictModel):
+    job_id: str
+    dataset_id: str
+    dataset_fingerprint: str
+    mode: ValidationMode
+    created_at: str
+    status: JobStatus
+    result_json: str | None
+    result: dict[str, Any] | None
+    error_code: str | None
+    error_message: str | None
+    finished_at: str | None

@@ -10,6 +10,6 @@ RUN pip install --no-cache-dir -r requirements-worker.txt
 
 COPY datasetui ./datasetui
 
-# Phase 12 will pin the legacy LeRobot converter dependencies and register
-# conversion jobs. Phase 1 deliberately provides only the isolated queue.
+# The v2.1 compatibility writer is isolated here so future legacy LeRobot pins
+# cannot affect the API or the v3 worker environment.
 CMD ["rq", "worker", "--url", "redis://redis:6379/0", "--serializer", "rq.serializers.JSONSerializer", "converter-v21"]

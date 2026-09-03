@@ -51,7 +51,9 @@ from datasetui.models import (
     CurationRecipeSnapshotCreate,
     CurationRecipeUpdate,
     Dataset,
+    DatasetConversionCreate,
     DatasetMergeCreate,
+    DatasetValidationCreate,
     DatasetReadiness,
     EpisodeFlagPatch,
     EpisodeFlags,
@@ -69,6 +71,7 @@ from datasetui.models import (
     ProfileUpdate,
     SystemHealth,
     StorageArea,
+    ValidationRun,
 )
 from datasetui.queueing import QueueDispatcher
 
@@ -758,6 +761,118 @@ def create_router(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Every merge source must be ready",
             ) from exc
+
+    def dataset_job_payload(dataset_id: str) -> dict[str, str]:
+        dataset = database.get_dataset(dataset_id)
+        if not dataset["available"] or dataset["readiness"] != "ready":
+            raise DatasetNotReadyError(dataset_id)
+        return {
+            "dataset_id": dataset["id"],
+            "fingerprint": dataset["fingerprint"],
+            "storage_area": dataset["storage_area"],
+            "relative_path": dataset["relative_path"],
+        }
+
+    @router.get(
+        "/datasets/{dataset_id}/validations", response_model=list[ValidationRun]
+    )
+    def list_dataset_validations(dataset_id: str) -> list[dict[str, Any]]:
+        try:
+            return database.list_validation_runs(dataset_id)
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+
+    @router.post(
+        "/datasets/{dataset_id}/validations",
+        response_model=Job,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def create_dataset_validation(
+        dataset_id: str, payload: DatasetValidationCreate, response: Response
+    ) -> dict[str, Any]:
+        try:
+            internal_payload = {
+                **dataset_job_payload(dataset_id),
+                "mode": payload.mode,
+            }
+            job, created = database.create_job(
+                kind="datasets.validate",
+                queue_name="cpu",
+                profile_id=payload.profile_id,
+                payload=internal_payload,
+                idempotency_key=payload.idempotency_key,
+            )
+            if created:
+                database.record_validation_run(
+                    job_id=job["id"],
+                    dataset_id=dataset_id,
+                    dataset_fingerprint=internal_payload["fingerprint"],
+                    mode=payload.mode,
+                )
+            if not created and job["status"] != "queued":
+                response.status_code = status.HTTP_200_OK
+                return job
+            job = dispatch_job(job)
+            if not created:
+                response.status_code = status.HTTP_200_OK
+            return job
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(status_code=409, detail="Dataset is not ready") from exc
+        except IdempotencyConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("failed to dispatch dataset validation")
+            if "job" in locals():
+                database.record_dispatch_error(job["id"], "Unable to dispatch job")
+            raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
+
+    @router.post(
+        "/datasets/{dataset_id}/conversions/v2.1",
+        response_model=Job,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def create_v21_conversion(
+        dataset_id: str, payload: DatasetConversionCreate, response: Response
+    ) -> dict[str, Any]:
+        try:
+            dataset = database.get_dataset(dataset_id)
+            if dataset["codebase_version"] != "v3.0":
+                raise ValueError("Only v3.0 datasets can be converted to v2.1")
+            internal_payload = {
+                **dataset_job_payload(dataset_id),
+                "output_name": payload.output_name,
+            }
+            job, created = database.create_job(
+                kind="datasets.convert_v21",
+                queue_name="converter-v21",
+                profile_id=payload.profile_id,
+                payload=internal_payload,
+                idempotency_key=payload.idempotency_key,
+            )
+            if not created and job["status"] != "queued":
+                response.status_code = status.HTTP_200_OK
+                return job
+            job = dispatch_job(job)
+            if not created:
+                response.status_code = status.HTTP_200_OK
+            return job
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(status_code=409, detail="Dataset is not ready") from exc
+        except (IdempotencyConflictError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("failed to dispatch v2.1 conversion")
+            if "job" in locals():
+                database.record_dispatch_error(job["id"], "Unable to dispatch job")
+            raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
         except IdempotencyConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:

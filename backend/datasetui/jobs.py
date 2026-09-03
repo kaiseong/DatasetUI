@@ -157,6 +157,34 @@ def _validate_merge_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {"sources": normalized, "output_name": output_name, "robot_type": robot_type.strip()}
 
 
+def _validate_dataset_job_payload(
+    payload: dict[str, Any], *, conversion: bool = False
+) -> dict[str, Any]:
+    expected = {"dataset_id", "fingerprint", "storage_area", "relative_path"}
+    if conversion:
+        expected.add("output_name")
+    else:
+        expected.add("mode")
+    if set(payload) != expected:
+        raise ValueError("invalid internal dataset job payload")
+    if not isinstance(payload["dataset_id"], str) or not UUID_PATTERN.fullmatch(payload["dataset_id"]):
+        raise ValueError("invalid internal dataset ID")
+    if not isinstance(payload["fingerprint"], str) or not re.fullmatch(r"[0-9a-f]{64}", payload["fingerprint"]):
+        raise ValueError("invalid internal dataset fingerprint")
+    if payload["storage_area"] not in {"raw", "derived"}:
+        raise ValueError("invalid internal storage area")
+    relative = payload["relative_path"]
+    if not isinstance(relative, str) or relative.startswith("/") or any(part in {"", ".", ".."} for part in relative.split("/")):
+        raise ValueError("invalid internal dataset path")
+    if conversion:
+        output = payload["output_name"]
+        if not isinstance(output, str) or not OUTPUT_NAME_PATTERN.fullmatch(output) or ".." in output:
+            raise ValueError("invalid conversion output name")
+    elif payload["mode"] not in {"quick", "full", "export_gate"}:
+        raise ValueError("invalid validation mode")
+    return dict(payload)
+
+
 JOB_HANDLERS: dict[str, tuple[str, JobHandler]] = {
     "phase2.smoke": ("cpu", _phase2_smoke),
     "datasets.scan": ("io", _scan_datasets),
@@ -177,6 +205,10 @@ def validate_job_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         return _validate_curation_payload(payload)
     if kind == "datasets.merge":
         return _validate_merge_payload(payload)
+    if kind == "datasets.validate":
+        return _validate_dataset_job_payload(payload)
+    if kind == "datasets.convert_v21":
+        return _validate_dataset_job_payload(payload, conversion=True)
     raise ValueError(f"Unsupported job kind: {kind}")
 
 
@@ -229,6 +261,32 @@ def run_registered_job(
             database=database,
             settings=settings,
             payload=_validate_merge_payload(payload),
+            job_id=job_id,
+            worker_id=worker_id,
+        )
+    if kind == "datasets.validate":
+        from datasetui.validation import validate_registered_dataset
+
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        return validate_registered_dataset(
+            database=database,
+            settings=settings,
+            payload=_validate_dataset_job_payload(payload),
+        )
+    if kind == "datasets.convert_v21":
+        from datasetui.conversion import convert_dataset_to_v21
+
+        if job_id is None or worker_id is None:
+            raise ValueError("dataset conversion requires worker ownership")
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        return convert_dataset_to_v21(
+            database=database,
+            settings=settings,
+            payload=_validate_dataset_job_payload(payload, conversion=True),
             job_id=job_id,
             worker_id=worker_id,
         )

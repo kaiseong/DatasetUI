@@ -304,6 +304,7 @@ def _write_dataset(
     trim_config: dict[str, Any],
     annotations: dict[int, dict[str, Any]],
     relative_action: dict[str, Any] | None = None,
+    output_version: str | None = None,
 ) -> dict[str, Any]:
     (destination / "meta").mkdir(parents=True)
     (destination / "data").mkdir()
@@ -378,10 +379,18 @@ def _write_dataset(
             data["task_index"] = data["task_index"].map(task_mapping).astype("int64")
 
     language_types = _language_column_types(episodes)
-    if source.version == "v3.0":
+    target_version = output_version or source.version
+    if target_version == "v3.0":
         _write_v3(source, destination, episodes, tasks, language_types)
     else:
-        _write_v2(source, destination, episodes, tasks, language_types)
+        _write_v2(
+            source,
+            destination,
+            episodes,
+            tasks,
+            language_types,
+            target_version=target_version,
+        )
     _write_stats(destination / "meta" / "stats.json", [item[0] for item in episodes])
     return {
         "lineage": lineage,
@@ -808,9 +817,19 @@ def _write_v2(
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
     tasks: list[dict[str, Any]],
     language_types: dict[str, pa.DataType],
+    *,
+    target_version: str | None = None,
 ) -> None:
     info = _updated_info(source.info, episodes, language_types)
+    info.pop("total_chunks", None)
+    info["data_path"] = (
+        "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
+    )
+    info["video_path"] = (
+        "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4"
+    )
     info.update(
+        codebase_version=target_version or source.version,
         total_episodes=len(episodes),
         total_frames=sum(len(item[0]) for item in episodes),
         total_tasks=len(tasks),
@@ -838,7 +857,16 @@ def _write_v2(
                 "length": len(data),
             }
         )
-        _write_episode_videos(source, root, index, metadata, start, end, len(data))
+        _write_episode_videos(
+            source,
+            root,
+            index,
+            metadata,
+            start,
+            end,
+            len(data),
+            output_version=target_version or source.version,
+        )
     _write_json_lines(root / "meta" / "episodes.jsonl", episode_rows)
 
 
@@ -886,7 +914,16 @@ def _write_v3(
             row[f"videos/{key}/to_timestamp"] = len(data) / source.fps
         metadata_rows.append(row)
         offset += len(data)
-        _write_episode_videos(source, root, index, metadata, start, end, len(data))
+        _write_episode_videos(
+            source,
+            root,
+            index,
+            metadata,
+            start,
+            end,
+            len(data),
+            output_version="v3.0",
+        )
     metadata_path = root / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(metadata_rows).to_parquet(metadata_path, index=False)
@@ -900,6 +937,8 @@ def _write_episode_videos(
     trim_start: int,
     trim_end: int,
     expected_frames: int,
+    *,
+    output_version: str,
 ) -> None:
     for key in source.video_keys:
         source_path, segment_start = source.video_source(
@@ -907,17 +946,14 @@ def _write_episode_videos(
         )
         if not source_path.is_file() or source_path.is_symlink():
             raise CurationTransformError("Source episode video is missing")
-        if source.version == "v3.0":
+        if output_version == "v3.0":
             chunk, file_index = output_index // 1000, output_index % 1000
             destination = (
                 output_root
                 / f"videos/{key}/chunk-{chunk:03d}/file-{file_index:03d}.mp4"
             )
         else:
-            template = source.info.get(
-                "video_path",
-                "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
-            )
+            template = "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4"
             destination = _safe_child(
                 output_root,
                 template.format(

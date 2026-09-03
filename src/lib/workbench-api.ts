@@ -146,6 +146,37 @@ export type JobEvent = {
   created_at: string;
 };
 
+export type ValidationMode = "quick" | "full" | "export_gate";
+
+export type ValidationResult = {
+  mode: ValidationMode;
+  passed: boolean;
+  checked_episodes: number;
+  total_episodes: number;
+  checked_frames: number;
+  failures: number;
+  warnings: number;
+  issues: Array<{
+    severity: "WARN" | "FAIL";
+    code: string;
+    message: string;
+    episode_index?: number;
+  }>;
+};
+
+export type ValidationRun = {
+  job_id: string;
+  dataset_id: string;
+  dataset_fingerprint: string;
+  mode: ValidationMode;
+  created_at: string;
+  status: JobStatus;
+  result: ValidationResult | null;
+  error_code: string | null;
+  error_message: string | null;
+  finished_at: string | null;
+};
+
 export type SystemHealth = {
   ok: boolean;
   service: string;
@@ -267,6 +298,42 @@ export function mergeDatasets(
       dataset_ids: datasetIds,
       output_name: outputName,
       robot_type: robotType,
+      idempotency_key: idempotencyKey,
+    }),
+  });
+}
+
+export function validateDataset(
+  datasetId: string,
+  profileId: string,
+  mode: ValidationMode,
+  idempotencyKey: string,
+): Promise<Job> {
+  return requestJson(`/api/v1/datasets/${encodeURIComponent(datasetId)}/validations`, {
+    method: "POST",
+    body: JSON.stringify({
+      profile_id: profileId,
+      mode,
+      idempotency_key: idempotencyKey,
+    }),
+  });
+}
+
+export function listDatasetValidations(datasetId: string): Promise<ValidationRun[]> {
+  return requestJson(`/api/v1/datasets/${encodeURIComponent(datasetId)}/validations`);
+}
+
+export function convertDatasetToV21(
+  datasetId: string,
+  profileId: string,
+  outputName: string,
+  idempotencyKey: string,
+): Promise<Job> {
+  return requestJson(`/api/v1/datasets/${encodeURIComponent(datasetId)}/conversions/v2.1`, {
+    method: "POST",
+    body: JSON.stringify({
+      profile_id: profileId,
+      output_name: outputName,
       idempotency_key: idempotencyKey,
     }),
   });

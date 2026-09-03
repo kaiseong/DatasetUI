@@ -18,7 +18,7 @@ before the next dataset mutation capability is enabled.
 | 9     | Task and VQA annotation workflows                                | Complete |
 | 10    | Relative-action derivation                                       | Complete |
 | 11    | Merge, lineage, and collision handling                           | Complete |
-| 12    | Integrity checks, export gate, and v3.0 to v2.1 conversion       | Planned  |
+| 12    | Integrity checks, export gate, and v3.0 to v2.1 conversion       | Complete |
 | 13    | NAS/Hugging Face/Ubuntu-PC delivery and full V1 acceptance       | Planned  |
 
 This repository document is the executable roadmap. If the external handoff
