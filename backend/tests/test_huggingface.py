@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import asyncio
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 from fastapi import FastAPI
@@ -14,7 +15,7 @@ from datasetui.hf_errors import (
     HuggingFaceImportConflictError,
     HuggingFaceImportValidationError,
 )
-from datasetui.huggingface import import_huggingface_dataset
+from datasetui.huggingface import HuggingFaceGateway, import_huggingface_dataset
 from datasetui.queueing import RecordingDispatcher
 
 
@@ -141,6 +142,38 @@ def _client(tmp_path: Path):
         )
     )
     return LocalClient(app), database, dispatcher, gateway, settings
+
+
+def test_hf_gateway_uses_current_list_datasets_contract() -> None:
+    captured: dict = {}
+
+    class Api:
+        def list_datasets(self, **kwargs):
+            captured.update(kwargs)
+            return [
+                SimpleNamespace(
+                    id="rainbowrobotics/pick-cup",
+                    private=False,
+                    gated=False,
+                    downloads=3,
+                    likes=1,
+                    last_modified=None,
+                    sha=SHA,
+                    tags=["lerobot"],
+                )
+            ]
+
+    gateway = HuggingFaceGateway()
+    gateway.api = Api()
+
+    assert gateway.list_datasets(query="pick", limit=5)[0]["name"] == "pick-cup"
+    assert captured == {
+        "author": "rainbowrobotics",
+        "search": "pick",
+        "sort": "last_modified",
+        "limit": 5,
+        "token": None,
+    }
 
 
 def test_hf_discovery_and_revision_endpoints_are_server_scoped(tmp_path: Path) -> None:

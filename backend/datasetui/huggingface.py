@@ -83,7 +83,6 @@ class HuggingFaceGateway:
                 author=HF_NAMESPACE,
                 search=query or None,
                 sort="last_modified",
-                direction=-1,
                 limit=limit,
                 token=self.token,
             )
