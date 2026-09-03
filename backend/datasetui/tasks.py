@@ -9,7 +9,7 @@ from contextlib import contextmanager
 from collections.abc import Iterator
 
 from datasetui.config import Settings
-from datasetui.database import Database, JobLeaseLostError
+from datasetui.database import Database, JobLeaseLostError, RecipeRevisionMismatchError
 from datasetui.datasets import DatasetRootUnavailableError
 from datasetui.hf_errors import (
     HuggingFaceDatasetNotFoundError,
@@ -20,6 +20,7 @@ from datasetui.hf_errors import (
     HuggingFaceUnavailableError,
 )
 from datasetui.jobs import run_registered_job
+from datasetui.transform_errors import CurationTransformError
 
 
 logger = logging.getLogger("datasetui.worker")
@@ -49,7 +50,7 @@ def run_job(job_id: str) -> dict[str, object]:
             lease_seconds=settings.job_lease_seconds,
             heartbeat_seconds=settings.job_heartbeat_seconds,
         ):
-            if job["kind"] == "hf.import":
+            if job["kind"] in {"hf.import", "curation.materialize"}:
                 result = run_registered_job(
                     job["kind"],
                     job["payload"],
@@ -140,4 +141,8 @@ def _public_failure(exc: Exception) -> tuple[str, str]:
         return "hf_validation_failed", "The downloaded dataset failed validation"
     if isinstance(exc, JobLeaseLostError):
         return "worker_lost", "The worker stopped responding"
+    if isinstance(exc, RecipeRevisionMismatchError):
+        return "source_revision_changed", "The source dataset revision changed"
+    if isinstance(exc, CurationTransformError):
+        return "curation_failed", str(exc)
     return "job_failed", "The job could not be completed"

@@ -175,12 +175,47 @@ class EpisodeFlags(StrictModel):
 
 
 CurationSelectionMode = Literal["all", "flagged", "unflagged"]
+CurationOperation = Literal["subset", "delete_flagged", "train_eval_split"]
+
+
+class TrimEpisodeOverride(StrictModel):
+    start_frame: int = Field(ge=0)
+    end_frame: int = Field(gt=0)
+
+    @model_validator(mode="after")
+    def validate_bounds(self) -> "TrimEpisodeOverride":
+        if self.end_frame <= self.start_frame:
+            raise ValueError("trim end frame must be after start frame")
+        return self
+
+
+class TrimConfig(StrictModel):
+    enabled: bool = False
+    threshold: float = Field(default=0.02, ge=0, le=10)
+    hold_time_s: float = Field(default=0.5, gt=0, le=30)
+    margin_s: float = Field(default=1.0, ge=0, le=60)
+    dimensions: list[str] = Field(default_factory=list, max_length=256)
+    episode_overrides: dict[int, TrimEpisodeOverride] = Field(
+        default_factory=dict, max_length=500
+    )
+
+    @field_validator("dimensions")
+    @classmethod
+    def validate_dimensions(cls, value: list[str]) -> list[str]:
+        cleaned = [item.strip() for item in value]
+        if any(not item or len(item) > 160 for item in cleaned):
+            raise ValueError("trim dimensions must be non-empty names")
+        if len(cleaned) != len(set(cleaned)):
+            raise ValueError("trim dimensions cannot contain duplicates")
+        return cleaned
 
 
 class CurationRecipeCreate(StrictModel):
     profile_id: str
     name: str
     selection_mode: CurationSelectionMode
+    operation: CurationOperation = "subset"
+    trim_config: TrimConfig = Field(default_factory=TrimConfig)
 
     _normalize_name = field_validator("name")(normalize_recipe_name)
 
@@ -189,6 +224,8 @@ class CurationRecipeUpdate(StrictModel):
     profile_id: str
     name: str | None = None
     selection_mode: CurationSelectionMode | None = None
+    operation: CurationOperation | None = None
+    trim_config: TrimConfig | None = None
     archived: bool | None = None
 
     @field_validator("name")
@@ -198,8 +235,17 @@ class CurationRecipeUpdate(StrictModel):
 
     @model_validator(mode="after")
     def require_change(self) -> "CurationRecipeUpdate":
-        if self.name is None and self.selection_mode is None and self.archived is None:
-            raise ValueError("name, selection_mode, or archived is required")
+        if all(
+            value is None
+            for value in (
+                self.name,
+                self.selection_mode,
+                self.operation,
+                self.trim_config,
+                self.archived,
+            )
+        ):
+            raise ValueError("at least one recipe change is required")
         return self
 
 
@@ -210,6 +256,8 @@ class CurationRecipe(StrictModel):
     profile_id: str
     name: str
     selection_mode: CurationSelectionMode
+    operation: CurationOperation
+    trim_config: TrimConfig
     created_at: str
     updated_at: str
     archived_at: str | None
@@ -227,10 +275,29 @@ class CurationRecipeSnapshot(StrictModel):
     profile_id: str
     recipe_name: str
     selection_mode: CurationSelectionMode
+    operation: CurationOperation
+    trim_config: TrimConfig
     flag_revision: int
     flagged_episode_indices: list[int]
     selected_episode_indices: list[int]
     created_at: str
+
+
+class CurationRunCreate(StrictModel):
+    profile_id: str
+    output_name: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?$",
+    )
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+    @field_validator("output_name")
+    @classmethod
+    def validate_output_name(cls, value: str) -> str:
+        if ".." in value:
+            raise ValueError("invalid output name")
+        return value
 
 
 class HuggingFaceDataset(StrictModel):

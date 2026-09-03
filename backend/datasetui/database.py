@@ -273,6 +273,24 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
             "CREATE INDEX curation_recipe_snapshots_recipe_idx ON curation_recipe_snapshots(recipe_id, created_at DESC)",
         ),
     ),
+    (
+        5,
+        (
+            "ALTER TABLE curation_recipes ADD COLUMN operation TEXT NOT NULL DEFAULT 'subset'",
+            'ALTER TABLE curation_recipes ADD COLUMN trim_config_json TEXT NOT NULL DEFAULT \'{"enabled":false,"threshold":0.02,"hold_time_s":0.5,"margin_s":1.0,"dimensions":[],"episode_overrides":{}}\'',
+            "ALTER TABLE curation_recipe_snapshots ADD COLUMN operation TEXT NOT NULL DEFAULT 'subset'",
+            'ALTER TABLE curation_recipe_snapshots ADD COLUMN trim_config_json TEXT NOT NULL DEFAULT \'{"enabled":false,"threshold":0.02,"hold_time_s":0.5,"margin_s":1.0,"dimensions":[],"episode_overrides":{}}\'',
+            """
+            CREATE TABLE curation_runs (
+                job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+                snapshot_id TEXT NOT NULL REFERENCES curation_recipe_snapshots(id),
+                output_name TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """,
+            "CREATE INDEX curation_runs_snapshot_idx ON curation_runs(snapshot_id, created_at DESC)",
+        ),
+    ),
 )
 
 
@@ -1382,6 +1400,8 @@ class Database:
         profile_id: str,
         name: str,
         selection_mode: str,
+        operation: str = "subset",
+        trim_config: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         recipe_id = str(uuid.uuid4())
         now = utc_now()
@@ -1395,8 +1415,9 @@ class Database:
                     """
                     INSERT INTO curation_recipes(
                         id, dataset_id, dataset_fingerprint, profile_id,
-                        name, name_key, selection_mode, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        name, name_key, selection_mode, operation,
+                        trim_config_json, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         recipe_id,
@@ -1406,6 +1427,8 @@ class Database:
                         name,
                         _recipe_name_key(name),
                         selection_mode,
+                        operation,
+                        _json_dump(trim_config or {"enabled": False}),
                         now,
                         now,
                     ),
@@ -1432,7 +1455,8 @@ class Database:
             rows = connection.execute(
                 f"""
                 SELECT id, dataset_id, dataset_fingerprint, profile_id, name,
-                       selection_mode, created_at, updated_at, archived_at
+                       selection_mode, operation, trim_config_json,
+                       created_at, updated_at, archived_at
                 FROM curation_recipes
                 WHERE dataset_id = ? AND dataset_fingerprint = ?
                   AND profile_id = ? {archived_clause}
@@ -1440,21 +1464,22 @@ class Database:
                 """,
                 (dataset_id, dataset["fingerprint"], profile_id),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return [self._decode_recipe(row) for row in rows]
 
     def get_curation_recipe(self, recipe_id: str, *, profile_id: str) -> dict[str, Any]:
         with self.connect() as connection:
             row = connection.execute(
                 """
                 SELECT id, dataset_id, dataset_fingerprint, profile_id, name,
-                       selection_mode, created_at, updated_at, archived_at
+                       selection_mode, operation, trim_config_json,
+                       created_at, updated_at, archived_at
                 FROM curation_recipes WHERE id = ? AND profile_id = ?
                 """,
                 (recipe_id, profile_id),
             ).fetchone()
         if row is None:
             raise RecipeNotFoundError(recipe_id)
-        return dict(row)
+        return self._decode_recipe(row)
 
     def update_curation_recipe(
         self,
@@ -1463,7 +1488,9 @@ class Database:
         profile_id: str,
         name: str | None,
         selection_mode: str | None,
-        archived: bool | None,
+        operation: str | None = None,
+        trim_config: dict[str, Any] | None = None,
+        archived: bool | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
         try:
@@ -1488,6 +1515,14 @@ class Database:
                     if selection_mode is not None
                     else recipe["selection_mode"]
                 )
+                next_operation = (
+                    operation if operation is not None else recipe["operation"]
+                )
+                next_trim_config = (
+                    _json_dump(trim_config)
+                    if trim_config is not None
+                    else recipe["trim_config_json"]
+                )
                 next_archived_at = recipe["archived_at"]
                 if archived is True:
                     next_archived_at = now
@@ -1496,14 +1531,16 @@ class Database:
                 connection.execute(
                     """
                     UPDATE curation_recipes
-                    SET name = ?, name_key = ?, selection_mode = ?,
-                        archived_at = ?, updated_at = ?
+                    SET name = ?, name_key = ?, selection_mode = ?, operation = ?,
+                        trim_config_json = ?, archived_at = ?, updated_at = ?
                     WHERE id = ?
                     """,
                     (
                         next_name,
                         _recipe_name_key(next_name),
                         next_selection,
+                        next_operation,
+                        next_trim_config,
                         next_archived_at,
                         now,
                         recipe_id,
@@ -1546,7 +1583,15 @@ class Database:
             )
             flagged = flags["episode_indices"]
             flagged_set = set(flagged)
-            if recipe["selection_mode"] == "all":
+            if recipe["operation"] == "train_eval_split":
+                selected = list(range(dataset["total_episodes"]))
+            elif recipe["operation"] == "delete_flagged":
+                selected = [
+                    index
+                    for index in range(dataset["total_episodes"])
+                    if index not in flagged_set
+                ]
+            elif recipe["selection_mode"] == "all":
                 selected = list(range(dataset["total_episodes"]))
             elif recipe["selection_mode"] == "flagged":
                 selected = flagged
@@ -1556,14 +1601,23 @@ class Database:
                     for index in range(dataset["total_episodes"])
                     if index not in flagged_set
                 ]
+            if not selected:
+                raise ValueError("recipe selection cannot be empty")
+            if recipe["operation"] == "train_eval_split" and (
+                not flagged or len(flagged) == dataset["total_episodes"]
+            ):
+                raise ValueError(
+                    "train/eval split requires non-empty train and eval sets"
+                )
             connection.execute(
                 """
                 INSERT INTO curation_recipe_snapshots(
                     id, recipe_id, dataset_id, dataset_fingerprint, profile_id,
-                    recipe_name, selection_mode, flag_revision,
+                    recipe_name, selection_mode, flag_revision, operation,
+                    trim_config_json,
                     flagged_episode_indices_json, selected_episode_indices_json,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     snapshot_id,
@@ -1574,6 +1628,8 @@ class Database:
                     recipe["name"],
                     recipe["selection_mode"],
                     flags["revision"],
+                    recipe["operation"],
+                    recipe["trim_config_json"],
                     _json_dump(flagged),
                     _json_dump(selected),
                     now,
@@ -1587,11 +1643,56 @@ class Database:
             "profile_id": profile_id,
             "recipe_name": recipe["name"],
             "selection_mode": recipe["selection_mode"],
+            "operation": recipe["operation"],
+            "trim_config": json.loads(recipe["trim_config_json"]),
             "flag_revision": flags["revision"],
             "flagged_episode_indices": flagged,
             "selected_episode_indices": selected,
             "created_at": now,
         }
+
+    def get_curation_snapshot(self, snapshot_id: str) -> dict[str, Any]:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT s.*, d.storage_area, d.relative_path, d.name AS dataset_name,
+                       d.codebase_version, d.readiness, d.missing_since, d.fingerprint
+                FROM curation_recipe_snapshots s
+                JOIN datasets d ON d.id = s.dataset_id
+                WHERE s.id = ?
+                """,
+                (snapshot_id,),
+            ).fetchone()
+        if row is None:
+            raise RecipeNotFoundError(snapshot_id)
+        result = dict(row)
+        result["flagged_episode_indices"] = json.loads(
+            result.pop("flagged_episode_indices_json")
+        )
+        result["selected_episode_indices"] = json.loads(
+            result.pop("selected_episode_indices_json")
+        )
+        result["trim_config"] = json.loads(result.pop("trim_config_json"))
+        return result
+
+    def record_curation_run(
+        self, *, job_id: str, snapshot_id: str, output_name: str
+    ) -> None:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO curation_runs(
+                    job_id, snapshot_id, output_name, created_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (job_id, snapshot_id, output_name, utc_now()),
+            )
+
+    @staticmethod
+    def _decode_recipe(row: sqlite3.Row) -> dict[str, Any]:
+        result = dict(row)
+        result["trim_config"] = json.loads(result.pop("trim_config_json"))
+        return result
 
     def _job_for_idempotency(
         self, profile_id: str, idempotency_key: str
@@ -1605,6 +1706,11 @@ class Database:
                 (profile_id, idempotency_key),
             ).fetchone()
         return self.get_job(row["id"]) if row else None
+
+    def get_job_for_idempotency(
+        self, profile_id: str, idempotency_key: str
+    ) -> dict[str, Any] | None:
+        return self._job_for_idempotency(profile_id, idempotency_key)
 
     @staticmethod
     def _resolve_idempotent_job(

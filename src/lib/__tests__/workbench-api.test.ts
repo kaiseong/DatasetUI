@@ -11,6 +11,7 @@ import {
   listProfiles,
   publicJobError,
   refreshLibrary,
+  runCurationRecipe,
   updateEpisodeFlags,
 } from "../workbench-api";
 
@@ -148,6 +149,15 @@ describe("Workbench API client", () => {
       "profile-1",
       "Review failures",
       "flagged",
+      "subset",
+      {
+        enabled: false,
+        threshold: 0.02,
+        hold_time_s: 0.5,
+        margin_s: 1,
+        dimensions: [],
+        episode_overrides: {},
+      },
     );
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "/api/v1/datasets/dataset-1/recipes",
@@ -157,6 +167,38 @@ describe("Workbench API client", () => {
       profile_id: "profile-1",
       name: "Review failures",
       selection_mode: "flagged",
+      operation: "subset",
+      trim_config: {
+        enabled: false,
+        threshold: 0.02,
+        hold_time_s: 0.5,
+        margin_s: 1,
+        dimensions: [],
+        episode_overrides: {},
+      },
+    });
+  });
+
+  test("starts curation with an opaque recipe and safe output name", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({ id: "job-curate", status: "queued" }, { status: 202 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await runCurationRecipe(
+      "recipe/id",
+      "profile-1",
+      "pick-clean",
+      "curation-intent-1",
+    );
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/recipes/recipe%2Fid/runs",
+    );
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(init.body as string)).toEqual({
+      profile_id: "profile-1",
+      output_name: "pick-clean",
+      idempotency_key: "curation-intent-1",
     });
   });
 

@@ -1,0 +1,2 @@
+class CurationTransformError(RuntimeError):
+    pass

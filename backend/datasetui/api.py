@@ -45,6 +45,7 @@ from datasetui.jobs import queue_for_kind, validate_job_payload
 from datasetui.models import (
     CurationRecipe,
     CurationRecipeCreate,
+    CurationRunCreate,
     CurationRecipeSnapshot,
     CurationRecipeSnapshotCreate,
     CurationRecipeUpdate,
@@ -476,6 +477,8 @@ def create_router(
                 profile_id=payload.profile_id,
                 name=payload.name,
                 selection_mode=payload.selection_mode,
+                operation=payload.operation,
+                trim_config=payload.trim_config.model_dump(mode="json"),
             )
         except DatasetNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Dataset not found") from exc
@@ -502,6 +505,12 @@ def create_router(
                 profile_id=payload.profile_id,
                 name=payload.name,
                 selection_mode=payload.selection_mode,
+                operation=payload.operation,
+                trim_config=(
+                    payload.trim_config.model_dump(mode="json")
+                    if payload.trim_config is not None
+                    else None
+                ),
                 archived=payload.archived,
             )
         except (RecipeNotFoundError, ProfileNotFoundError) as exc:
@@ -515,6 +524,97 @@ def create_router(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="The recipe belongs to a different dataset revision",
+            ) from exc
+
+    @router.post(
+        "/recipes/{recipe_id}/runs",
+        response_model=Job,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def run_curation_recipe(
+        recipe_id: str, payload: CurationRunCreate, response: Response
+    ) -> dict[str, Any]:
+        def matching_existing_job(existing: dict[str, Any]) -> dict[str, Any]:
+            if existing["kind"] != "curation.materialize":
+                raise IdempotencyConflictError(
+                    "idempotency key is already bound to a different request"
+                )
+            existing_snapshot = database.get_curation_snapshot(
+                existing["payload"].get("snapshot_id", "")
+            )
+            if (
+                existing_snapshot["recipe_id"] != recipe_id
+                or existing["payload"].get("output_name") != payload.output_name
+            ):
+                raise IdempotencyConflictError(
+                    "idempotency key is already bound to a different request"
+                )
+            return existing
+
+        try:
+            existing = database.get_job_for_idempotency(
+                payload.profile_id, payload.idempotency_key
+            )
+            if existing is not None:
+                existing = matching_existing_job(existing)
+                if existing["status"] == "queued":
+                    existing = dispatch_job(existing)
+                response.status_code = status.HTTP_200_OK
+                return existing
+            snapshot = database.snapshot_curation_recipe(
+                recipe_id, profile_id=payload.profile_id
+            )
+            internal_payload = {
+                "snapshot_id": snapshot["id"],
+                "output_name": payload.output_name,
+            }
+            try:
+                job, created = database.create_job(
+                    kind="curation.materialize",
+                    queue_name="cpu",
+                    profile_id=payload.profile_id,
+                    payload=internal_payload,
+                    idempotency_key=payload.idempotency_key,
+                )
+            except IdempotencyConflictError:
+                raced_job = database.get_job_for_idempotency(
+                    payload.profile_id, payload.idempotency_key
+                )
+                if raced_job is None:
+                    raise
+                job = matching_existing_job(raced_job)
+                created = False
+            if created:
+                database.record_curation_run(
+                    job_id=job["id"],
+                    snapshot_id=snapshot["id"],
+                    output_name=payload.output_name,
+                )
+            elif job["status"] != "queued":
+                response.status_code = status.HTTP_200_OK
+                return job
+            job = dispatch_job(job)
+            if not created:
+                response.status_code = status.HTTP_200_OK
+            return job
+        except (RecipeNotFoundError, ProfileNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail="Recipe not found") from exc
+        except (DatasetNotReadyError, RecipeRevisionMismatchError) as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The recipe belongs to a different dataset revision",
+            ) from exc
+        except IdempotencyConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("failed to dispatch curation run")
+            if "job" in locals():
+                database.record_dispatch_error(job["id"], "Unable to dispatch job")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Job queue unavailable",
             ) from exc
 
     @router.post(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Any
+import re
 
 from datasetui.config import Settings
 from datasetui.database import Database
@@ -9,6 +10,10 @@ from datasetui.datasets import scan_storage_area
 
 
 JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
+UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+)
+OUTPUT_NAME_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?$")
 
 
 def _phase2_smoke(payload: dict[str, Any]) -> dict[str, Any]:
@@ -111,6 +116,22 @@ def _validate_hf_import_payload(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _validate_curation_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if set(payload) != {"snapshot_id", "output_name"}:
+        raise ValueError("invalid internal curation payload")
+    snapshot_id = payload["snapshot_id"]
+    output_name = payload["output_name"]
+    if not isinstance(snapshot_id, str) or not UUID_PATTERN.fullmatch(snapshot_id):
+        raise ValueError("invalid curation snapshot")
+    if (
+        not isinstance(output_name, str)
+        or not OUTPUT_NAME_PATTERN.fullmatch(output_name)
+        or ".." in output_name
+    ):
+        raise ValueError("invalid curation output name")
+    return {"snapshot_id": snapshot_id, "output_name": output_name}
+
+
 JOB_HANDLERS: dict[str, tuple[str, JobHandler]] = {
     "phase2.smoke": ("cpu", _phase2_smoke),
     "datasets.scan": ("io", _scan_datasets),
@@ -127,6 +148,8 @@ def validate_job_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         return _validate_empty_payload(payload)
     if kind == "datasets.scan":
         return _validate_dataset_scan_payload(payload)
+    if kind == "curation.materialize":
+        return _validate_curation_payload(payload)
     raise ValueError(f"Unsupported job kind: {kind}")
 
 
@@ -149,6 +172,21 @@ def run_registered_job(
             database=database,
             settings=settings,
             payload=_validate_hf_import_payload(payload),
+            job_id=job_id,
+            worker_id=worker_id,
+        )
+    if kind == "curation.materialize":
+        from datasetui.transforms import materialize_curation_recipe
+
+        if job_id is None or worker_id is None:
+            raise ValueError("curation materialization requires worker ownership")
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        return materialize_curation_recipe(
+            database=database,
+            settings=settings,
+            payload=_validate_curation_payload(payload),
             job_id=job_id,
             worker_id=worker_id,
         )

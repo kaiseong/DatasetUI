@@ -46,6 +46,19 @@ export type EpisodeFlagChange = {
 };
 
 export type CurationSelectionMode = "all" | "flagged" | "unflagged";
+export type CurationOperation =
+  | "subset"
+  | "delete_flagged"
+  | "train_eval_split";
+
+export type TrimConfig = {
+  enabled: boolean;
+  threshold: number;
+  hold_time_s: number;
+  margin_s: number;
+  dimensions: string[];
+  episode_overrides: Record<string, { start_frame: number; end_frame: number }>;
+};
 
 export type CurationRecipe = {
   id: string;
@@ -54,6 +67,8 @@ export type CurationRecipe = {
   profile_id: string;
   name: string;
   selection_mode: CurationSelectionMode;
+  operation: CurationOperation;
+  trim_config: TrimConfig;
   created_at: string;
   updated_at: string;
   archived_at: string | null;
@@ -67,6 +82,8 @@ export type CurationRecipeSnapshot = {
   profile_id: string;
   recipe_name: string;
   selection_mode: CurationSelectionMode;
+  operation: CurationOperation;
+  trim_config: TrimConfig;
   flag_revision: number;
   flagged_episode_indices: number[];
   selected_episode_indices: number[];
@@ -257,6 +274,8 @@ export function createCurationRecipe(
   profileId: string,
   name: string,
   selectionMode: CurationSelectionMode,
+  operation: CurationOperation,
+  trimConfig: TrimConfig,
 ): Promise<CurationRecipe> {
   return requestJson(
     `/api/v1/datasets/${encodeURIComponent(datasetId)}/recipes`,
@@ -266,6 +285,8 @@ export function createCurationRecipe(
         profile_id: profileId,
         name,
         selection_mode: selectionMode,
+        operation,
+        trim_config: trimConfig,
       }),
     },
   );
@@ -277,12 +298,30 @@ export function updateCurationRecipe(
   change: {
     name?: string;
     selection_mode?: CurationSelectionMode;
+    operation?: CurationOperation;
+    trim_config?: TrimConfig;
     archived?: boolean;
   },
 ): Promise<CurationRecipe> {
   return requestJson(`/api/v1/recipes/${encodeURIComponent(recipeId)}`, {
     method: "PATCH",
     body: JSON.stringify({ profile_id: profileId, ...change }),
+  });
+}
+
+export function runCurationRecipe(
+  recipeId: string,
+  profileId: string,
+  outputName: string,
+  idempotencyKey: string,
+): Promise<Job> {
+  return requestJson(`/api/v1/recipes/${encodeURIComponent(recipeId)}/runs`, {
+    method: "POST",
+    body: JSON.stringify({
+      profile_id: profileId,
+      output_name: outputName,
+      idempotency_key: idempotencyKey,
+    }),
   });
 }
 
@@ -398,6 +437,12 @@ export function publicJobError(errorCode: string | null): string {
   }
   if (errorCode === "worker_lost") {
     return "작업자가 중단되어 자동으로 다시 시도하고 있습니다.";
+  }
+  if (errorCode === "source_revision_changed") {
+    return "원본 데이터셋 revision이 바뀌어 안전하게 중단했습니다.";
+  }
+  if (errorCode === "curation_failed") {
+    return "데이터셋을 만드는 중 구조 또는 영상 검증에 실패했습니다.";
   }
   return "작업을 완료하지 못했습니다. 관리자에게 확인해 주세요.";
 }

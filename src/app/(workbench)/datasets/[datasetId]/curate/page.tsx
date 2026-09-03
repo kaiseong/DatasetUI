@@ -14,6 +14,9 @@ import {
   LuArrowLeft,
   LuFlag,
   LuLayers3,
+  LuScissors,
+  LuSplit,
+  LuWandSparkles,
   LuPlay,
   LuSave,
   LuShieldCheck,
@@ -24,11 +27,14 @@ import {
   getDataset,
   getEpisodeFlags,
   listCurationRecipes,
+  runCurationRecipe,
   updateCurationRecipe,
   type CurationRecipe,
+  type CurationOperation,
   type CurationSelectionMode,
   type DatasetSummary,
   type EpisodeFlags,
+  type TrimConfig,
 } from "@/lib/workbench-api";
 import { registeredDatasetViewerPath } from "@/utils/versionUtils";
 
@@ -54,6 +60,37 @@ const MODES: Array<{
   },
 ];
 
+const OPERATIONS: Array<{
+  value: CurationOperation;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "subset",
+    label: "선택본 만들기",
+    description: "Flag 선택 규칙대로 하나의 새 데이터셋을 만듭니다.",
+  },
+  {
+    value: "delete_flagged",
+    label: "Flag 삭제본",
+    description: "원본은 보존하고 Flag를 뺀 새 데이터셋을 만듭니다.",
+  },
+  {
+    value: "train_eval_split",
+    label: "Train / Eval",
+    description: "Flag는 Eval, 나머지는 Train으로 각각 생성합니다.",
+  },
+];
+
+const DEFAULT_TRIM: TrimConfig = {
+  enabled: false,
+  threshold: 0.02,
+  hold_time_s: 0.5,
+  margin_s: 1,
+  dimensions: [],
+  episode_overrides: {},
+};
+
 export default function CurateDatasetPage() {
   const parameters = useParams<{ datasetId: string }>();
   const datasetId = decodeURIComponent(parameters.datasetId);
@@ -70,8 +107,15 @@ export default function CurateDatasetPage() {
   const [name, setName] = useState("");
   const [selectionMode, setSelectionMode] =
     useState<CurationSelectionMode>("flagged");
+  const [operation, setOperation] = useState<CurationOperation>("subset");
+  const [trimConfig, setTrimConfig] = useState<TrimConfig>(DEFAULT_TRIM);
+  const [trimDimensions, setTrimDimensions] = useState("");
+  const [trimOverrides, setTrimOverrides] = useState("");
   const [saving, setSaving] = useState(false);
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [runningId, setRunningId] = useState<string | null>(null);
+  const [outputNames, setOutputNames] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!currentProfile) {
@@ -120,11 +164,22 @@ export default function CurateDatasetPage() {
     setSaving(true);
     setError(null);
     try {
+      const overrides = parseTrimOverrides(trimOverrides);
+      const configuredTrim = {
+        ...trimConfig,
+        dimensions: trimDimensions
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+        episode_overrides: overrides,
+      };
       const created = await createCurationRecipe(
         datasetId,
         currentProfile.id,
         name.trim(),
         selectionMode,
+        operation,
+        configuredTrim,
       );
       setRecipes((current) => [created, ...current]);
       setName("");
@@ -136,6 +191,40 @@ export default function CurateDatasetPage() {
       );
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function executeRecipe(recipe: CurationRecipe) {
+    if (!currentProfile) return;
+    const outputName = (outputNames[recipe.id] || dataset?.name || "dataset")
+      .trim()
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    if (!outputName) {
+      setError("출력 이름을 입력해 주세요.");
+      return;
+    }
+    setRunningId(recipe.id);
+    setError(null);
+    setNotice(null);
+    try {
+      const job = await runCurationRecipe(
+        recipe.id,
+        currentProfile.id,
+        outputName,
+        crypto.randomUUID(),
+      );
+      setNotice(
+        `작업을 시작했습니다. Jobs에서 진행 상태를 확인하세요. (${job.id.slice(0, 8)})`,
+      );
+    } catch (requestError) {
+      setError(
+        requestError instanceof Error
+          ? requestError.message
+          : "Recipe 실행을 시작하지 못했습니다.",
+      );
+    } finally {
+      setRunningId(null);
     }
   }
 
@@ -209,6 +298,7 @@ export default function CurateDatasetPage() {
           </button>
         </div>
       )}
+      {notice && <div className="curation-notice">{notice}</div>}
 
       <section className="curation-ledger" aria-label="현재 선택 상태">
         <div>
@@ -266,6 +356,131 @@ export default function CurateDatasetPage() {
             ))}
           </fieldset>
 
+          <div className="curation-section-title curation-section-title--name">
+            <span>02</span>
+            <div>
+              <h2>만들 결과</h2>
+              <p>원본은 항상 그대로 두고 새 데이터셋만 생성합니다.</p>
+            </div>
+          </div>
+          <fieldset className="curation-mode-grid" disabled={loading}>
+            <legend className="sr-only">Curation 작업 종류</legend>
+            {OPERATIONS.map((item) => (
+              <label
+                key={item.value}
+                className={operation === item.value ? "is-selected" : ""}
+              >
+                <input
+                  type="radio"
+                  name="operation"
+                  checked={operation === item.value}
+                  onChange={() => setOperation(item.value)}
+                />
+                <span className="curation-mode-marker" aria-hidden />
+                <strong>{item.label}</strong>
+                <small>{item.description}</small>
+              </label>
+            ))}
+          </fieldset>
+
+          <div className="curation-section-title curation-section-title--name">
+            <span>03</span>
+            <div>
+              <h2>앞뒤 정지 구간 Trim</h2>
+              <p>중간 정지는 유지하고 시작과 끝의 정지 구간만 자릅니다.</p>
+            </div>
+          </div>
+          <div className="curation-trim-panel">
+            <label className="curation-trim-toggle">
+              <input
+                type="checkbox"
+                checked={trimConfig.enabled}
+                onChange={(event) =>
+                  setTrimConfig((current) => ({
+                    ...current,
+                    enabled: event.target.checked,
+                  }))
+                }
+              />
+              <LuScissors aria-hidden />
+              <span>
+                <strong>자동 Trim 사용</strong>
+                <small>
+                  action과 observation.state의 공통 차원을 자동 사용
+                </small>
+              </span>
+            </label>
+            {trimConfig.enabled && (
+              <div className="curation-trim-fields">
+                <label>
+                  <span>정규화 임계값</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="10"
+                    step="0.005"
+                    value={trimConfig.threshold}
+                    onChange={(event) =>
+                      setTrimConfig((current) => ({
+                        ...current,
+                        threshold: Number(event.target.value),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>유지 시간 (초)</span>
+                  <input
+                    type="number"
+                    min="0.1"
+                    max="30"
+                    step="0.1"
+                    value={trimConfig.hold_time_s}
+                    onChange={(event) =>
+                      setTrimConfig((current) => ({
+                        ...current,
+                        hold_time_s: Number(event.target.value),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  <span>여유 구간 (초)</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="60"
+                    step="0.1"
+                    value={trimConfig.margin_s}
+                    onChange={(event) =>
+                      setTrimConfig((current) => ({
+                        ...current,
+                        margin_s: Number(event.target.value),
+                      }))
+                    }
+                  />
+                </label>
+                <label className="curation-trim-wide">
+                  <span>사용할 차원 (선택)</span>
+                  <input
+                    value={trimDimensions}
+                    onChange={(event) => setTrimDimensions(event.target.value)}
+                    placeholder="비우면 공통 차원 자동 선택 · 예: joint_0, joint_1"
+                  />
+                </label>
+                <label className="curation-trim-wide">
+                  <span>에피소드별 수동 범위 (선택)</span>
+                  <textarea
+                    value={trimOverrides}
+                    onChange={(event) => setTrimOverrides(event.target.value)}
+                    placeholder={"한 줄에 하나씩 입력 · 예: 4: 10-120"}
+                    rows={3}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
           <div className="curation-selection-preview">
             <LuLayers3 aria-hidden />
             <span>
@@ -274,7 +489,7 @@ export default function CurateDatasetPage() {
           </div>
 
           <div className="curation-section-title curation-section-title--name">
-            <span>02</span>
+            <span>04</span>
             <div>
               <h2>Recipe 이름</h2>
               <p>팀에서 알아보기 쉬운 작업 목적을 적어 주세요.</p>
@@ -337,6 +552,45 @@ export default function CurateDatasetPage() {
                     ) ?? "—"}
                     개 선택
                   </p>
+                  <div className="curation-recipe-tags">
+                    <span>
+                      {recipe.operation === "train_eval_split" ? (
+                        <LuSplit aria-hidden />
+                      ) : (
+                        <LuLayers3 aria-hidden />
+                      )}
+                      {operationLabel(recipe.operation)}
+                    </span>
+                    {recipe.trim_config.enabled && (
+                      <span>
+                        <LuScissors aria-hidden /> Trim
+                      </span>
+                    )}
+                  </div>
+                  <label className="curation-output-name">
+                    <span>출력 이름</span>
+                    <input
+                      value={outputNames[recipe.id] ?? dataset?.name ?? ""}
+                      onChange={(event) =>
+                        setOutputNames((current) => ({
+                          ...current,
+                          [recipe.id]: event.target.value,
+                        }))
+                      }
+                      maxLength={96}
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="curation-run-button"
+                    onClick={() => void executeRecipe(recipe)}
+                    disabled={runningId === recipe.id}
+                  >
+                    <LuWandSparkles aria-hidden />
+                    {runningId === recipe.id
+                      ? "시작 중…"
+                      : "새 데이터셋 만들기"}
+                  </button>
                   <button
                     type="button"
                     onClick={() => void archiveRecipe(recipe)}
@@ -371,6 +625,12 @@ function modeLabel(mode: CurationSelectionMode) {
   return MODES.find((item) => item.value === mode)?.label ?? mode;
 }
 
+function operationLabel(operation: CurationOperation) {
+  return (
+    OPERATIONS.find((item) => item.value === operation)?.label ?? operation
+  );
+}
+
 function formatDate(value: string) {
   return new Intl.DateTimeFormat("ko-KR", {
     month: "short",
@@ -378,4 +638,26 @@ function formatDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function parseTrimOverrides(value: string): TrimConfig["episode_overrides"] {
+  const result: TrimConfig["episode_overrides"] = {};
+  for (const rawLine of value.split("\n")) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const match = /^(\d+)\s*:\s*(\d+)\s*-\s*(\d+)$/.exec(line);
+    if (!match) {
+      throw new Error(
+        "수동 범위는 ‘에피소드: 시작-끝’ 형식으로 입력해 주세요.",
+      );
+    }
+    const [, episode, start, end] = match;
+    const startFrame = Number(start);
+    const endFrame = Number(end);
+    if (endFrame <= startFrame) {
+      throw new Error("수동 범위의 끝 프레임은 시작 프레임보다 커야 합니다.");
+    }
+    result[episode] = { start_frame: startFrame, end_frame: endFrame };
+  }
+  return result;
 }

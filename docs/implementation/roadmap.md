@@ -14,7 +14,7 @@ before the next dataset mutation capability is enabled.
 | 5     | Hugging Face listing, revision selection, and managed import     | Complete |
 | 6     | Open registered NAS datasets in the existing Viewer              | Complete |
 | 7     | Per-profile flags and reusable curation recipes                  | Complete |
-| 8     | Trim, edit, and train/eval split workflows                       | Planned  |
+| 8     | Trim, edit, and train/eval split workflows                       | Complete |
 | 9     | Task and VQA annotation workflows                                | Planned  |
 | 10    | Relative-action derivation                                       | Planned  |
 | 11    | Merge, lineage, and collision handling                           | Planned  |

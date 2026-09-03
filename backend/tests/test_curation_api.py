@@ -254,3 +254,114 @@ def test_recipe_update_is_owner_scoped_and_archivable(
         params={"profile_id": owner["id"]},
     )
     assert listed.json() == []
+
+
+def test_recipe_run_freezes_transform_config_and_is_idempotent(
+    client: TestClient, database: Database
+) -> None:
+    dataset = _register(database)
+    profile = _profile(client, "Runner")
+    client.patch(
+        f"/api/v1/datasets/{dataset['id']}/flags",
+        json={
+            "profile_id": profile["id"],
+            "expected_revision": 0,
+            "changes": [{"episode_index": 4, "flagged": True}],
+        },
+    )
+    recipe = client.post(
+        f"/api/v1/datasets/{dataset['id']}/recipes",
+        json={
+            "profile_id": profile["id"],
+            "name": "Split with trim",
+            "selection_mode": "all",
+            "operation": "train_eval_split",
+            "trim_config": {
+                "enabled": True,
+                "threshold": 0.03,
+                "hold_time_s": 0.5,
+                "margin_s": 1.0,
+                "dimensions": ["joint_0"],
+                "episode_overrides": {"4": {"start_frame": 2, "end_frame": 20}},
+            },
+        },
+    ).json()
+
+    body = {
+        "profile_id": profile["id"],
+        "output_name": "pick-cup-clean",
+        "idempotency_key": "phase8-run-1",
+    }
+    created = client.post(f"/api/v1/recipes/{recipe['id']}/runs", json=body)
+    assert created.status_code == 202
+    assert created.json()["kind"] == "curation.materialize"
+    assert set(created.json()["payload"]) == {"snapshot_id", "output_name"}
+    snapshot = database.get_curation_snapshot(created.json()["payload"]["snapshot_id"])
+    assert snapshot["operation"] == "train_eval_split"
+    assert snapshot["flagged_episode_indices"] == [4]
+    assert snapshot["trim_config"]["episode_overrides"]["4"]["start_frame"] == 2
+
+    repeated = client.post(f"/api/v1/recipes/{recipe['id']}/runs", json=body)
+    assert repeated.status_code == 200
+    assert repeated.json()["id"] == created.json()["id"]
+    rejected = client.post(
+        f"/api/v1/recipes/{recipe['id']}/runs",
+        json={**body, "output_name": "different"},
+    )
+    assert rejected.status_code == 409
+
+    secret = client.post(
+        f"/api/v1/recipes/{recipe['id']}/runs",
+        json={**body, "idempotency_key": "secret", "password": "nope"},
+    )
+    assert secret.status_code == 422
+
+
+def test_concurrent_idempotent_recipe_run_reconciles_the_winning_snapshot(
+    client: TestClient, database: Database, monkeypatch: Any
+) -> None:
+    dataset = _register(database)
+    profile = _profile(client, "Concurrent runner")
+    recipe = client.post(
+        f"/api/v1/datasets/{dataset['id']}/recipes",
+        json={
+            "profile_id": profile["id"],
+            "name": "Concurrent subset",
+            "selection_mode": "all",
+        },
+    ).json()
+    original_create_job = database.create_job
+
+    def race_create_job(**kwargs: Any) -> tuple[dict[str, Any], bool]:
+        winner_snapshot = database.snapshot_curation_recipe(
+            recipe["id"], profile_id=profile["id"]
+        )
+        original_create_job(
+            **{
+                **kwargs,
+                "payload": {
+                    "snapshot_id": winner_snapshot["id"],
+                    "output_name": kwargs["payload"]["output_name"],
+                },
+            }
+        )
+        return original_create_job(**kwargs)
+
+    monkeypatch.setattr(database, "create_job", race_create_job)
+    response = client.post(
+        f"/api/v1/recipes/{recipe['id']}/runs",
+        json={
+            "profile_id": profile["id"],
+            "output_name": "concurrent-output",
+            "idempotency_key": "concurrent-run-key",
+        },
+    )
+
+    assert response.status_code == 200
+    job = response.json()
+    assert job["kind"] == "curation.materialize"
+    assert job["payload"]["output_name"] == "concurrent-output"
+    assert (
+        database.get_curation_snapshot(job["payload"]["snapshot_id"])["recipe_id"]
+        == recipe["id"]
+    )

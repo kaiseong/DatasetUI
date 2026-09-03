@@ -126,6 +126,20 @@ def test_job_uses_a_strict_kind_specific_payload(client: TestClient) -> None:
     )
     assert unknown.status_code == 422
 
+    privileged = client.post(
+        "/api/v1/jobs",
+        json={
+            "kind": "curation.materialize",
+            "profile_id": profile_id,
+            "payload": {
+                "snapshot_id": "00000000-0000-4000-8000-000000000000",
+                "output_name": "bypass",
+            },
+            "idempotency_key": "curation-bypass",
+        },
+    )
+    assert privileged.status_code == 422
+
 
 def test_dataset_scan_job_payload_is_allowlisted(
     client: TestClient, dispatcher: RecordingDispatcher
@@ -205,7 +219,7 @@ def test_system_health_reports_both_dependencies(
         "service": "datasetui-workbench",
         "database": "ok",
         "queue": "ok",
-        "schema_versions": [1, 2, 3, 4],
+        "schema_versions": [1, 2, 3, 4, 5],
     }
 
     dispatcher.available = False
