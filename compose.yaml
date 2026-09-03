@@ -18,6 +18,8 @@ x-backend-environment: &backend-environment
   DATASETUI_HF_IMPORT_MAX_BYTES: ${DATASETUI_HF_IMPORT_MAX_BYTES:-2000000000000}
   DATASETUI_SSH_PRIVATE_KEY: /data/ssh-private/id_ed25519
   DATASETUI_SSH_KNOWN_HOSTS: /data/ssh-known-hosts/known_hosts
+  HF_HOME: /data/cache/huggingface
+  XDG_CACHE_HOME: /data/cache
   HF_HUB_DISABLE_IMPLICIT_TOKEN: "1"
   LEROBOT_ANNOTATE_CACHE: /data/cache/annotations
   LEROBOT_ANNOTATE_EXPORT: /data/staging/annotation-exports
