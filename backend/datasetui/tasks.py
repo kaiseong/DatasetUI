@@ -55,6 +55,9 @@ def run_job(job_id: str) -> dict[str, object]:
                 "curation.materialize",
                 "datasets.merge",
                 "datasets.convert_v21",
+                "datasets.export_nas",
+                "datasets.upload_hf",
+                "datasets.copy_pc_key",
             }:
                 result = run_registered_job(
                     job["kind"],

@@ -1999,6 +1999,27 @@ class Database:
             for row in rows
         ]
 
+    def has_successful_export_gate(
+        self, *, dataset_id: str, dataset_fingerprint: str
+    ) -> bool:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT j.result_json
+                FROM validation_runs v
+                JOIN jobs j ON j.id = v.job_id
+                WHERE v.dataset_id = ? AND v.dataset_fingerprint = ?
+                  AND v.mode = 'export_gate' AND j.status = 'succeeded'
+                ORDER BY v.created_at DESC
+                """,
+                (dataset_id, dataset_fingerprint),
+            ).fetchall()
+        return any(
+            bool(json.loads(row["result_json"]).get("passed"))
+            for row in rows
+            if row["result_json"]
+        )
+
     @staticmethod
     def _decode_recipe(row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)

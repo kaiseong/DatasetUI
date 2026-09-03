@@ -309,18 +309,25 @@ export function validateDataset(
   mode: ValidationMode,
   idempotencyKey: string,
 ): Promise<Job> {
-  return requestJson(`/api/v1/datasets/${encodeURIComponent(datasetId)}/validations`, {
-    method: "POST",
-    body: JSON.stringify({
-      profile_id: profileId,
-      mode,
-      idempotency_key: idempotencyKey,
-    }),
-  });
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/validations`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        profile_id: profileId,
+        mode,
+        idempotency_key: idempotencyKey,
+      }),
+    },
+  );
 }
 
-export function listDatasetValidations(datasetId: string): Promise<ValidationRun[]> {
-  return requestJson(`/api/v1/datasets/${encodeURIComponent(datasetId)}/validations`);
+export function listDatasetValidations(
+  datasetId: string,
+): Promise<ValidationRun[]> {
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/validations`,
+  );
 }
 
 export function convertDatasetToV21(
@@ -329,14 +336,98 @@ export function convertDatasetToV21(
   outputName: string,
   idempotencyKey: string,
 ): Promise<Job> {
-  return requestJson(`/api/v1/datasets/${encodeURIComponent(datasetId)}/conversions/v2.1`, {
-    method: "POST",
-    body: JSON.stringify({
-      profile_id: profileId,
-      output_name: outputName,
-      idempotency_key: idempotencyKey,
-    }),
-  });
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/conversions/v2.1`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        profile_id: profileId,
+        output_name: outputName,
+        idempotency_key: idempotencyKey,
+      }),
+    },
+  );
+}
+
+export function exportDatasetToNas(
+  datasetId: string,
+  profileId: string,
+  outputName: string,
+  idempotencyKey: string,
+): Promise<Job> {
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/deliveries/nas`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        profile_id: profileId,
+        output_name: outputName,
+        idempotency_key: idempotencyKey,
+      }),
+    },
+  );
+}
+
+export function uploadDatasetToHuggingFace(
+  datasetId: string,
+  profileId: string,
+  repoName: string,
+  visibility: "private" | "public",
+  idempotencyKey: string,
+): Promise<Job> {
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/deliveries/huggingface`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        profile_id: profileId,
+        repo_name: repoName,
+        visibility,
+        idempotency_key: idempotencyKey,
+      }),
+    },
+  );
+}
+
+export type PcTransferTarget = {
+  host: string;
+  port: number;
+  username: string;
+  destination: string;
+};
+
+export function copyDatasetToPcWithKey(
+  datasetId: string,
+  profileId: string,
+  target: PcTransferTarget,
+  idempotencyKey: string,
+): Promise<Job> {
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/deliveries/pc/key`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        profile_id: profileId,
+        ...target,
+        idempotency_key: idempotencyKey,
+      }),
+    },
+  );
+}
+
+export function copyDatasetToPcWithPassword(
+  datasetId: string,
+  profileId: string,
+  target: PcTransferTarget,
+  password: string,
+): Promise<{ ok: true; files: number; bytes: number; destination: string }> {
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/deliveries/pc/password`,
+    {
+      method: "POST",
+      body: JSON.stringify({ profile_id: profileId, ...target, password }),
+    },
+  );
 }
 
 export function getEpisodeFlags(

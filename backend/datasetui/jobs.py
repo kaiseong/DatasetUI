@@ -185,6 +185,50 @@ def _validate_dataset_job_payload(
     return dict(payload)
 
 
+def _validate_delivery_payload(payload: dict[str, Any], kind: str) -> dict[str, Any]:
+    base = {"dataset_id", "fingerprint", "storage_area", "relative_path"}
+    extras = {
+        "datasets.export_nas": {"output_name"},
+        "datasets.upload_hf": {"repo_name", "visibility"},
+        "datasets.copy_pc_key": {"host", "port", "username", "destination"},
+    }[kind]
+    if set(payload) != base | extras:
+        raise ValueError("invalid internal delivery payload")
+    core = _validate_dataset_job_payload(
+        {**{key: payload[key] for key in base}, "mode": "quick"}
+    )
+    core.pop("mode")
+    result = {**core}
+    if kind == "datasets.export_nas":
+        name = payload["output_name"]
+        if not isinstance(name, str) or not OUTPUT_NAME_PATTERN.fullmatch(name) or ".." in name:
+            raise ValueError("invalid NAS export name")
+        result["output_name"] = name
+    elif kind == "datasets.upload_hf":
+        name = payload["repo_name"]
+        if not isinstance(name, str) or not OUTPUT_NAME_PATTERN.fullmatch(name) or ".." in name:
+            raise ValueError("invalid Hugging Face repository name")
+        if payload["visibility"] not in {"private", "public"}:
+            raise ValueError("invalid Hugging Face visibility")
+        result.update(repo_name=name, visibility=payload["visibility"])
+    else:
+        if not isinstance(payload["host"], str) or len(payload["host"]) > 64:
+            raise ValueError("invalid PC host")
+        if isinstance(payload["port"], bool) or not isinstance(payload["port"], int) or not 1 <= payload["port"] <= 65535:
+            raise ValueError("invalid PC port")
+        if not isinstance(payload["username"], str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", payload["username"]):
+            raise ValueError("invalid PC username")
+        if not isinstance(payload["destination"], str) or not payload["destination"].startswith("~/"):
+            raise ValueError("invalid PC destination")
+        result.update(
+            host=payload["host"],
+            port=payload["port"],
+            username=payload["username"],
+            destination=payload["destination"],
+        )
+    return result
+
+
 JOB_HANDLERS: dict[str, tuple[str, JobHandler]] = {
     "phase2.smoke": ("cpu", _phase2_smoke),
     "datasets.scan": ("io", _scan_datasets),
@@ -209,6 +253,8 @@ def validate_job_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         return _validate_dataset_job_payload(payload)
     if kind == "datasets.convert_v21":
         return _validate_dataset_job_payload(payload, conversion=True)
+    if kind in {"datasets.export_nas", "datasets.upload_hf", "datasets.copy_pc_key"}:
+        return _validate_delivery_payload(payload, kind)
     raise ValueError(f"Unsupported job kind: {kind}")
 
 
@@ -289,6 +335,38 @@ def run_registered_job(
             payload=_validate_dataset_job_payload(payload, conversion=True),
             job_id=job_id,
             worker_id=worker_id,
+        )
+    if kind in {"datasets.export_nas", "datasets.upload_hf", "datasets.copy_pc_key"}:
+        from datasetui.delivery import (
+            copy_to_pc_with_key,
+            export_to_nas,
+            upload_to_huggingface,
+        )
+
+        if job_id is None or worker_id is None:
+            raise ValueError("delivery requires worker ownership")
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        safe_payload = _validate_delivery_payload(payload, kind)
+        if kind == "datasets.export_nas":
+            return export_to_nas(
+                database=database,
+                settings=settings,
+                payload=safe_payload,
+                job_id=job_id,
+                worker_id=worker_id,
+            )
+        if kind == "datasets.upload_hf":
+            return upload_to_huggingface(
+                database=database,
+                settings=settings,
+                payload=safe_payload,
+                job_id=job_id,
+                worker_id=worker_id,
+            )
+        return copy_to_pc_with_key(
+            database=database, settings=settings, payload=safe_payload
         )
     registered = JOB_HANDLERS.get(kind)
     if registered is None:

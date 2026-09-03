@@ -16,6 +16,8 @@ x-backend-environment: &backend-environment
   DATASETUI_JOB_LEASE_SECONDS: ${DATASETUI_JOB_LEASE_SECONDS:-120}
   DATASETUI_JOB_HEARTBEAT_SECONDS: ${DATASETUI_JOB_HEARTBEAT_SECONDS:-20}
   DATASETUI_HF_IMPORT_MAX_BYTES: ${DATASETUI_HF_IMPORT_MAX_BYTES:-2000000000000}
+  DATASETUI_SSH_PRIVATE_KEY: /data/ssh-private/id_ed25519
+  DATASETUI_SSH_KNOWN_HOSTS: /data/ssh-known-hosts/known_hosts
   HF_HUB_DISABLE_IMPLICIT_TOKEN: "1"
   LEROBOT_ANNOTATE_CACHE: /data/cache/annotations
   LEROBOT_ANNOTATE_EXPORT: /data/staging/annotation-exports
@@ -26,6 +28,7 @@ x-backend-read-volumes: &backend-read-volumes
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/jobs:/data/jobs
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/registry:/data/registry
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/logs:/data/logs
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/ssh-known-hosts:/data/ssh-known-hosts:ro
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/raw:/mnt/datasetui-nas/DatasetUI/raw:ro
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/derived:/mnt/datasetui-nas/DatasetUI/derived
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/exports:/mnt/datasetui-nas/DatasetUI/exports
@@ -37,6 +40,8 @@ x-backend-io-volumes: &backend-io-volumes
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/jobs:/data/jobs
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/registry:/data/registry
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/logs:/data/logs
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/ssh-known-hosts:/data/ssh-known-hosts:ro
+  - ${DATASETUI_DATA_ROOT:-./.runtime/data}/ssh-private:/data/ssh-private:ro
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/raw:/mnt/datasetui-nas/DatasetUI/raw
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/derived:/mnt/datasetui-nas/DatasetUI/derived
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/exports:/mnt/datasetui-nas/DatasetUI/exports
@@ -144,6 +149,7 @@ services:
     environment:
       <<: *backend-environment
       HF_READ_TOKEN: ${HF_READ_TOKEN:-}
+      HF_WRITE_TOKEN: ${HF_WRITE_TOKEN:-}
     volumes: *backend-io-volumes
     depends_on:
       redis:

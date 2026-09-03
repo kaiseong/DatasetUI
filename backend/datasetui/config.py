@@ -15,6 +15,9 @@ class Settings:
     staging_root: Path
     jobs_root: Path
     hf_read_token: str | None = None
+    hf_write_token: str | None = None
+    ssh_private_key_path: Path = Path("/data/ssh-private/id_ed25519")
+    ssh_known_hosts_path: Path = Path("/data/ssh-known-hosts/known_hosts")
     hf_import_max_bytes: int = 2_000_000_000_000
     dataset_scan_max_depth: int = 6
     job_timeout_seconds: int = 900
@@ -52,6 +55,18 @@ class Settings:
             ),
             jobs_root=Path(os.environ.get("DATASETUI_JOBS_ROOT", "/data/jobs")),
             hf_read_token=os.environ.get("HF_READ_TOKEN") or None,
+            hf_write_token=os.environ.get("HF_WRITE_TOKEN") or None,
+            ssh_private_key_path=Path(
+                os.environ.get(
+                    "DATASETUI_SSH_PRIVATE_KEY", "/data/ssh-private/id_ed25519"
+                )
+            ),
+            ssh_known_hosts_path=Path(
+                os.environ.get(
+                    "DATASETUI_SSH_KNOWN_HOSTS",
+                    "/data/ssh-known-hosts/known_hosts",
+                )
+            ),
             hf_import_max_bytes=int(
                 os.environ.get("DATASETUI_HF_IMPORT_MAX_BYTES", "2000000000000")
             ),

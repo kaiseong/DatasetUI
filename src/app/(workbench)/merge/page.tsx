@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { LuMerge, LuShieldAlert } from "react-icons/lu";
 import { useProfile } from "@/components/workbench/profile-context";
-import { listDatasets, mergeDatasets, type DatasetSummary } from "@/lib/workbench-api";
+import {
+  listDatasets,
+  mergeDatasets,
+  type DatasetSummary,
+} from "@/lib/workbench-api";
 
 export default function MergePage() {
   const { currentProfile, openProfileDialog } = useProfile();
@@ -16,7 +20,9 @@ export default function MergePage() {
 
   useEffect(() => {
     void listDatasets().then((items) =>
-      setDatasets(items.filter((item) => item.available && item.readiness === "ready")),
+      setDatasets(
+        items.filter((item) => item.available && item.readiness === "ready"),
+      ),
     );
   }, []);
 
@@ -28,7 +34,9 @@ export default function MergePage() {
     if (selectedDatasets.length < 2) return true;
     const first = selectedDatasets[0];
     return selectedDatasets.every(
-      (item) => item.codebase_version === first.codebase_version && item.fps === first.fps,
+      (item) =>
+        item.codebase_version === first.codebase_version &&
+        item.fps === first.fps,
     );
   }, [selectedDatasets]);
 
@@ -50,7 +58,11 @@ export default function MergePage() {
       );
       setMessage(`합치기 작업을 시작했습니다. (${job.id.slice(0, 8)})`);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "합치기를 시작하지 못했습니다.");
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "합치기를 시작하지 못했습니다.",
+      );
     } finally {
       setSubmitting(false);
     }
@@ -66,26 +78,86 @@ export default function MergePage() {
         </div>
       </section>
       <form className="curation-builder" onSubmit={submit}>
-        <div className="curation-section-title"><span>01</span><div><h2>원본 선택</h2><p>두 개 이상 선택하세요. 원본은 변경되지 않습니다.</p></div></div>
+        <div className="curation-section-title">
+          <span>01</span>
+          <div>
+            <h2>원본 선택</h2>
+            <p>두 개 이상 선택하세요. 원본은 변경되지 않습니다.</p>
+          </div>
+        </div>
         <div className="curation-recipe-list">
           {datasets.map((dataset) => (
             <label key={dataset.id} className="curation-trim-toggle">
-              <input type="checkbox" checked={selected.includes(dataset.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, dataset.id] : current.filter((id) => id !== dataset.id))} />
+              <input
+                type="checkbox"
+                checked={selected.includes(dataset.id)}
+                onChange={(event) =>
+                  setSelected((current) =>
+                    event.target.checked
+                      ? [...current, dataset.id]
+                      : current.filter((id) => id !== dataset.id),
+                  )
+                }
+              />
               <LuMerge aria-hidden />
-              <span><strong>{dataset.name}</strong><small>{dataset.codebase_version} · {dataset.fps} FPS · {dataset.total_episodes ?? 0} episodes</small></span>
+              <span>
+                <strong>{dataset.name}</strong>
+                <small>
+                  {dataset.codebase_version} · {dataset.fps} FPS ·{" "}
+                  {dataset.total_episodes ?? 0} episodes
+                </small>
+              </span>
             </label>
           ))}
         </div>
-        {!compatible && <p className="workbench-live-message"><LuShieldAlert aria-hidden /> 버전과 FPS가 같은 데이터셋만 합칠 수 있습니다.</p>}
-        <div className="curation-section-title"><span>02</span><div><h2>새 데이터셋</h2><p>결과 이름과 robot_type을 지정하세요.</p></div></div>
-        <div className="curation-trim-fields">
-          <label><span>출력 이름</span><input value={outputName} onChange={(event) => setOutputName(event.target.value)} required /></label>
-          <label><span>robot_type</span><input value={robotType} onChange={(event) => setRobotType(event.target.value)} placeholder={selectedDatasets[0]?.robot_type ?? "rby1"} required /></label>
+        {!compatible && (
+          <p className="workbench-live-message">
+            <LuShieldAlert aria-hidden /> 버전과 FPS가 같은 데이터셋만 합칠 수
+            있습니다.
+          </p>
+        )}
+        <div className="curation-section-title">
+          <span>02</span>
+          <div>
+            <h2>새 데이터셋</h2>
+            <p>결과 이름과 robot_type을 지정하세요.</p>
+          </div>
         </div>
-        <button className="workbench-button workbench-button--primary" disabled={submitting || selected.length < 2 || !compatible || !outputName.trim() || !robotType.trim()}>
-          <LuMerge aria-hidden /> {submitting ? "시작 중…" : "새 데이터셋 만들기"}
+        <div className="curation-trim-fields">
+          <label>
+            <span>출력 이름</span>
+            <input
+              value={outputName}
+              onChange={(event) => setOutputName(event.target.value)}
+              required
+            />
+          </label>
+          <label>
+            <span>robot_type</span>
+            <input
+              value={robotType}
+              onChange={(event) => setRobotType(event.target.value)}
+              placeholder={selectedDatasets[0]?.robot_type ?? "rby1"}
+              required
+            />
+          </label>
+        </div>
+        <button
+          className="workbench-button workbench-button--primary"
+          disabled={
+            submitting ||
+            selected.length < 2 ||
+            !compatible ||
+            !outputName.trim() ||
+            !robotType.trim()
+          }
+        >
+          <LuMerge aria-hidden />{" "}
+          {submitting ? "시작 중…" : "새 데이터셋 만들기"}
         </button>
-        <p className="workbench-live-message" aria-live="polite">{message}</p>
+        <p className="workbench-live-message" aria-live="polite">
+          {message}
+        </p>
       </form>
     </div>
   );

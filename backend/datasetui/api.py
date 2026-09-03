@@ -65,10 +65,15 @@ from datasetui.models import (
     JobStatus,
     HuggingFaceDataset,
     HuggingFaceImportCreate,
+    HuggingFaceDeliveryCreate,
     HuggingFaceRevision,
     Profile,
     ProfileCreate,
     ProfileUpdate,
+    NasDeliveryCreate,
+    PcKeyDeliveryCreate,
+    PcPasswordDeliveryCreate,
+    PcTransferResult,
     SystemHealth,
     StorageArea,
     ValidationRun,
@@ -873,6 +878,155 @@ def create_router(
             if "job" in locals():
                 database.record_dispatch_error(job["id"], "Unable to dispatch job")
             raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
+
+    def create_delivery_job(
+        *,
+        dataset_id: str,
+        profile_id: str,
+        kind: str,
+        extra: dict[str, Any],
+        idempotency_key: str,
+        response: Response,
+    ) -> dict[str, Any]:
+        internal_payload = {**dataset_job_payload(dataset_id), **extra}
+        job, created = database.create_job(
+            kind=kind,
+            queue_name="io",
+            profile_id=profile_id,
+            payload=internal_payload,
+            idempotency_key=idempotency_key,
+        )
+        if not created and job["status"] != "queued":
+            response.status_code = status.HTTP_200_OK
+            return job
+        job = dispatch_job(job)
+        if not created:
+            response.status_code = status.HTTP_200_OK
+        return job
+
+    @router.post(
+        "/datasets/{dataset_id}/deliveries/nas",
+        response_model=Job,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def create_nas_delivery(
+        dataset_id: str, payload: NasDeliveryCreate, response: Response
+    ) -> dict[str, Any]:
+        try:
+            return create_delivery_job(
+                dataset_id=dataset_id,
+                profile_id=payload.profile_id,
+                kind="datasets.export_nas",
+                extra={"output_name": payload.output_name},
+                idempotency_key=payload.idempotency_key,
+                response=response,
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(status_code=409, detail="Dataset is not ready") from exc
+        except IdempotencyConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("failed to dispatch NAS delivery")
+            raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
+
+    @router.post(
+        "/datasets/{dataset_id}/deliveries/huggingface",
+        response_model=Job,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def create_hf_delivery(
+        dataset_id: str, payload: HuggingFaceDeliveryCreate, response: Response
+    ) -> dict[str, Any]:
+        try:
+            return create_delivery_job(
+                dataset_id=dataset_id,
+                profile_id=payload.profile_id,
+                kind="datasets.upload_hf",
+                extra={"repo_name": payload.repo_name, "visibility": payload.visibility},
+                idempotency_key=payload.idempotency_key,
+                response=response,
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(status_code=409, detail="Dataset is not ready") from exc
+        except IdempotencyConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("failed to dispatch Hugging Face delivery")
+            raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
+
+    @router.post(
+        "/datasets/{dataset_id}/deliveries/pc/key",
+        response_model=Job,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def create_pc_key_delivery(
+        dataset_id: str, payload: PcKeyDeliveryCreate, response: Response
+    ) -> dict[str, Any]:
+        try:
+            return create_delivery_job(
+                dataset_id=dataset_id,
+                profile_id=payload.profile_id,
+                kind="datasets.copy_pc_key",
+                extra={
+                    "host": payload.host,
+                    "port": payload.port,
+                    "username": payload.username,
+                    "destination": payload.destination,
+                },
+                idempotency_key=payload.idempotency_key,
+                response=response,
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(status_code=409, detail="Dataset is not ready") from exc
+        except IdempotencyConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("failed to dispatch PC delivery")
+            raise HTTPException(status_code=503, detail="Job queue unavailable") from exc
+
+    @router.post(
+        "/datasets/{dataset_id}/deliveries/pc/password",
+        response_model=PcTransferResult,
+    )
+    def create_pc_password_delivery(
+        dataset_id: str, payload: PcPasswordDeliveryCreate
+    ) -> dict[str, Any]:
+        from datasetui.delivery import copy_to_pc_with_password
+        from datasetui.transform_errors import CurationTransformError
+
+        try:
+            return copy_to_pc_with_password(
+                database=database,
+                settings=settings,
+                dataset_id=dataset_id,
+                profile_id=payload.profile_id,
+                host=payload.host,
+                port=payload.port,
+                username=payload.username,
+                password=payload.password,
+                destination=payload.destination,
+            )
+        except (DatasetNotFoundError, ProfileNotFoundError) as exc:
+            raise HTTPException(status_code=404, detail="Dataset or profile not found") from exc
+        except (DatasetNotReadyError, CurationTransformError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="PC transfer failed. Check the address, SSH service, and host key.",
+            ) from exc
         except IdempotencyConflictError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:

@@ -19,7 +19,7 @@ before the next dataset mutation capability is enabled.
 | 10    | Relative-action derivation                                       | Complete |
 | 11    | Merge, lineage, and collision handling                           | Complete |
 | 12    | Integrity checks, export gate, and v3.0 to v2.1 conversion       | Complete |
-| 13    | NAS/Hugging Face/Ubuntu-PC delivery and full V1 acceptance       | Planned  |
+| 13    | NAS/Hugging Face/Ubuntu-PC delivery and full V1 acceptance       | Complete |
 
 This repository document is the executable roadmap. If the external handoff
 is recovered and differs in grouping, update this table without weakening the

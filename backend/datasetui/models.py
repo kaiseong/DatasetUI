@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import math
 import re
 import unicodedata
@@ -657,3 +658,99 @@ class ValidationRun(StrictModel):
     error_code: str | None
     error_message: str | None
     finished_at: str | None
+
+
+class NasDeliveryCreate(StrictModel):
+    profile_id: str
+    output_name: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?$",
+    )
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+    @field_validator("output_name")
+    @classmethod
+    def safe_output_name(cls, value: str) -> str:
+        if ".." in value:
+            raise ValueError("invalid output name")
+        return value
+
+
+class HuggingFaceDeliveryCreate(StrictModel):
+    profile_id: str
+    repo_name: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?$",
+    )
+    visibility: Literal["private", "public"] = "private"
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+    @field_validator("repo_name")
+    @classmethod
+    def safe_repo_name(cls, value: str) -> str:
+        if ".." in value:
+            raise ValueError("invalid repository name")
+        return value
+
+
+def _validate_pc_target(host: str, destination: str) -> tuple[str, str]:
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError as exc:
+        raise ValueError("target must be a valid IP address") from exc
+    if (
+        not address.is_private
+        or address.is_loopback
+        or address.is_link_local
+        or address.is_multicast
+        or address.is_unspecified
+        or address.is_reserved
+    ):
+        raise ValueError("target must be a private network address")
+    if not destination.startswith("~/"):
+        raise ValueError("destination must be inside the user's home directory")
+    parts = destination[2:].split("/")
+    if any(not part or part in {".", ".."} or len(part) > 255 for part in parts):
+        raise ValueError("invalid destination")
+    return str(address), destination
+
+
+class PcKeyDeliveryCreate(StrictModel):
+    profile_id: str
+    host: str
+    port: int = Field(default=22, ge=1, le=65535)
+    username: str = Field(
+        min_length=1, max_length=64, pattern=r"^[A-Za-z_][A-Za-z0-9_.-]*$"
+    )
+    destination: str = Field(min_length=3, max_length=1000)
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> "PcKeyDeliveryCreate":
+        self.host, self.destination = _validate_pc_target(self.host, self.destination)
+        return self
+
+
+class PcPasswordDeliveryCreate(StrictModel):
+    profile_id: str
+    host: str
+    port: int = Field(default=22, ge=1, le=65535)
+    username: str = Field(
+        min_length=1, max_length=64, pattern=r"^[A-Za-z_][A-Za-z0-9_.-]*$"
+    )
+    password: str = Field(min_length=1, max_length=1000)
+    destination: str = Field(min_length=3, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_target(self) -> "PcPasswordDeliveryCreate":
+        self.host, self.destination = _validate_pc_target(self.host, self.destination)
+        return self
+
+
+class PcTransferResult(StrictModel):
+    ok: bool
+    files: int
+    bytes: int
+    destination: str

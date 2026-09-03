@@ -5,8 +5,8 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY requirements-worker.txt ./
-RUN pip install --no-cache-dir -r requirements-worker.txt
+COPY requirements-worker.txt requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
 
 COPY datasetui ./datasetui
 

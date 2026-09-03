@@ -533,7 +533,9 @@ export default function CurateDatasetPage() {
             <span>05</span>
             <div>
               <h2>Relative Action</h2>
-              <p>저장된 action은 그대로 두고 학습용 상대값 규칙을 기록합니다.</p>
+              <p>
+                저장된 action은 그대로 두고 학습용 상대값 규칙을 기록합니다.
+              </p>
             </div>
           </div>
           <div className="curation-trim-panel">
@@ -541,12 +543,16 @@ export default function CurateDatasetPage() {
               <input
                 type="checkbox"
                 checked={relativeActionEnabled}
-                onChange={(event) => setRelativeActionEnabled(event.target.checked)}
+                onChange={(event) =>
+                  setRelativeActionEnabled(event.target.checked)
+                }
               />
               <LuMove3D aria-hidden />
               <span>
                 <strong>Relative Action 프로필 포함</strong>
-                <small>선택한 차원만 action - observation.state로 학습합니다.</small>
+                <small>
+                  선택한 차원만 action - observation.state로 학습합니다.
+                </small>
               </span>
             </label>
             {relativeActionEnabled && (
@@ -555,7 +561,9 @@ export default function CurateDatasetPage() {
                   <span>상대값으로 사용할 차원</span>
                   <input
                     value={relativeActionDimensions}
-                    onChange={(event) => setRelativeActionDimensions(event.target.value)}
+                    onChange={(event) =>
+                      setRelativeActionDimensions(event.target.value)
+                    }
                     placeholder="예: joint_0, joint_1 · 순서와 의미가 같아야 합니다"
                   />
                 </label>

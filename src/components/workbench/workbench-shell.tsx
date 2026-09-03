@@ -14,6 +14,7 @@ import {
   LuWifiOff,
   LuMerge,
   LuShieldCheck,
+  LuSend,
 } from "react-icons/lu";
 import { getSystemHealth } from "@/lib/workbench-api";
 import { ProfileProvider, useProfile } from "./profile-context";
@@ -22,6 +23,7 @@ const NAV_ITEMS = [
   { href: "/library", label: "라이브러리", icon: LuDatabase },
   { href: "/merge", label: "합치기", icon: LuMerge },
   { href: "/validate", label: "검증", icon: LuShieldCheck },
+  { href: "/deliver", label: "전달", icon: LuSend },
   { href: "/jobs", label: "작업 기록", icon: LuActivity },
   { href: "/profiles", label: "사용자", icon: LuUsersRound },
 ];
