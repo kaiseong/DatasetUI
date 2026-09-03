@@ -121,6 +121,7 @@ services:
   redis:
     image: redis:7.4-alpine
     restart: unless-stopped
+    user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - ${DATASETUI_DATA_ROOT:-./.runtime/data}/redis:/data

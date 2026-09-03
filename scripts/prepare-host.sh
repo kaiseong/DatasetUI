@@ -61,6 +61,12 @@ install -d -m 0755 -o "${service_uid}" -g "${service_gid}" \
 install -d -m 0700 -o "${service_uid}" -g "${service_gid}" \
   "${data_root}/ssh-private"
 
+# Redis runs with the same restricted service identity as the API and workers.
+# Repair files created by older deployments that used the image's built-in UID.
+if [[ "$(id -u)" == "0" ]]; then
+  chown -R "${service_uid}:${service_gid}" "${data_root}/redis"
+fi
+
 install -d -m 0755 \
   "${nas_root}/raw" \
   "${nas_root}/derived" \

@@ -54,7 +54,9 @@ Run the host preflight before Compose. Use `sudo` when the configured data root
 is under a root-owned path such as `/data`. The script assigns runtime
 directories to `DATASETUI_UID:DATASETUI_GID`, refuses production startup unless
 the configured NAS root is on NFS or CIFS, and warns when Redis' recommended
-`vm.overcommit_memory=1` setting is missing:
+`vm.overcommit_memory=1` setting is missing. Redis, the API, and workers all
+run with this same restricted service identity so persistent queue files stay
+writable across restarts and upgrades:
 
 ```bash
 sudo bash scripts/prepare-host.sh
