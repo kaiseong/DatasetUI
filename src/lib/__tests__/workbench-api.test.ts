@@ -3,6 +3,7 @@ import {
   WorkbenchApiError,
   createCurationRecipe,
   createProfile,
+  getEpisodeAnnotations,
   getEpisodeFlags,
   getDataset,
   importHuggingFaceDataset,
@@ -11,6 +12,7 @@ import {
   listProfiles,
   publicJobError,
   refreshLibrary,
+  replaceEpisodeAnnotations,
   runCurationRecipe,
   updateEpisodeFlags,
 } from "../workbench-api";
@@ -176,7 +178,40 @@ describe("Workbench API client", () => {
         dimensions: [],
         episode_overrides: {},
       },
+      include_annotations: false,
     });
+  });
+
+  test("loads and replaces an episode annotation draft without paths", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({ revision: 2, task_override: "place cup", atoms: [] }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await getEpisodeAnnotations("dataset/id", "profile/id", 3);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/datasets/dataset%2Fid/annotations/3?profile_id=profile%2Fid",
+    );
+
+    await replaceEpisodeAnnotations(
+      "dataset-1",
+      "profile-1",
+      3,
+      2,
+      "place cup",
+      [],
+    );
+    const init = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(init.method).toBe("PUT");
+    expect(body).toEqual({
+      profile_id: "profile-1",
+      expected_revision: 2,
+      task_override: "place cup",
+      atoms: [],
+    });
+    expect(JSON.stringify(body).toLowerCase()).not.toContain("path");
+    expect(JSON.stringify(body).toLowerCase()).not.toContain("token");
   });
 
   test("starts curation with an opaque recipe and safe output name", async () => {

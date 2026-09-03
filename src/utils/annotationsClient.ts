@@ -8,6 +8,11 @@
  */
 
 import type { LanguageAtom } from "../types/language.types";
+import {
+  getEpisodeAnnotations,
+  replaceEpisodeAnnotations,
+  type EpisodeAnnotations,
+} from "../lib/workbench-api";
 
 const ENV_URL = (() => {
   const v =
@@ -25,10 +30,22 @@ export function getAnnotateBackendUrl(): string | null {
   return ENV_URL;
 }
 
-interface DatasetIdent {
+export interface DatasetIdent {
   repoId?: string | null;
   localPath?: string | null;
   revision?: string | null;
+  datasetId?: string | null;
+  profileId?: string | null;
+}
+
+function isWorkbenchIdent(
+  ident: DatasetIdent,
+): ident is DatasetIdent & { datasetId: string; profileId: string } {
+  return !!ident.datasetId && !!ident.profileId;
+}
+
+export function isAnnotationPersistenceEnabled(ident: DatasetIdent): boolean {
+  return isWorkbenchIdent(ident) || !!ENV_URL;
 }
 
 function buildUrl(path: string, ident: DatasetIdent): string {
@@ -70,6 +87,11 @@ export async function fetchEpisodeAtoms(
   episodeId: number,
   ident: DatasetIdent,
 ): Promise<LanguageAtom[]> {
+  if (isWorkbenchIdent(ident)) {
+    return (
+      await getEpisodeAnnotations(ident.datasetId, ident.profileId, episodeId)
+    ).atoms;
+  }
   if (!ENV_URL) return [];
   await loadDataset(ident);
   const res = await fetch(buildUrl(`/api/episodes/${episodeId}/atoms`, ident));
@@ -80,11 +102,32 @@ export async function fetchEpisodeAtoms(
   return data.atoms || [];
 }
 
+export async function fetchEpisodeAnnotationState(
+  episodeId: number,
+  ident: DatasetIdent,
+): Promise<EpisodeAnnotations | null> {
+  if (!isWorkbenchIdent(ident)) return null;
+  return getEpisodeAnnotations(ident.datasetId, ident.profileId, episodeId);
+}
+
 export async function saveEpisodeAtoms(
   episodeId: number,
   ident: DatasetIdent,
   atoms: LanguageAtom[],
-): Promise<{ path: string | null }> {
+  expectedRevision = 0,
+  taskOverride: string | null = null,
+): Promise<{ path: string | null; state?: EpisodeAnnotations }> {
+  if (isWorkbenchIdent(ident)) {
+    const state = await replaceEpisodeAnnotations(
+      ident.datasetId,
+      ident.profileId,
+      episodeId,
+      expectedRevision,
+      taskOverride,
+      atoms,
+    );
+    return { path: null, state };
+  }
   if (!ENV_URL) return { path: null };
   const res = await fetch(
     new URL(`/api/episodes/${episodeId}/atoms`, ENV_URL).toString(),
@@ -111,6 +154,7 @@ export async function fetchFrameTimestamps(
   episodeId: number,
   ident: DatasetIdent,
 ): Promise<number[]> {
+  if (isWorkbenchIdent(ident)) return [];
   if (!ENV_URL) return [];
   const res = await fetch(
     buildUrl(`/api/episodes/${episodeId}/frame_timestamps`, ident),

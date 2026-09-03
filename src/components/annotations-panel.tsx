@@ -453,6 +453,10 @@ export const AnnotationsPanel: React.FC<Props> = ({ cameraKeys }) => {
     selectedIdx,
     selectAtom,
     ident,
+    baseTask,
+    taskOverride,
+    setTaskOverride,
+    isWorkbench,
   } = useAnnotations();
   const { currentTime } = useTime();
 
@@ -520,7 +524,11 @@ export const AnnotationsPanel: React.FC<Props> = ({ cameraKeys }) => {
   const handleSave = async () => {
     const r = await save();
     if (!r.ok) {
-      setExportStatus(`Save failed: ${r.error || "unknown"}`);
+      setExportStatus(`저장 실패: ${r.error || "알 수 없는 오류"}`);
+    } else if (isWorkbench) {
+      setExportStatus(
+        "이 에피소드의 annotation draft를 저장했습니다. Recipe에서 ‘Annotation 포함’을 켜면 새 데이터셋에 반영됩니다.",
+      );
     } else {
       setExportStatus(
         r.path
@@ -565,8 +573,9 @@ export const AnnotationsPanel: React.FC<Props> = ({ cameraKeys }) => {
             {dirty && <span className="dirty-pill">unsaved</span>}
           </h3>
           <p>
-            Select an atom from the timeline or list, then edit it in the
-            inspector.
+            {isWorkbench
+              ? "에피소드별 draft입니다. 원본 데이터셋은 변경하지 않습니다."
+              : "Select an atom from the timeline or list, then edit it in the inspector."}
           </p>
         </div>
         <div className="actionbar-actions">
@@ -582,17 +591,45 @@ export const AnnotationsPanel: React.FC<Props> = ({ cameraKeys }) => {
           >
             {saving ? "Saving…" : "Save episode"}
           </button>
-          <button
-            disabled={!backendEnabled}
-            onClick={handleSaveDataset}
-            className="text-xs h-7 px-3 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-40"
-          >
-            Save dataset
-          </button>
+          {!isWorkbench && (
+            <button
+              disabled={!backendEnabled}
+              onClick={handleSaveDataset}
+              className="text-xs h-7 px-3 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-200 hover:bg-emerald-500/20 disabled:opacity-40"
+            >
+              Save dataset
+            </button>
+          )}
         </div>
       </div>
 
       {exportStatus && <div className="save-status">{exportStatus}</div>}
+
+      {isWorkbench && (
+        <section className="annotation-composer">
+          <div className="composer-copy">
+            <span className="section-kicker">Task instruction</span>
+            <p>
+              이 에피소드의 기본 task 문장을 바꿉니다. 비우면 원래 문장을
+              사용합니다.
+            </p>
+          </div>
+          <div className="quick-add">
+            <input
+              className="grow"
+              value={taskOverride ?? ""}
+              onChange={(event) => setTaskOverride(event.target.value)}
+              placeholder={baseTask || "새 task instruction"}
+              maxLength={1000}
+            />
+            {taskOverride !== null && (
+              <button type="button" onClick={() => setTaskOverride(null)}>
+                원문 사용
+              </button>
+            )}
+          </div>
+        </section>
+      )}
 
       <section className="annotation-composer">
         <div className="composer-copy">
@@ -961,7 +998,9 @@ const CameraField: React.FC<{
           onChange({ camera: e.target.value === "" ? null : e.target.value })
         }
       >
-        <option value="">(any — renders on every camera)</option>
+        <option value="" disabled>
+          카메라 선택
+        </option>
         {cameraKeys.map((k) => (
           <option key={k} value={k}>
             {k}

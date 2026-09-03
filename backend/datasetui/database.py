@@ -40,6 +40,10 @@ class FlagRevisionConflictError(RuntimeError):
     pass
 
 
+class AnnotationRevisionConflictError(RuntimeError):
+    pass
+
+
 class DuplicateRecipeNameError(ValueError):
     pass
 
@@ -289,6 +293,41 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
             )
             """,
             "CREATE INDEX curation_runs_snapshot_idx ON curation_runs(snapshot_id, created_at DESC)",
+        ),
+    ),
+    (
+        6,
+        (
+            "ALTER TABLE curation_recipes ADD COLUMN include_annotations INTEGER NOT NULL DEFAULT 0 CHECK (include_annotations IN (0, 1))",
+            "ALTER TABLE curation_recipe_snapshots ADD COLUMN include_annotations INTEGER NOT NULL DEFAULT 0 CHECK (include_annotations IN (0, 1))",
+            """
+            CREATE TABLE episode_annotations (
+                dataset_id TEXT NOT NULL REFERENCES datasets(id),
+                dataset_fingerprint TEXT NOT NULL,
+                profile_id TEXT NOT NULL REFERENCES profiles(id),
+                episode_index INTEGER NOT NULL CHECK (episode_index >= 0),
+                revision INTEGER NOT NULL DEFAULT 0 CHECK (revision >= 0),
+                task_override TEXT,
+                atoms_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (
+                    dataset_id, dataset_fingerprint, profile_id, episode_index
+                )
+            )
+            """,
+            """
+            CREATE TABLE curation_annotation_snapshots (
+                snapshot_id TEXT NOT NULL REFERENCES curation_recipe_snapshots(id)
+                    ON DELETE CASCADE,
+                episode_index INTEGER NOT NULL CHECK (episode_index >= 0),
+                annotation_revision INTEGER NOT NULL CHECK (annotation_revision >= 0),
+                task_override TEXT,
+                atoms_json TEXT NOT NULL,
+                PRIMARY KEY (snapshot_id, episode_index)
+            )
+            """,
+            "CREATE INDEX episode_annotations_lookup_idx ON episode_annotations(dataset_id, dataset_fingerprint, profile_id, updated_at DESC)",
         ),
     ),
 )
@@ -1393,6 +1432,113 @@ class Database:
                 profile_id=profile_id,
             )
 
+    @staticmethod
+    def _episode_annotations_record(
+        connection: sqlite3.Connection,
+        *,
+        dataset_id: str,
+        dataset_fingerprint: str,
+        profile_id: str,
+        episode_index: int,
+    ) -> dict[str, Any]:
+        row = connection.execute(
+            """
+            SELECT revision, task_override, atoms_json, updated_at
+            FROM episode_annotations
+            WHERE dataset_id = ? AND dataset_fingerprint = ?
+              AND profile_id = ? AND episode_index = ?
+            """,
+            (dataset_id, dataset_fingerprint, profile_id, episode_index),
+        ).fetchone()
+        return {
+            "dataset_id": dataset_id,
+            "dataset_fingerprint": dataset_fingerprint,
+            "profile_id": profile_id,
+            "episode_index": episode_index,
+            "revision": row["revision"] if row else 0,
+            "task_override": row["task_override"] if row else None,
+            "atoms": json.loads(row["atoms_json"]) if row else [],
+            "updated_at": row["updated_at"] if row else None,
+        }
+
+    def get_episode_annotations(
+        self, *, dataset_id: str, profile_id: str, episode_index: int
+    ) -> dict[str, Any]:
+        with self.connect() as connection:
+            connection.execute("BEGIN")
+            dataset = self._curation_source(
+                connection, dataset_id=dataset_id, profile_id=profile_id
+            )
+            if episode_index < 0 or episode_index >= dataset["total_episodes"]:
+                raise ValueError("episode index is outside the dataset")
+            return self._episode_annotations_record(
+                connection,
+                dataset_id=dataset_id,
+                dataset_fingerprint=dataset["fingerprint"],
+                profile_id=profile_id,
+                episode_index=episode_index,
+            )
+
+    def replace_episode_annotations(
+        self,
+        *,
+        dataset_id: str,
+        profile_id: str,
+        episode_index: int,
+        expected_revision: int,
+        task_override: str | None,
+        atoms: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        now = utc_now()
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            dataset = self._curation_source(
+                connection, dataset_id=dataset_id, profile_id=profile_id
+            )
+            if episode_index < 0 or episode_index >= dataset["total_episodes"]:
+                raise ValueError("episode index is outside the dataset")
+            current = self._episode_annotations_record(
+                connection,
+                dataset_id=dataset_id,
+                dataset_fingerprint=dataset["fingerprint"],
+                profile_id=profile_id,
+                episode_index=episode_index,
+            )
+            if current["revision"] != expected_revision:
+                raise AnnotationRevisionConflictError(dataset_id)
+            connection.execute(
+                """
+                INSERT INTO episode_annotations(
+                    dataset_id, dataset_fingerprint, profile_id, episode_index,
+                    revision, task_override, atoms_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+                ON CONFLICT(
+                    dataset_id, dataset_fingerprint, profile_id, episode_index
+                ) DO UPDATE SET
+                    revision = episode_annotations.revision + 1,
+                    task_override = excluded.task_override,
+                    atoms_json = excluded.atoms_json,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    dataset_id,
+                    dataset["fingerprint"],
+                    profile_id,
+                    episode_index,
+                    task_override,
+                    _json_dump(atoms),
+                    now,
+                    now,
+                ),
+            )
+            return self._episode_annotations_record(
+                connection,
+                dataset_id=dataset_id,
+                dataset_fingerprint=dataset["fingerprint"],
+                profile_id=profile_id,
+                episode_index=episode_index,
+            )
+
     def create_curation_recipe(
         self,
         *,
@@ -1402,6 +1548,7 @@ class Database:
         selection_mode: str,
         operation: str = "subset",
         trim_config: dict[str, Any] | None = None,
+        include_annotations: bool = False,
     ) -> dict[str, Any]:
         recipe_id = str(uuid.uuid4())
         now = utc_now()
@@ -1416,8 +1563,8 @@ class Database:
                     INSERT INTO curation_recipes(
                         id, dataset_id, dataset_fingerprint, profile_id,
                         name, name_key, selection_mode, operation,
-                        trim_config_json, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        trim_config_json, include_annotations, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         recipe_id,
@@ -1429,6 +1576,7 @@ class Database:
                         selection_mode,
                         operation,
                         _json_dump(trim_config or {"enabled": False}),
+                        int(include_annotations),
                         now,
                         now,
                     ),
@@ -1456,6 +1604,7 @@ class Database:
                 f"""
                 SELECT id, dataset_id, dataset_fingerprint, profile_id, name,
                        selection_mode, operation, trim_config_json,
+                       include_annotations,
                        created_at, updated_at, archived_at
                 FROM curation_recipes
                 WHERE dataset_id = ? AND dataset_fingerprint = ?
@@ -1472,6 +1621,7 @@ class Database:
                 """
                 SELECT id, dataset_id, dataset_fingerprint, profile_id, name,
                        selection_mode, operation, trim_config_json,
+                       include_annotations,
                        created_at, updated_at, archived_at
                 FROM curation_recipes WHERE id = ? AND profile_id = ?
                 """,
@@ -1490,6 +1640,7 @@ class Database:
         selection_mode: str | None,
         operation: str | None = None,
         trim_config: dict[str, Any] | None = None,
+        include_annotations: bool | None = None,
         archived: bool | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
@@ -1523,6 +1674,11 @@ class Database:
                     if trim_config is not None
                     else recipe["trim_config_json"]
                 )
+                next_include_annotations = (
+                    int(include_annotations)
+                    if include_annotations is not None
+                    else recipe["include_annotations"]
+                )
                 next_archived_at = recipe["archived_at"]
                 if archived is True:
                     next_archived_at = now
@@ -1532,7 +1688,8 @@ class Database:
                     """
                     UPDATE curation_recipes
                     SET name = ?, name_key = ?, selection_mode = ?, operation = ?,
-                        trim_config_json = ?, archived_at = ?, updated_at = ?
+                        trim_config_json = ?, include_annotations = ?,
+                        archived_at = ?, updated_at = ?
                     WHERE id = ?
                     """,
                     (
@@ -1541,6 +1698,7 @@ class Database:
                         next_selection,
                         next_operation,
                         next_trim_config,
+                        next_include_annotations,
                         next_archived_at,
                         now,
                         recipe_id,
@@ -1614,10 +1772,10 @@ class Database:
                 INSERT INTO curation_recipe_snapshots(
                     id, recipe_id, dataset_id, dataset_fingerprint, profile_id,
                     recipe_name, selection_mode, flag_revision, operation,
-                    trim_config_json,
+                    trim_config_json, include_annotations,
                     flagged_episode_indices_json, selected_episode_indices_json,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     snapshot_id,
@@ -1630,11 +1788,48 @@ class Database:
                     flags["revision"],
                     recipe["operation"],
                     recipe["trim_config_json"],
+                    recipe["include_annotations"],
                     _json_dump(flagged),
                     _json_dump(selected),
                     now,
                 ),
             )
+            annotation_episode_indices: list[int] = []
+            if recipe["include_annotations"]:
+                selected_set = set(selected)
+                annotation_rows = connection.execute(
+                    """
+                    SELECT episode_index, revision, task_override, atoms_json
+                    FROM episode_annotations
+                    WHERE dataset_id = ? AND dataset_fingerprint = ?
+                      AND profile_id = ?
+                    ORDER BY episode_index
+                    """,
+                    (
+                        recipe["dataset_id"],
+                        recipe["dataset_fingerprint"],
+                        profile_id,
+                    ),
+                ).fetchall()
+                for annotation in annotation_rows:
+                    if annotation["episode_index"] not in selected_set:
+                        continue
+                    connection.execute(
+                        """
+                        INSERT INTO curation_annotation_snapshots(
+                            snapshot_id, episode_index, annotation_revision,
+                            task_override, atoms_json
+                        ) VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (
+                            snapshot_id,
+                            annotation["episode_index"],
+                            annotation["revision"],
+                            annotation["task_override"],
+                            annotation["atoms_json"],
+                        ),
+                    )
+                    annotation_episode_indices.append(annotation["episode_index"])
         return {
             "id": snapshot_id,
             "recipe_id": recipe_id,
@@ -1645,6 +1840,8 @@ class Database:
             "selection_mode": recipe["selection_mode"],
             "operation": recipe["operation"],
             "trim_config": json.loads(recipe["trim_config_json"]),
+            "include_annotations": bool(recipe["include_annotations"]),
+            "annotation_episode_indices": annotation_episode_indices,
             "flag_revision": flags["revision"],
             "flagged_episode_indices": flagged,
             "selected_episode_indices": selected,
@@ -1673,7 +1870,40 @@ class Database:
             result.pop("selected_episode_indices_json")
         )
         result["trim_config"] = json.loads(result.pop("trim_config_json"))
+        result["include_annotations"] = bool(result["include_annotations"])
+        with self.connect() as connection:
+            result["annotation_episode_indices"] = [
+                annotation["episode_index"]
+                for annotation in connection.execute(
+                    """
+                    SELECT episode_index FROM curation_annotation_snapshots
+                    WHERE snapshot_id = ? ORDER BY episode_index
+                    """,
+                    (snapshot_id,),
+                )
+            ]
         return result
+
+    def get_curation_snapshot_annotations(
+        self, snapshot_id: str
+    ) -> dict[int, dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT episode_index, annotation_revision, task_override, atoms_json
+                FROM curation_annotation_snapshots
+                WHERE snapshot_id = ? ORDER BY episode_index
+                """,
+                (snapshot_id,),
+            ).fetchall()
+        return {
+            row["episode_index"]: {
+                "revision": row["annotation_revision"],
+                "task_override": row["task_override"],
+                "atoms": json.loads(row["atoms_json"]),
+            }
+            for row in rows
+        }
 
     def record_curation_run(
         self, *, job_id: str, snapshot_id: str, output_name: str
@@ -1692,6 +1922,7 @@ class Database:
     def _decode_recipe(row: sqlite3.Row) -> dict[str, Any]:
         result = dict(row)
         result["trim_config"] = json.loads(result.pop("trim_config_json"))
+        result["include_annotations"] = bool(result["include_annotations"])
         return result
 
     def _job_for_idempotency(

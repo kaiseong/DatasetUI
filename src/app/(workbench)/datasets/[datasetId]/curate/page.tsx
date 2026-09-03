@@ -14,6 +14,7 @@ import {
   LuArrowLeft,
   LuFlag,
   LuLayers3,
+  LuMessageSquareText,
   LuScissors,
   LuSplit,
   LuWandSparkles,
@@ -111,6 +112,7 @@ export default function CurateDatasetPage() {
   const [trimConfig, setTrimConfig] = useState<TrimConfig>(DEFAULT_TRIM);
   const [trimDimensions, setTrimDimensions] = useState("");
   const [trimOverrides, setTrimOverrides] = useState("");
+  const [includeAnnotations, setIncludeAnnotations] = useState(false);
   const [saving, setSaving] = useState(false);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
@@ -180,6 +182,7 @@ export default function CurateDatasetPage() {
         selectionMode,
         operation,
         configuredTrim,
+        includeAnnotations,
       );
       setRecipes((current) => [created, ...current]);
       setName("");
@@ -285,7 +288,7 @@ export default function CurateDatasetPage() {
             href={registeredDatasetViewerPath(dataset.id)}
             className="workbench-button"
           >
-            <LuPlay aria-hidden /> Viewer에서 Flag 확인
+            <LuPlay aria-hidden /> Viewer에서 Flag · Annotation 편집
           </Link>
         )}
       </section>
@@ -491,6 +494,34 @@ export default function CurateDatasetPage() {
           <div className="curation-section-title curation-section-title--name">
             <span>04</span>
             <div>
+              <h2>Annotation 반영</h2>
+              <p>
+                Viewer에서 저장한 에피소드 draft를 새 데이터셋에 포함합니다.
+              </p>
+            </div>
+          </div>
+          <div className="curation-trim-panel">
+            <label className="curation-trim-toggle">
+              <input
+                type="checkbox"
+                checked={includeAnnotations}
+                onChange={(event) =>
+                  setIncludeAnnotations(event.target.checked)
+                }
+              />
+              <LuMessageSquareText aria-hidden />
+              <span>
+                <strong>Annotation 포함</strong>
+                <small>
+                  실행 순간의 task 수정과 language annotation을 고정
+                </small>
+              </span>
+            </label>
+          </div>
+
+          <div className="curation-section-title curation-section-title--name">
+            <span>05</span>
+            <div>
               <h2>Recipe 이름</h2>
               <p>팀에서 알아보기 쉬운 작업 목적을 적어 주세요.</p>
             </div>
@@ -564,6 +595,11 @@ export default function CurateDatasetPage() {
                     {recipe.trim_config.enabled && (
                       <span>
                         <LuScissors aria-hidden /> Trim
+                      </span>
+                    )}
+                    {recipe.include_annotations && (
+                      <span>
+                        <LuMessageSquareText aria-hidden /> Annotation
                       </span>
                     )}
                   </div>

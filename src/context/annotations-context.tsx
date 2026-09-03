@@ -5,10 +5,9 @@
  *
  * - Atoms live in memory + sessionStorage so the user can browse without a
  *   backend (read/edit, but no parquet rewrite).
- * - When `NEXT_PUBLIC_ANNOTATE_BACKEND_URL` is set, the context syncs with
- *   the FastAPI service in `backend/`: GET on episode entry, POST on save,
- *   plus frame-timestamp fetches used to snap event-style atoms to exact
- *   source-frame timestamps (the writer in lerobot#3471 enforces exact match).
+ * - Registered NAS datasets use the same-origin Workbench API with optimistic
+ *   revisions. Legacy/HF datasets can still use `NEXT_PUBLIC_ANNOTATE_BACKEND_URL`.
+ *   Source-frame timestamps snap event atoms to exact frames.
  *
  * - VQA drawings (active `pendingDraw`) live here too so the panel and the
  *   video overlay component share a single source of truth.
@@ -26,10 +25,12 @@ import React, {
 import type { LanguageAtom } from "../types/language.types";
 import { snapToFrame } from "../types/language.types";
 import {
+  fetchEpisodeAnnotationState,
   fetchEpisodeAtoms,
   saveEpisodeAtoms,
   fetchFrameTimestamps,
-  isAnnotateBackendEnabled,
+  isAnnotationPersistenceEnabled,
+  type DatasetIdent,
 } from "../utils/annotationsClient";
 
 const STORAGE_PREFIX = "lerobot-annotations:v2:";
@@ -60,16 +61,14 @@ export type PendingDraw = PendingBboxDraw | PendingPointDraw | null;
  */
 export type DrawMode = "off" | "auto" | "bbox" | "keypoint";
 
-interface DatasetIdent {
-  repoId?: string | null;
-  localPath?: string | null;
-  revision?: string | null;
-}
-
 interface AnnotationsContextType {
   episodeId: number | null;
   ident: DatasetIdent;
   atoms: LanguageAtom[];
+  baseTask: string | null;
+  taskOverride: string | null;
+  annotationRevision: number;
+  isWorkbench: boolean;
   frameTimestamps: number[];
   /**
    * Index in `atoms` of the currently selected atom (the one the right-rail
@@ -103,7 +102,9 @@ interface AnnotationsContextType {
     ident: DatasetIdent,
     initialAtoms?: LanguageAtom[],
     initialFrameTimestamps?: number[],
+    initialTask?: string | null,
   ) => void;
+  setTaskOverride: (task: string | null) => void;
   setActiveCamera: (camera: string | null) => void;
   setDrawMode: (mode: DrawMode) => void;
   setDrawLabel: (label: string) => void;
@@ -135,7 +136,16 @@ export function useAnnotations(): AnnotationsContextType {
 }
 
 function identKey(ident: DatasetIdent): string {
-  return ident.localPath || ident.repoId || "unknown";
+  return ident.datasetId || ident.localPath || ident.repoId || "unknown";
+}
+
+type StoredDraft = {
+  atoms: LanguageAtom[];
+  taskOverride: string | null;
+};
+
+function serializeDraft(atoms: LanguageAtom[], taskOverride: string | null) {
+  return JSON.stringify({ atoms, taskOverride });
 }
 
 export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -144,6 +154,9 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [episodeId, setEpisodeId] = useState<number | null>(null);
   const [ident, setIdent] = useState<DatasetIdent>({});
   const [atoms, setAtoms] = useState<LanguageAtom[]>([]);
+  const [baseTask, setBaseTask] = useState<string | null>(null);
+  const [taskOverride, setTaskOverrideState] = useState<string | null>(null);
+  const [annotationRevision, setAnnotationRevision] = useState(0);
   const [frameTimestamps, setFrameTimestamps] = useState<number[]>([]);
   const [pendingDraw, setPendingDrawState] = useState<PendingDraw>(null);
   const [activeCamera, setActiveCameraState] = useState<string | null>(null);
@@ -154,7 +167,8 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
   const [selectedIdx, setSelectedIdxState] = useState<number | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-  const backendEnabled = isAnnotateBackendEnabled();
+  const backendEnabled = isAnnotationPersistenceEnabled(ident);
+  const isWorkbench = !!ident.datasetId;
 
   // Track the last saved snapshot to detect dirtiness honestly.
   const savedSnapshotRef = useRef<string>("[]");
@@ -167,20 +181,33 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
       newIdent: DatasetIdent,
       initialAtoms?: LanguageAtom[],
       initialFrameTimestamps?: number[],
+      initialTask?: string | null,
     ) => {
       setEpisodeId(newEpisodeId);
       setIdent(newIdent);
       setPendingDrawState(null);
       setSelectedIdxState(null);
+      setBaseTask(initialTask ?? null);
+      setAnnotationRevision(0);
 
       // Hydrate from session first (so user edits survive episode toggles).
       // If session is empty, fall back to initialAtoms (parquet-extracted).
       let initial: LanguageAtom[] = [];
+      let initialTaskOverride: string | null = null;
+      let hasStoredDraft = false;
       try {
         const raw = sessionStorage.getItem(
           storageKey(identKey(newIdent), newEpisodeId),
         );
-        if (raw) initial = JSON.parse(raw) as LanguageAtom[];
+        if (raw) {
+          const stored = JSON.parse(raw) as LanguageAtom[] | StoredDraft;
+          hasStoredDraft = true;
+          if (Array.isArray(stored)) initial = stored;
+          else {
+            initial = stored.atoms ?? [];
+            initialTaskOverride = stored.taskOverride ?? null;
+          }
+        }
       } catch {
         /* ignore */
       }
@@ -188,21 +215,42 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
         initial = initialAtoms;
       }
       setAtoms(initial);
-      savedSnapshotRef.current = JSON.stringify(initial);
+      setTaskOverrideState(initialTaskOverride);
+      savedSnapshotRef.current = serializeDraft(initial, initialTaskOverride);
       setDirty(false);
       // Seed frame timestamps from the parquet (no backend dependency); the
       // backend will optionally overwrite this below.
       setFrameTimestamps(initialFrameTimestamps ?? []);
 
       // Fetch from backend if available.
-      if (isAnnotateBackendEnabled()) {
+      if (newIdent.datasetId && newIdent.profileId) {
+        fetchEpisodeAnnotationState(newEpisodeId, newIdent)
+          .then((remote) => {
+            if (!remote) return;
+            setAnnotationRevision(remote.revision);
+            if (remote.revision > 0 || !hasStoredDraft) {
+              const nextAtoms =
+                remote.revision === 0 && remote.atoms.length === 0
+                  ? (initialAtoms ?? [])
+                  : remote.atoms;
+              setAtoms(nextAtoms);
+              setTaskOverrideState(remote.task_override);
+              savedSnapshotRef.current = serializeDraft(
+                nextAtoms,
+                remote.task_override,
+              );
+              setDirty(false);
+            }
+          })
+          .catch(() => {
+            /* Workbench temporarily unavailable — retain the local draft. */
+          });
+      } else if (isAnnotationPersistenceEnabled(newIdent)) {
         fetchEpisodeAtoms(newEpisodeId, newIdent)
           .then((remoteAtoms) => {
-            // Prefer backend if it has anything; otherwise keep session-cached
-            // edits the user made before the backend came online.
             if (remoteAtoms && remoteAtoms.length > 0) {
               setAtoms(remoteAtoms);
-              savedSnapshotRef.current = JSON.stringify(remoteAtoms);
+              savedSnapshotRef.current = serializeDraft(remoteAtoms, null);
               setDirty(false);
             }
           })
@@ -224,13 +272,17 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
     try {
       sessionStorage.setItem(
         storageKey(identKey(ident), episodeId),
-        JSON.stringify(atoms),
+        serializeDraft(atoms, taskOverride),
       );
     } catch {
       /* ignore */
     }
-    setDirty(JSON.stringify(atoms) !== savedSnapshotRef.current);
-  }, [atoms, episodeId, ident]);
+    setDirty(serializeDraft(atoms, taskOverride) !== savedSnapshotRef.current);
+  }, [atoms, episodeId, ident, taskOverride]);
+
+  const setTaskOverride = useCallback((task: string | null) => {
+    setTaskOverrideState(task);
+  }, []);
 
   const snap = useCallback(
     (ts: number) =>
@@ -309,11 +361,11 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
     path?: string | null;
   }> => {
     if (episodeId == null) return { ok: false, error: "no episode" };
-    if (!isAnnotateBackendEnabled()) {
+    if (!isAnnotationPersistenceEnabled(ident)) {
       // Persistence is sessionStorage-only — that already happened in the
       // effect above. Report the storage key as the location so the UI can
       // show a concrete "path" instead of a vague offline message.
-      savedSnapshotRef.current = JSON.stringify(atoms);
+      savedSnapshotRef.current = serializeDraft(atoms, taskOverride);
       setDirty(false);
       return {
         ok: true,
@@ -322,8 +374,15 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
     }
     setSaving(true);
     try {
-      const { path } = await saveEpisodeAtoms(episodeId, ident, atoms);
-      savedSnapshotRef.current = JSON.stringify(atoms);
+      const { path, state } = await saveEpisodeAtoms(
+        episodeId,
+        ident,
+        atoms,
+        annotationRevision,
+        taskOverride,
+      );
+      if (state) setAnnotationRevision(state.revision);
+      savedSnapshotRef.current = serializeDraft(atoms, taskOverride);
       setDirty(false);
       return { ok: true, path };
     } catch (e) {
@@ -331,13 +390,17 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
     } finally {
       setSaving(false);
     }
-  }, [atoms, episodeId, ident]);
+  }, [annotationRevision, atoms, episodeId, ident, taskOverride]);
 
   const value = useMemo<AnnotationsContextType>(
     () => ({
       episodeId,
       ident,
       atoms,
+      baseTask,
+      taskOverride,
+      annotationRevision,
+      isWorkbench,
       frameTimestamps,
       pendingDraw,
       activeCamera,
@@ -351,6 +414,7 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
       dirty,
       saving,
       setEpisode,
+      setTaskOverride,
       setActiveCamera,
       setDrawMode,
       setDrawLabel,
@@ -368,6 +432,10 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
       episodeId,
       ident,
       atoms,
+      baseTask,
+      taskOverride,
+      annotationRevision,
+      isWorkbench,
       frameTimestamps,
       pendingDraw,
       activeCamera,
@@ -381,6 +449,7 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
       dirty,
       saving,
       setEpisode,
+      setTaskOverride,
       setActiveCamera,
       setDrawMode,
       setDrawLabel,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import math
@@ -13,6 +14,8 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
@@ -21,6 +24,27 @@ from datasetui.transform_errors import CurationTransformError
 
 
 MAX_METADATA_BYTES = 256 * 1024 * 1024
+LANGUAGE_PERSISTENT = "language_persistent"
+LANGUAGE_EVENTS = "language_events"
+PERSISTENT_STYLES = {"task_aug", "subtask", "plan", "memory"}
+EVENT_STYLES = {"interjection", "vqa"}
+SAY_TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "say",
+        "description": "Speak a short utterance to the user via the TTS executor.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {
+                    "type": "string",
+                    "description": "The verbatim text to speak.",
+                }
+            },
+            "required": ["text"],
+        },
+    },
+}
 
 
 def materialize_curation_recipe(
@@ -68,6 +92,11 @@ def materialize_curation_recipe(
     published: list[dict[str, Any]] = []
     try:
         source = _DatasetSource(source_root, info)
+        annotations = (
+            database.get_curation_snapshot_annotations(snapshot["id"])
+            if snapshot["include_annotations"]
+            else {}
+        )
         for output in outputs:
             destination = staging_root / output["name"]
             lineage = _write_dataset(
@@ -75,6 +104,7 @@ def materialize_curation_recipe(
                 destination=destination,
                 source_indices=output["episodes"],
                 trim_config=snapshot["trim_config"],
+                annotations=annotations,
             )
             candidate = inspect_dataset(
                 area_root=staging_root,
@@ -269,6 +299,7 @@ def _write_dataset(
     destination: Path,
     source_indices: list[int],
     trim_config: dict[str, Any],
+    annotations: dict[int, dict[str, Any]],
 ) -> list[dict[str, Any]]:
     (destination / "meta").mkdir(parents=True)
     (destination / "data").mkdir()
@@ -284,6 +315,14 @@ def _write_dataset(
     for output_index, source_index in enumerate(source_indices):
         data, metadata = source.episode(source_index)
         metadata = {**metadata, "_source_episode_index": source_index}
+        annotation = annotations.get(source_index)
+        atoms = (
+            annotation["atoms"]
+            if annotation is not None
+            else _extract_existing_language_atoms(data)
+        )
+        if annotation is not None:
+            metadata["_task_override"] = annotation["task_override"]
         start, end, method = _trim_bounds(
             data,
             source.info,
@@ -302,6 +341,15 @@ def _write_dataset(
         trimmed["index"] = np.arange(
             global_index, global_index + len(trimmed), dtype=np.int64
         )
+        persistent_count, event_count = _replace_language_columns(
+            trimmed,
+            source_data=data,
+            atoms=atoms,
+            start=start,
+            end=end,
+            fps=source.fps,
+            video_keys=source.video_keys,
+        )
         global_index += len(trimmed)
         episodes.append((trimmed, metadata, start, end))
         lineage.append(
@@ -312,20 +360,318 @@ def _write_dataset(
                 "source_end_frame": end,
                 "output_length": len(trimmed),
                 "trim_method": method,
+                "task_overridden": bool(metadata.get("_task_override")),
+                "persistent_annotations": persistent_count,
+                "event_annotations": event_count,
             }
         )
 
-    task_mapping, tasks = _remap_tasks(episodes, source.tasks)
+    task_mapping, tasks = _remap_tasks(
+        episodes, _apply_task_overrides(episodes, source.tasks)
+    )
     for data, _, _, _ in episodes:
         if "task_index" in data.columns:
             data["task_index"] = data["task_index"].map(task_mapping).astype("int64")
 
+    language_types = _language_column_types(episodes)
     if source.version == "v3.0":
-        _write_v3(source, destination, episodes, tasks)
+        _write_v3(source, destination, episodes, tasks, language_types)
     else:
-        _write_v2(source, destination, episodes, tasks)
+        _write_v2(source, destination, episodes, tasks, language_types)
     _write_stats(destination / "meta" / "stats.json", [item[0] for item in episodes])
     return lineage
+
+
+def _coerce_atom(
+    value: Any, *, fallback_timestamp: float | None = None
+) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        try:
+            value = dict(value)
+        except (TypeError, ValueError):
+            return None
+    role = value.get("role")
+    if not isinstance(role, str) or not role:
+        return None
+    timestamp = value.get("timestamp", fallback_timestamp)
+    try:
+        timestamp = float(timestamp if timestamp is not None else 0.0)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(timestamp) or timestamp < 0:
+        return None
+    tool_calls = value.get("tool_calls")
+    if tool_calls is not None and not isinstance(tool_calls, list):
+        tool_calls = [tool_calls]
+    camera = value.get("camera")
+    return {
+        "role": role,
+        "content": None if value.get("content") is None else str(value["content"]),
+        "style": value.get("style"),
+        "timestamp": timestamp,
+        "camera": camera if isinstance(camera, str) and camera else None,
+        "tool_calls": tool_calls or None,
+    }
+
+
+def _extract_existing_language_atoms(data: pd.DataFrame) -> list[dict[str, Any]]:
+    atoms: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def append_many(values: Any, *, timestamp: float | None = None) -> None:
+        if values is None:
+            return
+        if isinstance(values, np.ndarray):
+            values = values.tolist()
+        if not isinstance(values, list):
+            return
+        for value in values:
+            atom = _coerce_atom(value, fallback_timestamp=timestamp)
+            if atom is None:
+                continue
+            key = json.dumps(atom, ensure_ascii=False, sort_keys=True, default=str)
+            if key not in seen:
+                seen.add(key)
+                atoms.append(atom)
+
+    persistent_loaded = False
+    for _, row in data.iterrows():
+        if LANGUAGE_PERSISTENT in data.columns and not persistent_loaded:
+            append_many(row[LANGUAGE_PERSISTENT])
+            persistent_loaded = True
+        if LANGUAGE_EVENTS in data.columns:
+            append_many(row[LANGUAGE_EVENTS], timestamp=float(row["timestamp"]))
+    atoms.sort(
+        key=lambda atom: (atom["timestamp"], atom.get("style") or "", atom["role"])
+    )
+    return atoms
+
+
+def _language_row(atom: dict[str, Any], *, persistent: bool) -> dict[str, Any]:
+    row: dict[str, Any] = {
+        "role": str(atom["role"]),
+        "content": None if atom.get("content") is None else str(atom["content"]),
+        "style": atom.get("style"),
+    }
+    if persistent:
+        row["timestamp"] = np.float32(atom["timestamp"])
+    row["camera"] = atom.get("camera")
+    row["tool_calls"] = copy.deepcopy(atom.get("tool_calls")) or None
+    return row
+
+
+def _replace_language_columns(
+    output: pd.DataFrame,
+    *,
+    source_data: pd.DataFrame,
+    atoms: list[dict[str, Any]],
+    start: int,
+    end: int,
+    fps: float,
+    video_keys: list[str],
+) -> tuple[int, int]:
+    output.drop(
+        columns=[
+            name
+            for name in (LANGUAGE_PERSISTENT, LANGUAGE_EVENTS, "tools", "subtask_index")
+            if name in output.columns
+        ],
+        inplace=True,
+    )
+    if not atoms:
+        return 0, 0
+
+    source_timestamps = source_data["timestamp"].astype(float).to_numpy()
+    persistent: list[dict[str, Any]] = []
+    events_by_frame: dict[int, list[dict[str, Any]]] = {}
+    pre_trim_latest: dict[str, dict[str, Any]] = {}
+    for raw_atom in atoms:
+        atom = _coerce_atom(raw_atom)
+        if atom is None:
+            raise CurationTransformError("Annotation payload is invalid")
+        style = atom.get("style")
+        if style == "vqa" and atom.get("camera") not in video_keys:
+            raise CurationTransformError("Annotation references an unavailable camera")
+        if style != "vqa" and atom.get("camera") is not None:
+            raise CurationTransformError("Only VQA annotations may reference a camera")
+        source_frame = int(np.argmin(np.abs(source_timestamps - atom["timestamp"])))
+        if style in PERSISTENT_STYLES:
+            if source_frame >= end:
+                continue
+            if source_frame < start:
+                if style == "memory":
+                    continue
+                if style in {"subtask", "plan"}:
+                    pre_trim_latest[style] = atom
+                    continue
+                projected_timestamp = 0.0
+            else:
+                projected_timestamp = (source_frame - start) / fps
+            projected = {**atom, "timestamp": projected_timestamp}
+            persistent.append(_language_row(projected, persistent=True))
+        elif style in EVENT_STYLES or style is None:
+            if start <= source_frame < end:
+                output_frame = source_frame - start
+                events_by_frame.setdefault(output_frame, []).append(
+                    _language_row(atom, persistent=False)
+                )
+        else:
+            raise CurationTransformError("Annotation style is unsupported")
+
+    for atom in pre_trim_latest.values():
+        persistent.append(_language_row({**atom, "timestamp": 0.0}, persistent=True))
+    persistent.sort(
+        key=lambda row: (float(row["timestamp"]), row.get("style") or "", row["role"])
+    )
+    for rows in events_by_frame.values():
+        rows.sort(
+            key=lambda row: (
+                row.get("style") or "",
+                row["role"],
+                row.get("camera") or "",
+            )
+        )
+
+    if persistent:
+        output[LANGUAGE_PERSISTENT] = [
+            copy.deepcopy(persistent) for _ in range(len(output))
+        ]
+    if events_by_frame:
+        output[LANGUAGE_EVENTS] = [
+            copy.deepcopy(events_by_frame.get(frame_index, []))
+            for frame_index in range(len(output))
+        ]
+    return len(persistent), sum(len(rows) for rows in events_by_frame.values())
+
+
+def _apply_task_overrides(
+    episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
+    source_tasks: dict[int, str],
+) -> dict[int, str]:
+    tasks = dict(source_tasks)
+    by_name = {name: index for index, name in tasks.items()}
+    next_index = max(tasks, default=-1) + 1
+    for data, metadata, _, _ in episodes:
+        task = metadata.get("_task_override")
+        if not task:
+            continue
+        task_index = by_name.get(task)
+        if task_index is None:
+            task_index = next_index
+            next_index += 1
+            tasks[task_index] = task
+            by_name[task] = task_index
+        data["task_index"] = np.full(len(data), task_index, dtype=np.int64)
+    return tasks
+
+
+def _language_column_types(
+    episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
+) -> dict[str, pa.DataType]:
+    tool_call_type = pa.struct(
+        [
+            pa.field("type", pa.string()),
+            pa.field(
+                "function",
+                pa.struct(
+                    [
+                        pa.field("name", pa.string()),
+                        pa.field(
+                            "arguments", pa.struct([pa.field("text", pa.string())])
+                        ),
+                    ]
+                ),
+            ),
+        ]
+    )
+    common = [
+        pa.field("role", pa.string(), nullable=False),
+        pa.field("content", pa.string()),
+        pa.field("style", pa.string()),
+    ]
+    persistent_type = pa.list_(
+        pa.struct(
+            [
+                *common,
+                pa.field("timestamp", pa.float32(), nullable=False),
+                pa.field("camera", pa.string()),
+                pa.field("tool_calls", pa.list_(tool_call_type)),
+            ]
+        )
+    )
+    event_type = pa.list_(
+        pa.struct(
+            [
+                *common,
+                pa.field("camera", pa.string()),
+                pa.field("tool_calls", pa.list_(tool_call_type)),
+            ]
+        )
+    )
+    present = {
+        name
+        for data, _, _, _ in episodes
+        for name in (LANGUAGE_PERSISTENT, LANGUAGE_EVENTS)
+        if name in data.columns
+    }
+    return {
+        name: persistent_type if name == LANGUAGE_PERSISTENT else event_type
+        for name in present
+    }
+
+
+def _updated_info(
+    source_info: dict[str, Any],
+    episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
+    language_types: dict[str, pa.DataType],
+) -> dict[str, Any]:
+    info = copy.deepcopy(source_info)
+    features = info.setdefault("features", {})
+    features.pop("subtask_index", None)
+    features.pop("tools", None)
+    for name in (LANGUAGE_PERSISTENT, LANGUAGE_EVENTS):
+        if name in language_types:
+            features[name] = {"dtype": "language", "shape": [1], "names": None}
+        else:
+            features.pop(name, None)
+    if any("task_index" in data.columns for data, _, _, _ in episodes):
+        features.setdefault(
+            "task_index", {"dtype": "int64", "shape": [1], "names": None}
+        )
+    has_speech = any(
+        row.get("style") is None and row.get("tool_calls")
+        for data, _, _, _ in episodes
+        if LANGUAGE_EVENTS in data.columns
+        for rows in data[LANGUAGE_EVENTS]
+        for row in rows
+    )
+    if has_speech:
+        existing_tools = [
+            tool for tool in info.get("tools", []) if isinstance(tool, dict)
+        ]
+        existing_names = {
+            (tool.get("function") or {}).get("name") for tool in existing_tools
+        }
+        if "say" not in existing_names:
+            existing_tools.append(copy.deepcopy(SAY_TOOL_SCHEMA))
+        info["tools"] = existing_tools
+    return info
+
+
+def _write_parquet(
+    data: pd.DataFrame, path: Path, language_types: dict[str, pa.DataType]
+) -> None:
+    language_columns = [name for name in language_types if name in data.columns]
+    table = pa.Table.from_pandas(
+        data.drop(columns=language_columns), preserve_index=False
+    )
+    for name in language_columns:
+        table = table.append_column(
+            name, pa.array(data[name].tolist(), type=language_types[name])
+        )
+    pq.write_table(table, path)
 
 
 def _trim_bounds(
@@ -396,8 +742,9 @@ def _write_v2(
     root: Path,
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
     tasks: list[dict[str, Any]],
+    language_types: dict[str, pa.DataType],
 ) -> None:
-    info = dict(source.info)
+    info = _updated_info(source.info, episodes, language_types)
     info.update(
         total_episodes=len(episodes),
         total_frames=sum(len(item[0]) for item in episodes),
@@ -418,7 +765,7 @@ def _write_v2(
         )
         path = _safe_child(root, relative)
         path.parent.mkdir(parents=True, exist_ok=True)
-        data.to_parquet(path, index=False)
+        _write_parquet(data, path, language_types)
         episode_rows.append(
             {
                 "episode_index": index,
@@ -435,8 +782,9 @@ def _write_v3(
     root: Path,
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
     tasks: list[dict[str, Any]],
+    language_types: dict[str, pa.DataType],
 ) -> None:
-    info = dict(source.info)
+    info = _updated_info(source.info, episodes, language_types)
     info.update(
         total_episodes=len(episodes),
         total_frames=sum(len(item[0]) for item in episodes),
@@ -456,7 +804,7 @@ def _write_v3(
         file_index = index % 1000
         path = root / f"data/chunk-{chunk:03d}/file-{file_index:03d}.parquet"
         path.parent.mkdir(parents=True, exist_ok=True)
-        data.to_parquet(path, index=False)
+        _write_parquet(data, path, language_types)
         row: dict[str, Any] = {
             "episode_index": index,
             "tasks": _episode_task_names(data, tasks),

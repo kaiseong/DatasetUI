@@ -15,7 +15,7 @@ before the next dataset mutation capability is enabled.
 | 6     | Open registered NAS datasets in the existing Viewer              | Complete |
 | 7     | Per-profile flags and reusable curation recipes                  | Complete |
 | 8     | Trim, edit, and train/eval split workflows                       | Complete |
-| 9     | Task and VQA annotation workflows                                | Planned  |
+| 9     | Task and VQA annotation workflows                                | Complete |
 | 10    | Relative-action derivation                                       | Planned  |
 | 11    | Merge, lineage, and collision handling                           | Planned  |
 | 12    | Integrity checks, export gate, and v3.0 to v2.1 conversion       | Planned  |

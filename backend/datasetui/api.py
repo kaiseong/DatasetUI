@@ -11,6 +11,7 @@ from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, 
 from fastapi.responses import StreamingResponse
 
 from datasetui.database import (
+    AnnotationRevisionConflictError,
     Database,
     DatasetNotReadyError,
     DatasetNotFoundError,
@@ -53,6 +54,8 @@ from datasetui.models import (
     DatasetReadiness,
     EpisodeFlagPatch,
     EpisodeFlags,
+    EpisodeAnnotations,
+    EpisodeAnnotationsPut,
     Job,
     JobCreate,
     JobEvent,
@@ -441,6 +444,70 @@ def create_router(
                 detail=str(exc),
             ) from exc
 
+    @router.get(
+        "/datasets/{dataset_id}/annotations/{episode_index}",
+        response_model=EpisodeAnnotations,
+    )
+    def get_episode_annotations(
+        dataset_id: str, episode_index: int, profile_id: str
+    ) -> dict[str, Any]:
+        try:
+            return database.get_episode_annotations(
+                dataset_id=dataset_id,
+                profile_id=profile_id,
+                episode_index=episode_index,
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Dataset is not ready for annotation",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+
+    @router.put(
+        "/datasets/{dataset_id}/annotations/{episode_index}",
+        response_model=EpisodeAnnotations,
+    )
+    def replace_episode_annotations(
+        dataset_id: str, episode_index: int, payload: EpisodeAnnotationsPut
+    ) -> dict[str, Any]:
+        try:
+            return database.replace_episode_annotations(
+                dataset_id=dataset_id,
+                profile_id=payload.profile_id,
+                episode_index=episode_index,
+                expected_revision=payload.expected_revision,
+                task_override=payload.task_override,
+                atoms=[atom.model_dump(mode="json") for atom in payload.atoms],
+            )
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Dataset is not ready for annotation",
+            ) from exc
+        except AnnotationRevisionConflictError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Annotations changed in another session. Reload and try again.",
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=str(exc),
+            ) from exc
+
     @router.get("/datasets/{dataset_id}/recipes", response_model=list[CurationRecipe])
     def list_curation_recipes(
         dataset_id: str,
@@ -479,6 +546,7 @@ def create_router(
                 selection_mode=payload.selection_mode,
                 operation=payload.operation,
                 trim_config=payload.trim_config.model_dump(mode="json"),
+                include_annotations=payload.include_annotations,
             )
         except DatasetNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Dataset not found") from exc
@@ -511,6 +579,7 @@ def create_router(
                     if payload.trim_config is not None
                     else None
                 ),
+                include_annotations=payload.include_annotations,
                 archived=payload.archived,
             )
         except (RecipeNotFoundError, ProfileNotFoundError) as exc:

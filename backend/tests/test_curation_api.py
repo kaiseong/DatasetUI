@@ -106,6 +106,172 @@ def test_flags_are_profile_scoped_revision_safe_and_strict(
     assert secret.status_code == 422
 
 
+def test_annotations_are_profile_scoped_revision_safe_and_snapshot_frozen(
+    client: TestClient, database: Database
+) -> None:
+    dataset = _register(database)
+    kim = _profile(client, "Annotation Kim")
+    lee = _profile(client, "Annotation Lee")
+    url = f"/api/v1/datasets/{dataset['id']}/annotations/2"
+    atoms = [
+        {
+            "role": "assistant",
+            "content": "grasp the cup",
+            "style": "subtask",
+            "timestamp": 0.3,
+            "camera": None,
+            "tool_calls": None,
+        },
+        {
+            "role": "assistant",
+            "content": None,
+            "style": None,
+            "timestamp": 0.5,
+            "camera": None,
+            "tool_calls": [
+                {
+                    "type": "function",
+                    "function": {"name": "say", "arguments": {"text": "done"}},
+                }
+            ],
+        },
+        {
+            "role": "assistant",
+            "content": '{"label":"cup","count":1}',
+            "style": "vqa",
+            "timestamp": 0.7,
+            "camera": "observation.images.top",
+            "tool_calls": None,
+        },
+    ]
+
+    empty = client.get(url, params={"profile_id": kim["id"]})
+    assert empty.status_code == 200
+    assert empty.json()["revision"] == 0
+    saved = client.put(
+        url,
+        json={
+            "profile_id": kim["id"],
+            "expected_revision": 0,
+            "task_override": "place the cup",
+            "atoms": atoms,
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json()["revision"] == 1
+    assert saved.json()["task_override"] == "place the cup"
+    assert client.get(url, params={"profile_id": lee["id"]}).json()["atoms"] == []
+
+    stale = client.put(
+        url,
+        json={
+            "profile_id": kim["id"],
+            "expected_revision": 0,
+            "task_override": None,
+            "atoms": [],
+        },
+    )
+    assert stale.status_code == 409
+
+    recipe = client.post(
+        f"/api/v1/datasets/{dataset['id']}/recipes",
+        json={
+            "profile_id": kim["id"],
+            "name": "Annotated subset",
+            "selection_mode": "all",
+            "include_annotations": True,
+        },
+    ).json()
+    snapshot = client.post(
+        f"/api/v1/recipes/{recipe['id']}/snapshots",
+        json={"profile_id": kim["id"]},
+    ).json()
+    assert snapshot["include_annotations"] is True
+    assert snapshot["annotation_episode_indices"] == [2]
+
+    changed = client.put(
+        url,
+        json={
+            "profile_id": kim["id"],
+            "expected_revision": 1,
+            "task_override": "changed later",
+            "atoms": [],
+        },
+    )
+    assert changed.status_code == 200
+    frozen = database.get_curation_snapshot_annotations(snapshot["id"])[2]
+    assert frozen["revision"] == 1
+    assert frozen["task_override"] == "place the cup"
+    assert frozen["atoms"] == atoms
+
+
+def test_annotations_reject_invalid_or_unsafe_payloads(
+    client: TestClient, database: Database
+) -> None:
+    dataset = _register(database)
+    profile = _profile(client, "Strict annotator")
+    url = f"/api/v1/datasets/{dataset['id']}/annotations/0"
+    base = {
+        "profile_id": profile["id"],
+        "expected_revision": 0,
+        "task_override": None,
+    }
+    invalid_atoms = [
+        {
+            "role": "assistant",
+            "content": "not-json",
+            "style": "vqa",
+            "timestamp": 0,
+            "camera": "observation.images.top",
+            "tool_calls": None,
+        },
+        {
+            "role": "user",
+            "content": "camera leak",
+            "style": "subtask",
+            "timestamp": 0,
+            "camera": "observation.images.top",
+            "tool_calls": None,
+        },
+    ]
+    for atom in invalid_atoms:
+        assert client.put(url, json={**base, "atoms": [atom]}).status_code == 422
+    assert (
+        client.put(url, json={**base, "atoms": [], "password": "no"}).status_code == 422
+    )
+    assert (
+        client.get(
+            f"/api/v1/datasets/{dataset['id']}/annotations/5",
+            params={"profile_id": profile["id"]},
+        ).status_code
+        == 422
+    )
+
+
+def test_annotations_do_not_cross_dataset_revisions(
+    client: TestClient, database: Database
+) -> None:
+    dataset = _register(database)
+    profile = _profile(client, "Revision annotator")
+    url = f"/api/v1/datasets/{dataset['id']}/annotations/1"
+    assert (
+        client.put(
+            url,
+            json={
+                "profile_id": profile["id"],
+                "expected_revision": 0,
+                "task_override": "old revision",
+                "atoms": [],
+            },
+        ).status_code
+        == 200
+    )
+    _register(database, fingerprint="source-revision-b")
+    current = client.get(url, params={"profile_id": profile["id"]}).json()
+    assert current["revision"] == 0
+    assert current["task_override"] is None
+
+
 def test_recipe_snapshot_freezes_selection_and_flags(
     client: TestClient, database: Database
 ) -> None:

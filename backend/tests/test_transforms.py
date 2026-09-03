@@ -11,7 +11,8 @@ from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import inspect_dataset
 from datasetui.transforms import materialize_curation_recipe
-from datasetui.transforms import _slice_video
+from datasetui.transforms import _replace_language_columns, _slice_video
+from datasetui.transform_errors import CurationTransformError
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -365,3 +366,189 @@ def test_materialize_v3_rebuilds_shards_and_episode_offsets(tmp_path: Path) -> N
     assert metadata["episode_index"] == 0
     assert metadata["dataset_from_index"] == 0
     assert metadata["dataset_to_index"] == 4
+
+
+def test_materialize_applies_frozen_annotations_without_touching_source(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    source = settings.nas_root / "raw" / "lab" / "annotated"
+    _write_v21(source)
+    database = Database(settings.database_path)
+    database.initialize()
+    candidate = inspect_dataset(
+        area_root=settings.nas_root / "raw",
+        storage_area="raw",
+        relative_path="lab/annotated",
+    )
+    generation = database.begin_dataset_scan("raw")
+    database.synchronize_datasets(
+        storage_area="raw", records=[candidate.as_record()], scan_generation=generation
+    )
+    dataset = database.list_datasets()[0]
+    profile = database.create_profile("Annotator")
+    source_parquet = source / "data/chunk-000/episode_000001.parquet"
+    source_digest = source_parquet.read_bytes()
+    database.update_episode_flags(
+        dataset_id=dataset["id"],
+        profile_id=profile["id"],
+        expected_revision=0,
+        changes=[{"episode_index": 1, "flagged": True}],
+    )
+    database.replace_episode_annotations(
+        dataset_id=dataset["id"],
+        profile_id=profile["id"],
+        episode_index=1,
+        expected_revision=0,
+        task_override="place the cup carefully",
+        atoms=[
+            {
+                "role": "assistant",
+                "content": "grasp the cup",
+                "style": "subtask",
+                "timestamp": 0.1,
+                "camera": None,
+                "tool_calls": None,
+            },
+            {
+                "role": "assistant",
+                "content": "discarded memory",
+                "style": "memory",
+                "timestamp": 0.1,
+                "camera": None,
+                "tool_calls": None,
+            },
+            {
+                "role": "user",
+                "content": "move more slowly",
+                "style": "interjection",
+                "timestamp": 0.4,
+                "camera": None,
+                "tool_calls": None,
+            },
+            {
+                "role": "assistant",
+                "content": None,
+                "style": None,
+                "timestamp": 0.5,
+                "camera": None,
+                "tool_calls": [
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": "say",
+                            "arguments": {"text": "understood"},
+                        },
+                    }
+                ],
+            },
+            {
+                "role": "user",
+                "content": "outside trim",
+                "style": "interjection",
+                "timestamp": 0.9,
+                "camera": None,
+                "tool_calls": None,
+            },
+        ],
+    )
+    recipe = database.create_curation_recipe(
+        dataset_id=dataset["id"],
+        profile_id=profile["id"],
+        name="Annotated trim",
+        selection_mode="flagged",
+        trim_config={
+            "enabled": True,
+            "threshold": 0.1,
+            "hold_time_s": 0.1,
+            "margin_s": 0,
+            "dimensions": ["joint_0"],
+            "episode_overrides": {"1": {"start_frame": 2, "end_frame": 8}},
+        },
+        include_annotations=True,
+    )
+    snapshot = database.snapshot_curation_recipe(recipe["id"], profile_id=profile["id"])
+    job, _ = database.create_job(
+        kind="curation.materialize",
+        queue_name="cpu",
+        profile_id=profile["id"],
+        payload={"snapshot_id": snapshot["id"], "output_name": "annotated-clean"},
+        idempotency_key="annotated-run",
+    )
+    database.claim_job(job["id"], worker_id="annotation-worker", lease_seconds=120)
+
+    result = materialize_curation_recipe(
+        database=database,
+        settings=settings,
+        payload=job["payload"],
+        job_id=job["id"],
+        worker_id="annotation-worker",
+    )
+    output = settings.nas_root / "derived" / result["outputs"][0]["relative_path"]
+    info = json.loads((output / "meta/info.json").read_text(encoding="utf-8"))
+    data = pd.read_parquet(next((output / "data").rglob("*.parquet")))
+    tasks = [
+        json.loads(line)
+        for line in (output / "meta/tasks.jsonl").read_text().splitlines()
+    ]
+
+    assert source_parquet.read_bytes() == source_digest
+    assert tasks == [{"task": "place the cup carefully", "task_index": 0}]
+    assert data["task_index"].tolist() == [0] * 6
+    assert set(info["features"]) >= {"language_persistent", "language_events"}
+    assert info["tools"][0]["function"]["name"] == "say"
+    persistent = data["language_persistent"].iloc[0]
+    assert len(persistent) == 1
+    assert persistent[0]["style"] == "subtask"
+    assert persistent[0]["timestamp"] == pytest.approx(0)
+    event_rows = [list(rows) for rows in data["language_events"]]
+    assert [len(rows) for rows in event_rows] == [0, 0, 1, 1, 0, 0]
+    assert "timestamp" not in event_rows[2][0]
+    lineage = result["outputs"][0]["lineage"][0]
+    assert lineage["task_overridden"] is True
+    assert lineage["persistent_annotations"] == 1
+    assert lineage["event_annotations"] == 2
+
+
+def test_vqa_annotations_require_and_land_on_an_available_camera_frame() -> None:
+    source = pd.DataFrame(
+        {
+            "timestamp": [0.0, 0.1, 0.2],
+            "frame_index": [0, 1, 2],
+            "episode_index": [0, 0, 0],
+        }
+    )
+    output = source.copy()
+    atom = {
+        "role": "assistant",
+        "content": '{"label":"cube","count":1}',
+        "style": "vqa",
+        "timestamp": 0.11,
+        "camera": "observation.images.top",
+        "tool_calls": None,
+    }
+
+    persistent, events = _replace_language_columns(
+        output,
+        source_data=source,
+        atoms=[atom],
+        start=0,
+        end=3,
+        fps=10,
+        video_keys=["observation.images.top"],
+    )
+    assert persistent == 0
+    assert events == 1
+    assert [len(rows) for rows in output["language_events"]] == [0, 1, 0]
+    assert output["language_events"].iloc[1][0]["camera"] == "observation.images.top"
+
+    with pytest.raises(CurationTransformError, match="unavailable camera"):
+        _replace_language_columns(
+            source.copy(),
+            source_data=source,
+            atoms=[atom],
+            start=0,
+            end=3,
+            fps=10,
+            video_keys=[],
+        )

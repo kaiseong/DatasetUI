@@ -39,6 +39,7 @@ import {
 import { getDatasetVersionAndInfo } from "@/utils/versionUtils";
 import type { DatasetMetadata } from "@/utils/parquetUtils";
 import { registeredDatasetId } from "@/utils/versionUtils";
+import { storedProfileId } from "@/lib/profile-selection";
 
 const URDFViewer = lazy(() => import("@/components/urdf-viewer"));
 const ActionInsightsPanel = lazy(
@@ -227,17 +228,24 @@ export default function EpisodeViewer({
 function EpisodeBootstrap({ data }: { data: EpisodeData }) {
   const { setEpisode } = useAnnotations();
   useEffect(() => {
+    const datasetId = registeredDatasetId(data.datasetInfo.repoId);
     setEpisode(
       data.episodeId,
-      { repoId: data.datasetInfo.repoId },
+      {
+        repoId: data.datasetInfo.repoId,
+        datasetId,
+        profileId: datasetId ? storedProfileId() : null,
+      },
       data.languageAtoms,
       data.frameTimestamps,
+      data.task,
     );
   }, [
     data.episodeId,
     data.datasetInfo.repoId,
     data.languageAtoms,
     data.frameTimestamps,
+    data.task,
     setEpisode,
   ]);
   return null;
@@ -281,7 +289,7 @@ function EpisodeViewerInner({
         stored &&
         [
           "episodes",
-          ...(isRegisteredDataset ? [] : ["annotations"]),
+          "annotations",
           "statistics",
           "frames",
           "insights",
@@ -619,12 +627,11 @@ function EpisodeViewerInner({
       {/* Top tab bar */}
       <div className="flex items-center border-b border-white/5 bg-[var(--surface-0)] shrink-0">
         {renderTab("episodes", "Episodes")}
-        {!isRegisteredDataset &&
-          renderTab(
-            "annotations",
-            "Annotations",
-            "Edit subtask / plan / memory / interjection / VQA atoms (lerobot v3.1 schema)",
-          )}
+        {renderTab(
+          "annotations",
+          "Annotations",
+          "Edit task / subtask / plan / memory / interjection / VQA annotations",
+        )}
         {hasURDFSupport(datasetInfo.robot_type) &&
           datasetInfo.codebase_version >= "v3.0" &&
           renderTab("urdf", "3D Replay")}

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import math
 import re
 import unicodedata
 from typing import Any, Literal
@@ -174,6 +176,206 @@ class EpisodeFlags(StrictModel):
     updated_at: str | None
 
 
+AnnotationRole = Literal["user", "assistant", "system", "tool"]
+AnnotationStyle = Literal[
+    "task_aug", "subtask", "plan", "memory", "interjection", "vqa"
+]
+
+
+class SayToolArguments(StrictModel):
+    text: str = Field(min_length=1, max_length=2000)
+
+
+class AnnotationToolFunction(StrictModel):
+    name: Literal["say"]
+    arguments: SayToolArguments
+
+
+class AnnotationToolCall(StrictModel):
+    type: Literal["function"]
+    function: AnnotationToolFunction
+
+
+def _require_text(value: Any, field: str, *, maximum: int = 500) -> str:
+    if not isinstance(value, str) or not value.strip() or len(value) > maximum:
+        raise ValueError(f"VQA {field} must be non-empty text")
+    return value
+
+
+def _require_unit_coordinates(value: Any, field: str, length: int) -> None:
+    if not isinstance(value, list) or len(value) != length:
+        raise ValueError(f"VQA {field} has an invalid shape")
+    if any(
+        isinstance(item, bool)
+        or not isinstance(item, (int, float))
+        or not math.isfinite(float(item))
+        or float(item) < 0
+        or float(item) > 1
+        for item in value
+    ):
+        raise ValueError(f"VQA {field} coordinates must be between 0 and 1")
+
+
+def validate_vqa_answer(content: str) -> None:
+    try:
+        answer = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError("VQA assistant content must be valid JSON") from exc
+    if not isinstance(answer, dict):
+        raise ValueError("VQA assistant content must be a JSON object")
+    keys = set(answer)
+    if "detections" in answer:
+        if keys != {"detections"} or not isinstance(answer["detections"], list):
+            raise ValueError("VQA detections answer is invalid")
+        if not 1 <= len(answer["detections"]) <= 100:
+            raise ValueError("VQA detections must contain 1 to 100 items")
+        for detection in answer["detections"]:
+            if not isinstance(detection, dict) or not set(detection) <= {
+                "label",
+                "bbox_format",
+                "bbox",
+                "camera",
+            }:
+                raise ValueError("VQA detection is invalid")
+            _require_text(detection.get("label"), "label")
+            if detection.get("bbox_format") not in {"xyxy", "xywh"}:
+                raise ValueError("VQA bbox_format must be xyxy or xywh")
+            _require_unit_coordinates(detection.get("bbox"), "bbox", 4)
+        return
+    if "point" in answer:
+        if not {"label", "point_format", "point"} <= keys or not keys <= {
+            "label",
+            "point_format",
+            "point",
+            "camera",
+        }:
+            raise ValueError("VQA keypoint answer is invalid")
+        _require_text(answer.get("label"), "label")
+        if answer.get("point_format") != "xy":
+            raise ValueError("VQA point_format must be xy")
+        _require_unit_coordinates(answer.get("point"), "point", 2)
+        return
+    if "count" in answer:
+        if not {"label", "count"} <= keys or not keys <= {"label", "count", "note"}:
+            raise ValueError("VQA count answer is invalid")
+        _require_text(answer.get("label"), "label")
+        count = answer.get("count")
+        if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+            raise ValueError("VQA count must be a non-negative integer")
+        if "note" in answer:
+            _require_text(answer["note"], "note", maximum=2000)
+        return
+    if "attribute" in answer:
+        if keys != {"label", "attribute", "value"}:
+            raise ValueError("VQA attribute answer is invalid")
+        _require_text(answer.get("label"), "label")
+        _require_text(answer.get("attribute"), "attribute")
+        _require_text(answer.get("value"), "value", maximum=2000)
+        return
+    if "relation" in answer:
+        if keys != {"subject", "relation", "object"}:
+            raise ValueError("VQA spatial answer is invalid")
+        _require_text(answer.get("subject"), "subject")
+        _require_text(answer.get("relation"), "relation")
+        _require_text(answer.get("object"), "object")
+        return
+    raise ValueError("VQA assistant answer has an unsupported shape")
+
+
+class LanguageAnnotationAtom(StrictModel):
+    role: AnnotationRole
+    content: str | None = Field(default=None, max_length=16_000)
+    style: AnnotationStyle | None
+    timestamp: float = Field(ge=0, le=1_000_000_000, allow_inf_nan=False)
+    camera: str | None = Field(default=None, min_length=1, max_length=200)
+    tool_calls: list[AnnotationToolCall] | None = Field(default=None, max_length=4)
+
+    @field_validator("content")
+    @classmethod
+    def reject_control_content(cls, value: str | None) -> str | None:
+        if value is not None and ("\x00" in value or "\r" in value):
+            raise ValueError("annotation content contains unsupported characters")
+        return value
+
+    @field_validator("camera")
+    @classmethod
+    def validate_camera(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        if (
+            not value.startswith("observation.")
+            or "/" in value
+            or "\\" in value
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        ):
+            raise ValueError("annotation camera is invalid")
+        return value
+
+    @model_validator(mode="after")
+    def validate_atom(self) -> "LanguageAnnotationAtom":
+        has_content = self.content is not None and bool(self.content.strip())
+        has_tools = bool(self.tool_calls)
+        if not has_content and not has_tools:
+            raise ValueError("annotation requires content or a tool call")
+        if self.style is None:
+            if self.role != "assistant" or not has_tools or has_content:
+                raise ValueError(
+                    "speech annotations require an assistant say tool call"
+                )
+        elif has_tools:
+            raise ValueError("tool calls are allowed only for speech annotations")
+        if self.style == "vqa":
+            if self.camera is None or self.role not in {"user", "assistant"}:
+                raise ValueError(
+                    "VQA annotations require a camera and user/assistant role"
+                )
+            if self.role == "assistant":
+                validate_vqa_answer(self.content or "")
+        elif self.camera is not None:
+            raise ValueError("only VQA annotations may select a camera")
+        return self
+
+
+class EpisodeAnnotationsPut(StrictModel):
+    profile_id: str
+    expected_revision: int = Field(ge=0)
+    task_override: str | None = Field(default=None, max_length=1000)
+    atoms: list[LanguageAnnotationAtom] = Field(default_factory=list, max_length=1000)
+
+    @field_validator("task_override")
+    @classmethod
+    def normalize_task_override(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            return None
+        if "\x00" in normalized or "\r" in normalized:
+            raise ValueError("task override contains unsupported characters")
+        return normalized
+
+    @field_validator("atoms")
+    @classmethod
+    def require_unique_atoms(
+        cls, value: list[LanguageAnnotationAtom]
+    ) -> list[LanguageAnnotationAtom]:
+        encoded = [atom.model_dump_json() for atom in value]
+        if len(encoded) != len(set(encoded)):
+            raise ValueError("duplicate annotations are not allowed")
+        return value
+
+
+class EpisodeAnnotations(StrictModel):
+    dataset_id: str
+    dataset_fingerprint: str
+    profile_id: str
+    episode_index: int
+    revision: int
+    task_override: str | None
+    atoms: list[LanguageAnnotationAtom]
+    updated_at: str | None
+
+
 CurationSelectionMode = Literal["all", "flagged", "unflagged"]
 CurationOperation = Literal["subset", "delete_flagged", "train_eval_split"]
 
@@ -216,6 +418,7 @@ class CurationRecipeCreate(StrictModel):
     selection_mode: CurationSelectionMode
     operation: CurationOperation = "subset"
     trim_config: TrimConfig = Field(default_factory=TrimConfig)
+    include_annotations: bool = False
 
     _normalize_name = field_validator("name")(normalize_recipe_name)
 
@@ -226,6 +429,7 @@ class CurationRecipeUpdate(StrictModel):
     selection_mode: CurationSelectionMode | None = None
     operation: CurationOperation | None = None
     trim_config: TrimConfig | None = None
+    include_annotations: bool | None = None
     archived: bool | None = None
 
     @field_validator("name")
@@ -242,6 +446,7 @@ class CurationRecipeUpdate(StrictModel):
                 self.selection_mode,
                 self.operation,
                 self.trim_config,
+                self.include_annotations,
                 self.archived,
             )
         ):
@@ -258,6 +463,7 @@ class CurationRecipe(StrictModel):
     selection_mode: CurationSelectionMode
     operation: CurationOperation
     trim_config: TrimConfig
+    include_annotations: bool
     created_at: str
     updated_at: str
     archived_at: str | None
@@ -277,6 +483,8 @@ class CurationRecipeSnapshot(StrictModel):
     selection_mode: CurationSelectionMode
     operation: CurationOperation
     trim_config: TrimConfig
+    include_annotations: bool
+    annotation_episode_indices: list[int]
     flag_revision: int
     flagged_episode_indices: list[int]
     selected_episode_indices: list[int]

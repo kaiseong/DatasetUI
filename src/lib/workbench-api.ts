@@ -1,3 +1,5 @@
+import type { LanguageAtom } from "@/types/language.types";
+
 export type Profile = {
   id: string;
   name: string;
@@ -45,6 +47,17 @@ export type EpisodeFlagChange = {
   flagged: boolean;
 };
 
+export type EpisodeAnnotations = {
+  dataset_id: string;
+  dataset_fingerprint: string;
+  profile_id: string;
+  episode_index: number;
+  revision: number;
+  task_override: string | null;
+  atoms: LanguageAtom[];
+  updated_at: string | null;
+};
+
 export type CurationSelectionMode = "all" | "flagged" | "unflagged";
 export type CurationOperation =
   | "subset"
@@ -69,6 +82,7 @@ export type CurationRecipe = {
   selection_mode: CurationSelectionMode;
   operation: CurationOperation;
   trim_config: TrimConfig;
+  include_annotations: boolean;
   created_at: string;
   updated_at: string;
   archived_at: string | null;
@@ -84,6 +98,8 @@ export type CurationRecipeSnapshot = {
   selection_mode: CurationSelectionMode;
   operation: CurationOperation;
   trim_config: TrimConfig;
+  include_annotations: boolean;
+  annotation_episode_indices: number[];
   flag_revision: number;
   flagged_episode_indices: number[];
   selected_episode_indices: number[];
@@ -259,6 +275,39 @@ export function updateEpisodeFlags(
   );
 }
 
+export function getEpisodeAnnotations(
+  datasetId: string,
+  profileId: string,
+  episodeIndex: number,
+): Promise<EpisodeAnnotations> {
+  const query = new URLSearchParams({ profile_id: profileId });
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/annotations/${episodeIndex}?${query}`,
+  );
+}
+
+export function replaceEpisodeAnnotations(
+  datasetId: string,
+  profileId: string,
+  episodeIndex: number,
+  expectedRevision: number,
+  taskOverride: string | null,
+  atoms: LanguageAtom[],
+): Promise<EpisodeAnnotations> {
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/annotations/${episodeIndex}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        profile_id: profileId,
+        expected_revision: expectedRevision,
+        task_override: taskOverride,
+        atoms,
+      }),
+    },
+  );
+}
+
 export function listCurationRecipes(
   datasetId: string,
   profileId: string,
@@ -276,6 +325,7 @@ export function createCurationRecipe(
   selectionMode: CurationSelectionMode,
   operation: CurationOperation,
   trimConfig: TrimConfig,
+  includeAnnotations = false,
 ): Promise<CurationRecipe> {
   return requestJson(
     `/api/v1/datasets/${encodeURIComponent(datasetId)}/recipes`,
@@ -287,6 +337,7 @@ export function createCurationRecipe(
         selection_mode: selectionMode,
         operation,
         trim_config: trimConfig,
+        include_annotations: includeAnnotations,
       }),
     },
   );
@@ -300,6 +351,7 @@ export function updateCurationRecipe(
     selection_mode?: CurationSelectionMode;
     operation?: CurationOperation;
     trim_config?: TrimConfig;
+    include_annotations?: boolean;
     archived?: boolean;
   },
 ): Promise<CurationRecipe> {
