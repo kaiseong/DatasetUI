@@ -40,7 +40,7 @@ from datasetui.hf_errors import (
 
 HF_NAMESPACE = "rainbowrobotics"
 COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-DATASET_NAME_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?$")
+DATASET_NAME_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9_])?$")
 logger = logging.getLogger("datasetui.huggingface")
 
 

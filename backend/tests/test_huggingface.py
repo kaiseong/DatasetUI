@@ -160,13 +160,27 @@ def test_hf_gateway_uses_current_list_datasets_contract() -> None:
                     last_modified=None,
                     sha=SHA,
                     tags=["lerobot"],
-                )
+                ),
+                SimpleNamespace(
+                    id="rainbowrobotics/safe_trailing_underscore_",
+                    private=False,
+                    gated=False,
+                    downloads=0,
+                    likes=0,
+                    last_modified=None,
+                    sha=NEW_SHA,
+                    tags=[],
+                ),
             ]
 
     gateway = HuggingFaceGateway()
     gateway.api = Api()
 
-    assert gateway.list_datasets(query="pick", limit=5)[0]["name"] == "pick-cup"
+    datasets = gateway.list_datasets(query="pick", limit=5)
+    assert [item["name"] for item in datasets] == [
+        "pick-cup",
+        "safe_trailing_underscore_",
+    ]
     assert captured == {
         "author": "rainbowrobotics",
         "search": "pick",
