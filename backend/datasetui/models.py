@@ -583,3 +583,37 @@ class HuggingFaceImportCreate(StrictModel):
         ):
             raise ValueError("invalid Hugging Face revision")
         return value
+
+
+class DatasetMergeCreate(StrictModel):
+    profile_id: str
+    dataset_ids: list[str] = Field(min_length=2, max_length=50)
+    output_name: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?$",
+    )
+    robot_type: str = Field(min_length=1, max_length=120)
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+    @field_validator("dataset_ids")
+    @classmethod
+    def unique_sources(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("merge sources cannot contain duplicates")
+        return value
+
+    @field_validator("output_name")
+    @classmethod
+    def safe_output_name(cls, value: str) -> str:
+        if ".." in value:
+            raise ValueError("invalid output name")
+        return value
+
+    @field_validator("robot_type")
+    @classmethod
+    def safe_robot_type(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized or any(ord(character) < 32 for character in normalized):
+            raise ValueError("invalid robot type")
+        return normalized

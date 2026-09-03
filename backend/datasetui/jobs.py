@@ -132,6 +132,31 @@ def _validate_curation_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {"snapshot_id": snapshot_id, "output_name": output_name}
 
 
+def _validate_merge_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    if set(payload) != {"sources", "output_name", "robot_type"}:
+        raise ValueError("invalid internal merge payload")
+    sources = payload["sources"]
+    if not isinstance(sources, list) or not 2 <= len(sources) <= 50:
+        raise ValueError("merge requires 2 to 50 sources")
+    normalized = []
+    for source in sources:
+        if not isinstance(source, dict) or set(source) != {"id", "fingerprint"}:
+            raise ValueError("invalid internal merge source")
+        if not isinstance(source["id"], str) or not UUID_PATTERN.fullmatch(source["id"]):
+            raise ValueError("invalid internal merge source")
+        fingerprint = source["fingerprint"]
+        if not isinstance(fingerprint, str) or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+            raise ValueError("invalid internal merge fingerprint")
+        normalized.append({"id": source["id"], "fingerprint": fingerprint})
+    output_name = payload["output_name"]
+    robot_type = payload["robot_type"]
+    if not isinstance(output_name, str) or not OUTPUT_NAME_PATTERN.fullmatch(output_name) or ".." in output_name:
+        raise ValueError("invalid merge output name")
+    if not isinstance(robot_type, str) or not robot_type.strip() or len(robot_type) > 120:
+        raise ValueError("invalid merge robot type")
+    return {"sources": normalized, "output_name": output_name, "robot_type": robot_type.strip()}
+
+
 JOB_HANDLERS: dict[str, tuple[str, JobHandler]] = {
     "phase2.smoke": ("cpu", _phase2_smoke),
     "datasets.scan": ("io", _scan_datasets),
@@ -150,6 +175,8 @@ def validate_job_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         return _validate_dataset_scan_payload(payload)
     if kind == "curation.materialize":
         return _validate_curation_payload(payload)
+    if kind == "datasets.merge":
+        return _validate_merge_payload(payload)
     raise ValueError(f"Unsupported job kind: {kind}")
 
 
@@ -187,6 +214,21 @@ def run_registered_job(
             database=database,
             settings=settings,
             payload=_validate_curation_payload(payload),
+            job_id=job_id,
+            worker_id=worker_id,
+        )
+    if kind == "datasets.merge":
+        from datasetui.merge import merge_datasets
+
+        if job_id is None or worker_id is None:
+            raise ValueError("dataset merge requires worker ownership")
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        return merge_datasets(
+            database=database,
+            settings=settings,
+            payload=_validate_merge_payload(payload),
             job_id=job_id,
             worker_id=worker_id,
         )

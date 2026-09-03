@@ -50,7 +50,7 @@ def run_job(job_id: str) -> dict[str, object]:
             lease_seconds=settings.job_lease_seconds,
             heartbeat_seconds=settings.job_heartbeat_seconds,
         ):
-            if job["kind"] in {"hf.import", "curation.materialize"}:
+            if job["kind"] in {"hf.import", "curation.materialize", "datasets.merge"}:
                 result = run_registered_job(
                     job["kind"],
                     job["payload"],

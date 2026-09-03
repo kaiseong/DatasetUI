@@ -51,6 +51,7 @@ from datasetui.models import (
     CurationRecipeSnapshotCreate,
     CurationRecipeUpdate,
     Dataset,
+    DatasetMergeCreate,
     DatasetReadiness,
     EpisodeFlagPatch,
     EpisodeFlags,
@@ -710,6 +711,62 @@ def create_router(
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="The recipe belongs to a different dataset revision",
+            ) from exc
+
+    @router.post(
+        "/datasets/merge",
+        response_model=Job,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def create_dataset_merge(
+        payload: DatasetMergeCreate, response: Response
+    ) -> dict[str, Any]:
+        internal_sources: list[dict[str, str]] = []
+        try:
+            for dataset_id in payload.dataset_ids:
+                dataset = database.get_dataset(dataset_id)
+                if not dataset["available"] or dataset["readiness"] != "ready":
+                    raise DatasetNotReadyError(dataset_id)
+                internal_sources.append(
+                    {"id": dataset["id"], "fingerprint": dataset["fingerprint"]}
+                )
+            internal_payload = {
+                "sources": internal_sources,
+                "output_name": payload.output_name,
+                "robot_type": payload.robot_type,
+            }
+            job, created = database.create_job(
+                kind="datasets.merge",
+                queue_name="cpu",
+                profile_id=payload.profile_id,
+                payload=internal_payload,
+                idempotency_key=payload.idempotency_key,
+            )
+            if not created and job["status"] != "queued":
+                response.status_code = status.HTTP_200_OK
+                return job
+            job = dispatch_job(job)
+            if not created:
+                response.status_code = status.HTTP_200_OK
+            return job
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Every merge source must be ready",
+            ) from exc
+        except IdempotencyConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("failed to dispatch dataset merge")
+            if "job" in locals():
+                database.record_dispatch_error(job["id"], "Unable to dispatch job")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Job queue unavailable",
             ) from exc
 
     @router.api_route(

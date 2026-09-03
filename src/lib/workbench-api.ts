@@ -253,6 +253,25 @@ export function getDataset(datasetId: string): Promise<DatasetSummary> {
   return requestJson(`/api/v1/datasets/${encodeURIComponent(datasetId)}`);
 }
 
+export function mergeDatasets(
+  profileId: string,
+  datasetIds: string[],
+  outputName: string,
+  robotType: string,
+  idempotencyKey: string,
+): Promise<Job> {
+  return requestJson("/api/v1/datasets/merge", {
+    method: "POST",
+    body: JSON.stringify({
+      profile_id: profileId,
+      dataset_ids: datasetIds,
+      output_name: outputName,
+      robot_type: robotType,
+      idempotency_key: idempotencyKey,
+    }),
+  });
+}
+
 export function getEpisodeFlags(
   datasetId: string,
   profileId: string,
