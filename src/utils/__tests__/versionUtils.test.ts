@@ -1,5 +1,9 @@
 import { describe, expect, test, mock, afterEach } from "bun:test";
-import { buildVersionedUrl } from "@/utils/versionUtils";
+import {
+  buildVersionedUrl,
+  registeredDatasetId,
+  registeredDatasetViewerPath,
+} from "@/utils/versionUtils";
 
 // ---------------------------------------------------------------------------
 // buildVersionedUrl — pure function, no mocking needed
@@ -54,6 +58,29 @@ describe("buildVersionedUrl", () => {
     expect(url).toBe(
       "https://huggingface.co/datasets/myorg/mydataset/resolve/main/meta/info.json",
     );
+  });
+
+  test("builds a same-origin opaque-ID URL for a registered NAS dataset", () => {
+    const datasetId = "727e2520-8ab8-4703-a747-7e45ecf6b252";
+    expect(
+      buildVersionedUrl(
+        `~nas/${datasetId}`,
+        "v3.0",
+        "videos/observation.images.top/chunk-000/file-000.mp4",
+      ),
+    ).toBe(
+      `/api/v1/datasets/${datasetId}/files/videos/observation.images.top/chunk-000/file-000.mp4`,
+    );
+  });
+
+  test("encodes file components without allowing them to change the route", () => {
+    expect(buildVersionedUrl("~nas/id-1", "v3.0", "meta/a b.json")).toBe(
+      "/api/v1/datasets/id-1/files/meta/a%20b.json",
+    );
+    expect(registeredDatasetId("~nas/id-1")).toBe("id-1");
+    expect(registeredDatasetId("rainbowrobotics/id-1")).toBeNull();
+    expect(registeredDatasetId("~nas/a/b")).toBeNull();
+    expect(registeredDatasetViewerPath("id/1")).toBe("/~nas/id%2F1");
   });
 });
 

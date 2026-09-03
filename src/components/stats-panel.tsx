@@ -124,7 +124,7 @@ function StatsPanel({
         <h2 className="text-xl text-slate-100">
           <span className="font-bold">Dataset Statistics:</span>{" "}
           <span className="font-normal text-slate-400">
-            {datasetInfo.repoId}
+            {datasetInfo.displayName ?? datasetInfo.repoId}
           </span>
         </h2>
       </div>

@@ -167,6 +167,10 @@ export function listDatasets(): Promise<DatasetSummary[]> {
   return requestJson("/api/v1/datasets?limit=500");
 }
 
+export function getDataset(datasetId: string): Promise<DatasetSummary> {
+  return requestJson(`/api/v1/datasets/${encodeURIComponent(datasetId)}`);
+}
+
 export function listJobs(
   profileId?: string,
   signal?: AbortSignal,

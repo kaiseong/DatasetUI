@@ -6,6 +6,18 @@ import { authHeaders } from "./auth";
 
 const DATASET_URL =
   process.env.DATASET_URL || "https://huggingface.co/datasets";
+export const REGISTERED_DATASET_ORG = "~nas";
+
+export function registeredDatasetId(repoId: string): string | null {
+  const prefix = `${REGISTERED_DATASET_ORG}/`;
+  if (!repoId.startsWith(prefix)) return null;
+  const datasetId = repoId.slice(prefix.length);
+  return datasetId && !datasetId.includes("/") ? datasetId : null;
+}
+
+export function registeredDatasetViewerPath(datasetId: string): string {
+  return `/${REGISTERED_DATASET_ORG}/${encodeURIComponent(datasetId)}`;
+}
 
 /**
  * Dataset information structure from info.json
@@ -75,7 +87,7 @@ export async function getDatasetInfo(repoId: string): Promise<DatasetInfo> {
   console.log(`[perf] getDatasetInfo cache MISS for ${repoId} — fetching`);
 
   try {
-    const testUrl = `${DATASET_URL}/${repoId}/resolve/main/meta/info.json`;
+    const testUrl = buildVersionedUrl(repoId, "", "meta/info.json");
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
@@ -84,7 +96,7 @@ export async function getDatasetInfo(repoId: string): Promise<DatasetInfo> {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
-      headers: authHeaders(),
+      headers: authHeaders(testUrl),
     });
 
     clearTimeout(timeoutId);
@@ -135,14 +147,14 @@ export async function getDatasetStats(
 
   let data: Record<string, unknown> | null = null;
   try {
-    const url = `${DATASET_URL}/${repoId}/resolve/main/meta/stats.json`;
+    const url = buildVersionedUrl(repoId, "", "meta/stats.json");
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000);
     const response = await fetch(url, {
       method: "GET",
       cache: "no-store",
       signal: controller.signal,
-      headers: authHeaders(),
+      headers: authHeaders(url),
     });
     clearTimeout(timeoutId);
     if (response.ok) {
@@ -193,5 +205,13 @@ export function buildVersionedUrl(
   version: string,
   path: string,
 ): string {
+  const datasetId = registeredDatasetId(repoId);
+  if (datasetId) {
+    const encodedPath = path
+      .split("/")
+      .map((component) => encodeURIComponent(component))
+      .join("/");
+    return `/api/v1/datasets/${encodeURIComponent(datasetId)}/files/${encodedPath}`;
+  }
   return `${DATASET_URL}/${repoId}/resolve/main/${path}`;
 }

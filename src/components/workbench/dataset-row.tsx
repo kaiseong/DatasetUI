@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   LuBot,
@@ -8,8 +9,10 @@ import {
   LuCopy,
   LuDatabase,
   LuFileWarning,
+  LuPlay,
 } from "react-icons/lu";
 import type { DatasetReadiness, DatasetSummary } from "@/lib/workbench-api";
+import { registeredDatasetViewerPath } from "@/utils/versionUtils";
 
 const READINESS: Record<
   DatasetReadiness,
@@ -98,9 +101,21 @@ export default function DatasetRow({ dataset }: { dataset: DatasetSummary }) {
           {dataset.scan_error && (
             <p className="dataset-row__notice">{dataset.scan_error}</p>
           )}
-          <p className="dataset-row__phase-note">
-            데이터셋 열기는 Viewer 연결 단계에서 활성화됩니다.
-          </p>
+          {dataset.available && dataset.readiness === "ready" ? (
+            <div className="dataset-row__actions">
+              <p>원본 파일을 변경하지 않고 Viewer에서 엽니다.</p>
+              <Link
+                href={registeredDatasetViewerPath(dataset.id)}
+                className="workbench-button workbench-button--primary"
+              >
+                <LuPlay aria-hidden /> Viewer에서 열기
+              </Link>
+            </div>
+          ) : (
+            <p className="dataset-row__phase-note">
+              파일 상태를 확인한 뒤 Viewer에서 열 수 있습니다.
+            </p>
+          )}
         </div>
       )}
     </article>

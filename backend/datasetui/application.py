@@ -40,7 +40,7 @@ def create_application(
     application.add_middleware(
         CORSMiddleware,
         allow_origins=list(allowed_origins),
-        allow_methods=["GET", "POST", "PATCH"],
-        allow_headers=["Content-Type"],
+        allow_methods=["GET", "HEAD", "POST", "PATCH"],
+        allow_headers=["Content-Type", "Range"],
     )
     return application

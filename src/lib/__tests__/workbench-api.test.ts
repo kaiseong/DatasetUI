@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
   WorkbenchApiError,
   createProfile,
+  getDataset,
   importHuggingFaceDataset,
   isActiveJob,
   listJobs,
@@ -85,6 +86,16 @@ describe("Workbench API client", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "/api/v1/jobs?limit=200&profile_id=profile%2Fid",
     );
+  });
+
+  test("resolves a Viewer dataset by opaque registry ID", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({ id: "dataset-1", name: "Pick cup" }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await getDataset("dataset/id");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/datasets/dataset%2Fid");
   });
 
   test("library refresh cannot supply a server path", async () => {

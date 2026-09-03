@@ -17,7 +17,15 @@ export function getAuthToken(): string | null {
   }
 }
 
-export function authHeaders(): Record<string, string> {
+export function authHeaders(url?: string): Record<string, string> {
+  if (url && typeof window !== "undefined") {
+    try {
+      const target = new URL(url, window.location.origin);
+      if (target.origin === window.location.origin) return {};
+    } catch {
+      return {};
+    }
+  }
   const token = getAuthToken();
   return token ? { Authorization: `Bearer ${token}` } : {};
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, lazy, Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { postParentMessageWithParams } from "@/utils/postParentMessage";
 import { SimpleVideosPlayer } from "@/components/simple-videos-player";
@@ -34,6 +35,7 @@ import {
 } from "./fetch-data";
 import { getDatasetVersionAndInfo } from "@/utils/versionUtils";
 import type { DatasetMetadata } from "@/utils/parquetUtils";
+import { registeredDatasetId } from "@/utils/versionUtils";
 
 const URDFViewer = lazy(() => import("@/components/urdf-viewer"));
 const ActionInsightsPanel = lazy(
@@ -183,7 +185,9 @@ export default function EpisodeViewer({
     return (
       <div className="flex h-screen items-center justify-center bg-[var(--bg)] text-red-300">
         <div className="panel-raised max-w-xl p-6 border-red-500/40">
-          <h2 className="text-xl font-medium mb-3">Something went wrong</h2>
+          <h2 className="text-xl font-medium mb-3">
+            데이터셋을 열 수 없습니다
+          </h2>
           <p className="text-sm font-mono whitespace-pre-wrap text-red-200/90">
             {error}
           </p>
@@ -249,6 +253,7 @@ function EpisodeViewerInner({
     episodes,
     task,
   } = data;
+  const isRegisteredDataset = registeredDatasetId(datasetInfo.repoId) !== null;
 
   const [videosReady, setVideosReady] = useState(!videosInfo.length);
   const [chartsReady, setChartsReady] = useState(false);
@@ -268,11 +273,11 @@ function EpisodeViewerInner({
         stored &&
         [
           "episodes",
-          "annotations",
+          ...(isRegisteredDataset ? [] : ["annotations"]),
           "statistics",
           "frames",
           "insights",
-          "filtering",
+          ...(isRegisteredDataset ? [] : ["filtering"]),
           "urdf",
         ].includes(stored)
       ) {
@@ -606,25 +611,36 @@ function EpisodeViewerInner({
       {/* Top tab bar */}
       <div className="flex items-center border-b border-white/5 bg-[var(--surface-0)] shrink-0">
         {renderTab("episodes", "Episodes")}
-        {renderTab(
-          "annotations",
-          "Annotations",
-          "Edit subtask / plan / memory / interjection / VQA atoms (lerobot v3.1 schema)",
-        )}
+        {!isRegisteredDataset &&
+          renderTab(
+            "annotations",
+            "Annotations",
+            "Edit subtask / plan / memory / interjection / VQA atoms (lerobot v3.1 schema)",
+          )}
         {hasURDFSupport(datasetInfo.robot_type) &&
           datasetInfo.codebase_version >= "v3.0" &&
           renderTab("urdf", "3D Replay")}
         {renderTab("statistics", "Statistics")}
-        {renderTab("filtering", "Filtering")}
+        {!isRegisteredDataset && renderTab("filtering", "Filtering")}
         {renderTab("frames", "Frames")}
         {renderTab("insights", "Action Insights")}
-        {renderTab(
-          "doctor",
-          "Doctor",
-          "Dataset quality diagnostics (powered by lerobot-doctor)",
-        )}
+        {!isRegisteredDataset &&
+          renderTab(
+            "doctor",
+            "Doctor",
+            "Dataset quality diagnostics (powered by lerobot-doctor)",
+          )}
         <div className="ml-auto">
-          <HfAuthButton variant="tab" />
+          {isRegisteredDataset ? (
+            <Link
+              href="/library"
+              className="mr-3 text-xs text-slate-400 transition-colors hover:text-cyan-300"
+            >
+              ← Library
+            </Link>
+          ) : (
+            <HfAuthButton variant="tab" />
+          )}
         </div>
       </div>
 
@@ -680,15 +696,22 @@ function EpisodeViewerInner({
                 </a>
 
                 <div className="min-w-0">
-                  <a
-                    href={`https://huggingface.co/datasets/${datasetInfo.repoId}`}
-                    target="_blank"
-                    className="text-slate-200 hover:text-cyan-300 transition-colors"
-                  >
+                  {isRegisteredDataset ? (
                     <p className="text-base font-medium truncate">
-                      {datasetInfo.repoId}
+                      {datasetInfo.displayName ?? datasetInfo.repoId}
                     </p>
-                  </a>
+                  ) : (
+                    <a
+                      href={`https://huggingface.co/datasets/${datasetInfo.repoId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-slate-200 hover:text-cyan-300 transition-colors"
+                    >
+                      <p className="text-base font-medium truncate">
+                        {datasetInfo.repoId}
+                      </p>
+                    </a>
+                  )}
                   <p className="text-[10px] uppercase tracking-wide text-slate-500 mt-0.5 tabular">
                     Episode · {episodeId}
                   </p>

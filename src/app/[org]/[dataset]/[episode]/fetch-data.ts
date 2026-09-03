@@ -9,6 +9,7 @@ import {
   getDatasetVersionAndInfo,
   buildVersionedUrl,
   getDatasetStats,
+  registeredDatasetId,
 } from "@/utils/versionUtils";
 import { PADDING, CHART_CONFIG, EXCLUDED_COLUMNS } from "@/utils/constants";
 import {
@@ -27,6 +28,7 @@ import {
   depthEncodingFromFeature,
 } from "@/utils/colormaps";
 import type { VideoInfo, AdjacentEpisodeVideos } from "@/types";
+import { getDataset } from "@/lib/workbench-api";
 
 const SERIES_NAME_DELIMITER = CHART_CONFIG.SERIES_NAME_DELIMITER;
 
@@ -34,6 +36,8 @@ export type CameraInfo = { name: string; width: number; height: number };
 
 export type DatasetDisplayInfo = {
   repoId: string;
+  displayName?: string;
+  source?: "huggingface" | "nas";
   total_frames: number;
   total_episodes: number;
   fps: number;
@@ -325,7 +329,11 @@ export async function getEpisodeData(
   const repoId = `${org}/${dataset}`;
   try {
     console.time(`[perf] getDatasetVersionAndInfo`);
-    const { version, info: rawInfo } = await getDatasetVersionAndInfo(repoId);
+    const localDatasetId = registeredDatasetId(repoId);
+    const [{ version, info: rawInfo }, localDataset] = await Promise.all([
+      getDatasetVersionAndInfo(repoId),
+      localDatasetId ? getDataset(localDatasetId) : Promise.resolve(null),
+    ]);
     console.timeEnd(`[perf] getDatasetVersionAndInfo`);
     const info = rawInfo as unknown as DatasetMetadata;
 
@@ -377,6 +385,8 @@ export async function getEpisodeData(
 
     result.datasetInfo = {
       ...result.datasetInfo,
+      displayName: localDataset?.name ?? repoId,
+      source: localDataset ? "nas" : "huggingface",
       robot_type: rawInfo.robot_type ?? null,
       codebase_version: rawInfo.codebase_version,
       total_tasks: rawInfo.total_tasks ?? 0,
