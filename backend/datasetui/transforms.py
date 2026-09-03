@@ -99,13 +99,15 @@ def materialize_curation_recipe(
         )
         for output in outputs:
             destination = staging_root / output["name"]
-            lineage = _write_dataset(
+            built = _write_dataset(
                 source=source,
                 destination=destination,
                 source_indices=output["episodes"],
                 trim_config=snapshot["trim_config"],
                 annotations=annotations,
+                relative_action=snapshot["relative_action"],
             )
+            lineage = built["lineage"]
             candidate = inspect_dataset(
                 area_root=staging_root,
                 storage_area="derived",
@@ -133,6 +135,7 @@ def materialize_curation_recipe(
                     "frames": sum(item["output_length"] for item in lineage),
                     "manifest_sha256": manifest["tree_sha256"],
                     "lineage": lineage,
+                    "relative_action": built["relative_action"],
                 }
             )
 
@@ -300,7 +303,8 @@ def _write_dataset(
     source_indices: list[int],
     trim_config: dict[str, Any],
     annotations: dict[int, dict[str, Any]],
-) -> list[dict[str, Any]]:
+    relative_action: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     (destination / "meta").mkdir(parents=True)
     (destination / "data").mkdir()
     if source.video_keys:
@@ -379,7 +383,68 @@ def _write_dataset(
     else:
         _write_v2(source, destination, episodes, tasks, language_types)
     _write_stats(destination / "meta" / "stats.json", [item[0] for item in episodes])
-    return lineage
+    return {
+        "lineage": lineage,
+        "relative_action": _relative_action_profile(
+            source.info, [item[0] for item in episodes], relative_action or {}
+        ),
+    }
+
+
+def _relative_action_profile(
+    info: dict[str, Any],
+    episodes: list[pd.DataFrame],
+    config: dict[str, Any],
+) -> dict[str, Any]:
+    if not config.get("enabled", False):
+        return {"enabled": False, "dimensions": [], "statistics": {}}
+    action_names = _feature_names(
+        info, "action", _matrix_column(episodes[0], "action").shape[1]
+    )
+    state_names = _feature_names(
+        info,
+        "observation.state",
+        _matrix_column(episodes[0], "observation.state").shape[1],
+    )
+    dimensions = list(config.get("dimensions") or [])
+    for name in dimensions:
+        if name not in action_names or name not in state_names:
+            raise CurationTransformError(
+                "A relative action dimension is not shared by action and state"
+            )
+        if action_names.index(name) != state_names.index(name):
+            raise CurationTransformError(
+                "Relative action requires matching action/state dimension order"
+            )
+    values: list[np.ndarray] = []
+    for data in episodes:
+        action = _matrix_column(data, "action").astype(np.float64)
+        state = _matrix_column(data, "observation.state").astype(np.float64)
+        values.append(
+            np.column_stack(
+                [action[:, action_names.index(name)] - state[:, state_names.index(name)] for name in dimensions]
+            )
+        )
+    combined = np.concatenate(values, axis=0)
+    if not np.isfinite(combined).all():
+        raise CurationTransformError("Relative action contains non-finite values")
+    statistics = {
+        name: {
+            "min": float(np.min(combined[:, index])),
+            "max": float(np.max(combined[:, index])),
+            "mean": float(np.mean(combined[:, index])),
+            "std": float(np.std(combined[:, index])),
+        }
+        for index, name in enumerate(dimensions)
+    }
+    return {
+        "enabled": True,
+        "dimensions": dimensions,
+        "absolute_dimensions": [name for name in action_names if name not in dimensions],
+        "formula": "action[i] - observation.state[i]",
+        "stored_action": "absolute",
+        "statistics": statistics,
+    }
 
 
 def _coerce_atom(

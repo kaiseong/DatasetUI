@@ -412,6 +412,27 @@ class TrimConfig(StrictModel):
         return cleaned
 
 
+class RelativeActionConfig(StrictModel):
+    enabled: bool = False
+    dimensions: list[str] = Field(default_factory=list, max_length=256)
+
+    @field_validator("dimensions")
+    @classmethod
+    def validate_dimensions(cls, value: list[str]) -> list[str]:
+        cleaned = [item.strip() for item in value]
+        if any(not item or len(item) > 160 for item in cleaned):
+            raise ValueError("relative action dimensions must be non-empty names")
+        if len(cleaned) != len(set(cleaned)):
+            raise ValueError("relative action dimensions cannot contain duplicates")
+        return cleaned
+
+    @model_validator(mode="after")
+    def require_dimensions(self) -> "RelativeActionConfig":
+        if self.enabled and not self.dimensions:
+            raise ValueError("relative action requires at least one dimension")
+        return self
+
+
 class CurationRecipeCreate(StrictModel):
     profile_id: str
     name: str
@@ -419,6 +440,7 @@ class CurationRecipeCreate(StrictModel):
     operation: CurationOperation = "subset"
     trim_config: TrimConfig = Field(default_factory=TrimConfig)
     include_annotations: bool = False
+    relative_action: RelativeActionConfig = Field(default_factory=RelativeActionConfig)
 
     _normalize_name = field_validator("name")(normalize_recipe_name)
 
@@ -430,6 +452,7 @@ class CurationRecipeUpdate(StrictModel):
     operation: CurationOperation | None = None
     trim_config: TrimConfig | None = None
     include_annotations: bool | None = None
+    relative_action: RelativeActionConfig | None = None
     archived: bool | None = None
 
     @field_validator("name")
@@ -447,6 +470,7 @@ class CurationRecipeUpdate(StrictModel):
                 self.operation,
                 self.trim_config,
                 self.include_annotations,
+                self.relative_action,
                 self.archived,
             )
         ):
@@ -464,6 +488,7 @@ class CurationRecipe(StrictModel):
     operation: CurationOperation
     trim_config: TrimConfig
     include_annotations: bool
+    relative_action: RelativeActionConfig
     created_at: str
     updated_at: str
     archived_at: str | None
@@ -484,6 +509,7 @@ class CurationRecipeSnapshot(StrictModel):
     operation: CurationOperation
     trim_config: TrimConfig
     include_annotations: bool
+    relative_action: RelativeActionConfig
     annotation_episode_indices: list[int]
     flag_revision: int
     flagged_episode_indices: list[int]

@@ -330,6 +330,13 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
             "CREATE INDEX episode_annotations_lookup_idx ON episode_annotations(dataset_id, dataset_fingerprint, profile_id, updated_at DESC)",
         ),
     ),
+    (
+        7,
+        (
+            'ALTER TABLE curation_recipes ADD COLUMN relative_action_json TEXT NOT NULL DEFAULT \'{"enabled":false,"dimensions":[]}\'',
+            'ALTER TABLE curation_recipe_snapshots ADD COLUMN relative_action_json TEXT NOT NULL DEFAULT \'{"enabled":false,"dimensions":[]}\'',
+        ),
+    ),
 )
 
 
@@ -1549,6 +1556,7 @@ class Database:
         operation: str = "subset",
         trim_config: dict[str, Any] | None = None,
         include_annotations: bool = False,
+        relative_action: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         recipe_id = str(uuid.uuid4())
         now = utc_now()
@@ -1563,8 +1571,9 @@ class Database:
                     INSERT INTO curation_recipes(
                         id, dataset_id, dataset_fingerprint, profile_id,
                         name, name_key, selection_mode, operation,
-                        trim_config_json, include_annotations, created_at, updated_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        trim_config_json, include_annotations, relative_action_json,
+                        created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         recipe_id,
@@ -1577,6 +1586,7 @@ class Database:
                         operation,
                         _json_dump(trim_config or {"enabled": False}),
                         int(include_annotations),
+                        _json_dump(relative_action or {"enabled": False, "dimensions": []}),
                         now,
                         now,
                     ),
@@ -1605,6 +1615,7 @@ class Database:
                 SELECT id, dataset_id, dataset_fingerprint, profile_id, name,
                        selection_mode, operation, trim_config_json,
                        include_annotations,
+                       relative_action_json,
                        created_at, updated_at, archived_at
                 FROM curation_recipes
                 WHERE dataset_id = ? AND dataset_fingerprint = ?
@@ -1622,6 +1633,7 @@ class Database:
                 SELECT id, dataset_id, dataset_fingerprint, profile_id, name,
                        selection_mode, operation, trim_config_json,
                        include_annotations,
+                       relative_action_json,
                        created_at, updated_at, archived_at
                 FROM curation_recipes WHERE id = ? AND profile_id = ?
                 """,
@@ -1641,6 +1653,7 @@ class Database:
         operation: str | None = None,
         trim_config: dict[str, Any] | None = None,
         include_annotations: bool | None = None,
+        relative_action: dict[str, Any] | None = None,
         archived: bool | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
@@ -1679,6 +1692,11 @@ class Database:
                     if include_annotations is not None
                     else recipe["include_annotations"]
                 )
+                next_relative_action = (
+                    _json_dump(relative_action)
+                    if relative_action is not None
+                    else recipe["relative_action_json"]
+                )
                 next_archived_at = recipe["archived_at"]
                 if archived is True:
                     next_archived_at = now
@@ -1688,7 +1706,7 @@ class Database:
                     """
                     UPDATE curation_recipes
                     SET name = ?, name_key = ?, selection_mode = ?, operation = ?,
-                        trim_config_json = ?, include_annotations = ?,
+                        trim_config_json = ?, include_annotations = ?, relative_action_json = ?,
                         archived_at = ?, updated_at = ?
                     WHERE id = ?
                     """,
@@ -1699,6 +1717,7 @@ class Database:
                         next_operation,
                         next_trim_config,
                         next_include_annotations,
+                        next_relative_action,
                         next_archived_at,
                         now,
                         recipe_id,
@@ -1772,10 +1791,10 @@ class Database:
                 INSERT INTO curation_recipe_snapshots(
                     id, recipe_id, dataset_id, dataset_fingerprint, profile_id,
                     recipe_name, selection_mode, flag_revision, operation,
-                    trim_config_json, include_annotations,
+                    trim_config_json, include_annotations, relative_action_json,
                     flagged_episode_indices_json, selected_episode_indices_json,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     snapshot_id,
@@ -1789,6 +1808,7 @@ class Database:
                     recipe["operation"],
                     recipe["trim_config_json"],
                     recipe["include_annotations"],
+                    recipe["relative_action_json"],
                     _json_dump(flagged),
                     _json_dump(selected),
                     now,
@@ -1841,6 +1861,7 @@ class Database:
             "operation": recipe["operation"],
             "trim_config": json.loads(recipe["trim_config_json"]),
             "include_annotations": bool(recipe["include_annotations"]),
+            "relative_action": json.loads(recipe["relative_action_json"]),
             "annotation_episode_indices": annotation_episode_indices,
             "flag_revision": flags["revision"],
             "flagged_episode_indices": flagged,
@@ -1871,6 +1892,7 @@ class Database:
         )
         result["trim_config"] = json.loads(result.pop("trim_config_json"))
         result["include_annotations"] = bool(result["include_annotations"])
+        result["relative_action"] = json.loads(result.pop("relative_action_json"))
         with self.connect() as connection:
             result["annotation_episode_indices"] = [
                 annotation["episode_index"]
@@ -1923,6 +1945,7 @@ class Database:
         result = dict(row)
         result["trim_config"] = json.loads(result.pop("trim_config_json"))
         result["include_annotations"] = bool(result["include_annotations"])
+        result["relative_action"] = json.loads(result.pop("relative_action_json"))
         return result
 
     def _job_for_idempotency(

@@ -21,6 +21,7 @@ import {
   LuPlay,
   LuSave,
   LuShieldCheck,
+  LuMove3D,
 } from "react-icons/lu";
 import { useProfile } from "@/components/workbench/profile-context";
 import {
@@ -113,6 +114,8 @@ export default function CurateDatasetPage() {
   const [trimDimensions, setTrimDimensions] = useState("");
   const [trimOverrides, setTrimOverrides] = useState("");
   const [includeAnnotations, setIncludeAnnotations] = useState(false);
+  const [relativeActionEnabled, setRelativeActionEnabled] = useState(false);
+  const [relativeActionDimensions, setRelativeActionDimensions] = useState("");
   const [saving, setSaving] = useState(false);
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
@@ -183,6 +186,13 @@ export default function CurateDatasetPage() {
         operation,
         configuredTrim,
         includeAnnotations,
+        {
+          enabled: relativeActionEnabled,
+          dimensions: relativeActionDimensions
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean),
+        },
       );
       setRecipes((current) => [created, ...current]);
       setName("");
@@ -522,6 +532,40 @@ export default function CurateDatasetPage() {
           <div className="curation-section-title curation-section-title--name">
             <span>05</span>
             <div>
+              <h2>Relative Action</h2>
+              <p>저장된 action은 그대로 두고 학습용 상대값 규칙을 기록합니다.</p>
+            </div>
+          </div>
+          <div className="curation-trim-panel">
+            <label className="curation-trim-toggle">
+              <input
+                type="checkbox"
+                checked={relativeActionEnabled}
+                onChange={(event) => setRelativeActionEnabled(event.target.checked)}
+              />
+              <LuMove3D aria-hidden />
+              <span>
+                <strong>Relative Action 프로필 포함</strong>
+                <small>선택한 차원만 action - observation.state로 학습합니다.</small>
+              </span>
+            </label>
+            {relativeActionEnabled && (
+              <div className="curation-trim-fields">
+                <label className="curation-trim-wide">
+                  <span>상대값으로 사용할 차원</span>
+                  <input
+                    value={relativeActionDimensions}
+                    onChange={(event) => setRelativeActionDimensions(event.target.value)}
+                    placeholder="예: joint_0, joint_1 · 순서와 의미가 같아야 합니다"
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
+          <div className="curation-section-title curation-section-title--name">
+            <span>06</span>
+            <div>
               <h2>Recipe 이름</h2>
               <p>팀에서 알아보기 쉬운 작업 목적을 적어 주세요.</p>
             </div>
@@ -600,6 +644,11 @@ export default function CurateDatasetPage() {
                     {recipe.include_annotations && (
                       <span>
                         <LuMessageSquareText aria-hidden /> Annotation
+                      </span>
+                    )}
+                    {recipe.relative_action.enabled && (
+                      <span>
+                        <LuMove3D aria-hidden /> Relative Action
                       </span>
                     )}
                   </div>

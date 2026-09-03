@@ -73,6 +73,11 @@ export type TrimConfig = {
   episode_overrides: Record<string, { start_frame: number; end_frame: number }>;
 };
 
+export type RelativeActionConfig = {
+  enabled: boolean;
+  dimensions: string[];
+};
+
 export type CurationRecipe = {
   id: string;
   dataset_id: string;
@@ -83,6 +88,7 @@ export type CurationRecipe = {
   operation: CurationOperation;
   trim_config: TrimConfig;
   include_annotations: boolean;
+  relative_action: RelativeActionConfig;
   created_at: string;
   updated_at: string;
   archived_at: string | null;
@@ -99,6 +105,7 @@ export type CurationRecipeSnapshot = {
   operation: CurationOperation;
   trim_config: TrimConfig;
   include_annotations: boolean;
+  relative_action: RelativeActionConfig;
   annotation_episode_indices: number[];
   flag_revision: number;
   flagged_episode_indices: number[];
@@ -326,6 +333,7 @@ export function createCurationRecipe(
   operation: CurationOperation,
   trimConfig: TrimConfig,
   includeAnnotations = false,
+  relativeAction: RelativeActionConfig = { enabled: false, dimensions: [] },
 ): Promise<CurationRecipe> {
   return requestJson(
     `/api/v1/datasets/${encodeURIComponent(datasetId)}/recipes`,
@@ -338,6 +346,7 @@ export function createCurationRecipe(
         operation,
         trim_config: trimConfig,
         include_annotations: includeAnnotations,
+        relative_action: relativeAction,
       }),
     },
   );
@@ -352,6 +361,7 @@ export function updateCurationRecipe(
     operation?: CurationOperation;
     trim_config?: TrimConfig;
     include_annotations?: boolean;
+    relative_action?: RelativeActionConfig;
     archived?: boolean;
   },
 ): Promise<CurationRecipe> {

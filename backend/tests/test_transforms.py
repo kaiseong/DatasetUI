@@ -11,7 +11,11 @@ from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import inspect_dataset
 from datasetui.transforms import materialize_curation_recipe
-from datasetui.transforms import _replace_language_columns, _slice_video
+from datasetui.transforms import (
+    _relative_action_profile,
+    _replace_language_columns,
+    _slice_video,
+)
 from datasetui.transform_errors import CurationTransformError
 
 
@@ -551,4 +555,50 @@ def test_vqa_annotations_require_and_land_on_an_available_camera_frame() -> None
             end=3,
             fps=10,
             video_keys=[],
+        )
+
+
+def test_relative_action_profile_keeps_stored_action_absolute() -> None:
+    info = {
+        "features": {
+            "action": {"names": ["joint_0", "gripper"]},
+            "observation.state": {"names": ["joint_0", "gripper"]},
+        }
+    }
+    frame = pd.DataFrame(
+        {
+            "action": [[2.0, 0.8], [4.0, 0.5]],
+            "observation.state": [[1.0, 0.2], [1.0, 0.1]],
+        }
+    )
+    original = frame["action"].tolist()
+
+    profile = _relative_action_profile(
+        info, [frame], {"enabled": True, "dimensions": ["joint_0"]}
+    )
+
+    assert frame["action"].tolist() == original
+    assert profile["stored_action"] == "absolute"
+    assert profile["absolute_dimensions"] == ["gripper"]
+    assert profile["statistics"]["joint_0"] == {
+        "min": 1.0,
+        "max": 3.0,
+        "mean": 2.0,
+        "std": 1.0,
+    }
+
+
+def test_relative_action_profile_rejects_mismatched_dimension_order() -> None:
+    info = {
+        "features": {
+            "action": {"names": ["joint_0", "joint_1"]},
+            "observation.state": {"names": ["joint_1", "joint_0"]},
+        }
+    }
+    frame = pd.DataFrame(
+        {"action": [[1.0, 2.0]], "observation.state": [[1.0, 2.0]]}
+    )
+    with pytest.raises(CurationTransformError, match="dimension order"):
+        _relative_action_profile(
+            info, [frame], {"enabled": True, "dimensions": ["joint_0"]}
         )

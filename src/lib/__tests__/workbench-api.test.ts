@@ -179,6 +179,7 @@ describe("Workbench API client", () => {
         episode_overrides: {},
       },
       include_annotations: false,
+      relative_action: { enabled: false, dimensions: [] },
     });
   });
 

@@ -547,6 +547,7 @@ def create_router(
                 operation=payload.operation,
                 trim_config=payload.trim_config.model_dump(mode="json"),
                 include_annotations=payload.include_annotations,
+                relative_action=payload.relative_action.model_dump(mode="json"),
             )
         except DatasetNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Dataset not found") from exc
@@ -580,6 +581,11 @@ def create_router(
                     else None
                 ),
                 include_annotations=payload.include_annotations,
+                relative_action=(
+                    payload.relative_action.model_dump(mode="json")
+                    if payload.relative_action is not None
+                    else None
+                ),
                 archived=payload.archived,
             )
         except (RecipeNotFoundError, ProfileNotFoundError) as exc:
