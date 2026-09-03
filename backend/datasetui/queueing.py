@@ -14,6 +14,7 @@ class QueueDispatcher(Protocol):
 class RQDispatcher:
     redis_url: str
     timeout_seconds: int
+    io_timeout_seconds: int
 
     def _connection(self):
         from redis import Redis
@@ -48,7 +49,9 @@ class RQDispatcher:
             queue_name,
             connection=connection,
             serializer=JSONSerializer,
-            default_timeout=self.timeout_seconds,
+            default_timeout=(
+                self.io_timeout_seconds if queue_name == "io" else self.timeout_seconds
+            ),
         )
         rq_job = queue.enqueue(
             "datasetui.tasks.run_job",

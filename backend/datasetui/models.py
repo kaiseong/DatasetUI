@@ -18,6 +18,15 @@ JobStatus = Literal[
 ]
 StorageArea = Literal["raw", "derived"]
 DatasetReadiness = Literal["ready", "incomplete", "unsupported", "invalid"]
+HuggingFaceDatasetStatus = Literal[
+    "not_downloaded",
+    "queued",
+    "downloading",
+    "ready",
+    "update_available",
+    "incomplete",
+    "validation_failed",
+]
 
 
 def normalize_profile_name(value: str) -> str:
@@ -122,3 +131,54 @@ class Dataset(StrictModel):
     first_seen_at: str
     last_seen_at: str
     available: bool
+
+
+class HuggingFaceDataset(StrictModel):
+    repo_id: str
+    name: str
+    private: bool
+    gated: bool
+    downloads: int
+    likes: int
+    last_modified: str | None
+    latest_commit_sha: str
+    current_commit_sha: str | None
+    tags: list[str]
+    status: HuggingFaceDatasetStatus
+
+
+class HuggingFaceRevision(StrictModel):
+    name: str
+    kind: Literal["branch", "tag"]
+    commit_sha: str
+
+
+class HuggingFaceImportCreate(StrictModel):
+    profile_id: str
+    dataset_name: str = Field(
+        min_length=1,
+        max_length=96,
+        pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?$",
+    )
+    requested_revision: str = Field(min_length=1, max_length=200)
+    commit_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+    @field_validator("dataset_name")
+    @classmethod
+    def reject_ambiguous_dataset_name(cls, value: str) -> str:
+        if ".." in value:
+            raise ValueError("invalid Hugging Face dataset name")
+        return value
+
+    @field_validator("requested_revision")
+    @classmethod
+    def validate_revision(cls, value: str) -> str:
+        if (
+            value.startswith("/")
+            or "\\" in value
+            or any(part in {"", ".", ".."} for part in value.split("/"))
+            or any(ord(character) < 32 or ord(character) == 127 for character in value)
+        ):
+            raise ValueError("invalid Hugging Face revision")
+        return value

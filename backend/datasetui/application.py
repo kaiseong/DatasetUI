@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from datasetui.api import create_router
+from datasetui.config import Settings
 from datasetui.database import Database
 from datasetui.queueing import QueueDispatcher
 
@@ -17,6 +18,7 @@ def create_application(
     dispatcher: QueueDispatcher,
     allowed_origins: Sequence[str],
     legacy_app: FastAPI,
+    settings: Settings | None = None,
 ) -> FastAPI:
     application = FastAPI(title="DatasetUI backend")
 
@@ -33,7 +35,7 @@ def create_application(
 
     application.state.datasetui_database = database
     application.state.datasetui_dispatcher = dispatcher
-    application.include_router(create_router(database, dispatcher))
+    application.include_router(create_router(database, dispatcher, settings=settings))
     application.mount("", legacy_app)
     application.add_middleware(
         CORSMiddleware,

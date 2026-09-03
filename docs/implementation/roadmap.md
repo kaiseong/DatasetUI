@@ -11,7 +11,7 @@ before the next dataset mutation capability is enabled.
 | 2     | Profiles, durable jobs, SQLite, Redis/RQ, and API boundary       | Complete |
 | 3     | NAS dataset registry, safe discovery, and version classification | Complete |
 | 4     | Library, profile selector, and Jobs user interface               | Complete |
-| 5     | Hugging Face listing, revision selection, and managed import     | Planned  |
+| 5     | Hugging Face listing, revision selection, and managed import     | Complete |
 | 6     | Open registered NAS datasets in the existing Viewer              | Planned  |
 | 7     | Per-profile flags and reusable curation recipes                  | Planned  |
 | 8     | Trim, edit, and train/eval split workflows                       | Planned  |

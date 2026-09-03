@@ -2,6 +2,7 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
   WorkbenchApiError,
   createProfile,
+  importHuggingFaceDataset,
   isActiveJob,
   listJobs,
   listProfiles,
@@ -107,6 +108,32 @@ describe("Workbench API client", () => {
     expect(publicJobError("UnexpectedInternalError")).not.toContain(
       "UnexpectedInternalError",
     );
+  });
+
+  test("Hugging Face import sends only the selected immutable revision", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({ id: "job-hf", status: "queued" }, { status: 202 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await importHuggingFaceDataset(
+      "profile-1",
+      "pick-cup",
+      { name: "main", kind: "branch", commit_sha: "a".repeat(40) },
+      "import-intent-1",
+    );
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/hf/imports");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body).toEqual({
+      profile_id: "profile-1",
+      dataset_name: "pick-cup",
+      requested_revision: "main",
+      commit_sha: "a".repeat(40),
+      idempotency_key: "import-intent-1",
+    });
+    expect(JSON.stringify(body).toLowerCase()).not.toContain("token");
+    expect(JSON.stringify(body).toLowerCase()).not.toContain("path");
   });
 });
 

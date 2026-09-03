@@ -55,6 +55,62 @@ def _scan_datasets(payload: dict[str, Any]) -> dict[str, Any]:
     return {"storage_areas": summaries}
 
 
+def _validate_hf_import_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    from datasetui.huggingface import (
+        HF_NAMESPACE,
+        validate_commit_sha,
+        validate_dataset_name,
+        validate_revision,
+    )
+
+    allowed = {
+        "repo_id",
+        "dataset_name",
+        "requested_revision",
+        "commit_sha",
+        "generation",
+        "expected_file_count",
+        "expected_total_bytes",
+    }
+    if set(payload) != allowed:
+        raise ValueError("invalid internal Hugging Face import payload")
+    dataset_name = validate_dataset_name(payload["dataset_name"])
+    if payload["repo_id"] != f"{HF_NAMESPACE}/{dataset_name}":
+        raise ValueError("invalid Hugging Face repository namespace")
+    requested_revision = validate_revision(payload["requested_revision"])
+    commit_sha = validate_commit_sha(payload["commit_sha"])
+    generation = payload["generation"]
+    file_count = payload["expected_file_count"]
+    total_bytes = payload["expected_total_bytes"]
+    if (
+        isinstance(generation, bool)
+        or not isinstance(generation, int)
+        or generation < 1
+    ):
+        raise ValueError("invalid import generation")
+    if (
+        isinstance(file_count, bool)
+        or not isinstance(file_count, int)
+        or file_count < 0
+    ):
+        raise ValueError("invalid expected file count")
+    if total_bytes is not None and (
+        isinstance(total_bytes, bool)
+        or not isinstance(total_bytes, int)
+        or total_bytes < 0
+    ):
+        raise ValueError("invalid expected byte count")
+    return {
+        "repo_id": payload["repo_id"],
+        "dataset_name": dataset_name,
+        "requested_revision": requested_revision,
+        "commit_sha": commit_sha,
+        "generation": generation,
+        "expected_file_count": file_count,
+        "expected_total_bytes": total_bytes,
+    }
+
+
 JOB_HANDLERS: dict[str, tuple[str, JobHandler]] = {
     "phase2.smoke": ("cpu", _phase2_smoke),
     "datasets.scan": ("io", _scan_datasets),
@@ -74,7 +130,28 @@ def validate_job_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     raise ValueError(f"Unsupported job kind: {kind}")
 
 
-def run_registered_job(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+def run_registered_job(
+    kind: str,
+    payload: dict[str, Any],
+    *,
+    job_id: str | None = None,
+    worker_id: str | None = None,
+) -> dict[str, Any]:
+    if kind == "hf.import":
+        from datasetui.huggingface import import_huggingface_dataset
+
+        if job_id is None or worker_id is None:
+            raise ValueError("Hugging Face imports require worker ownership")
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        return import_huggingface_dataset(
+            database=database,
+            settings=settings,
+            payload=_validate_hf_import_payload(payload),
+            job_id=job_id,
+            worker_id=worker_id,
+        )
     registered = JOB_HANDLERS.get(kind)
     if registered is None:
         raise ValueError(f"Unsupported job kind: {kind}")

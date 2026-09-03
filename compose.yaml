@@ -7,8 +7,16 @@ x-backend-environment: &backend-environment
   REDIS_URL: redis://redis:6379/0
   DATASETUI_DB_PATH: /data/registry/datasetui.sqlite3
   DATASETUI_NAS_ROOT: /mnt/datasetui-nas/DatasetUI
+  DATASETUI_CACHE_ROOT: /data/cache
+  DATASETUI_STAGING_ROOT: /data/staging
+  DATASETUI_JOBS_ROOT: /data/jobs
   DATASETUI_SCAN_MAX_DEPTH: ${DATASETUI_SCAN_MAX_DEPTH:-6}
   DATASETUI_JOB_TIMEOUT_SECONDS: ${DATASETUI_JOB_TIMEOUT_SECONDS:-900}
+  DATASETUI_IO_JOB_TIMEOUT_SECONDS: ${DATASETUI_IO_JOB_TIMEOUT_SECONDS:-86400}
+  DATASETUI_JOB_LEASE_SECONDS: ${DATASETUI_JOB_LEASE_SECONDS:-120}
+  DATASETUI_JOB_HEARTBEAT_SECONDS: ${DATASETUI_JOB_HEARTBEAT_SECONDS:-20}
+  DATASETUI_HF_IMPORT_MAX_BYTES: ${DATASETUI_HF_IMPORT_MAX_BYTES:-2000000000000}
+  HF_HUB_DISABLE_IMPLICIT_TOKEN: "1"
   LEROBOT_ANNOTATE_CACHE: /data/cache/annotations
   LEROBOT_ANNOTATE_EXPORT: /data/staging/annotation-exports
 
@@ -83,7 +91,9 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
-    environment: *backend-environment
+    environment:
+      <<: *backend-environment
+      HF_READ_TOKEN: ${HF_READ_TOKEN:-}
     volumes: *backend-read-volumes
     depends_on:
       redis:
@@ -131,7 +141,9 @@ services:
         "rq.serializers.JSONSerializer",
         "io",
       ]
-    environment: *backend-environment
+    environment:
+      <<: *backend-environment
+      HF_READ_TOKEN: ${HF_READ_TOKEN:-}
     volumes: *backend-io-volumes
     depends_on:
       redis:

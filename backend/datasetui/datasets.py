@@ -75,7 +75,7 @@ def scan_storage_area(
         directory_names[:] = sorted(
             name
             for name in directory_names
-            if name not in SKIPPED_DIRECTORIES
+            if not _skip_directory(name)
             and not (current_path / name).is_symlink()
             and depth < max_depth
         )
@@ -151,7 +151,7 @@ def inspect_dataset(
         readiness = "ready"
 
     fingerprint_source = raw or error.encode()
-    display_name = Path(relative_path).name if relative_path else storage_area
+    display_name = _display_name(relative_path, storage_area)
     return DatasetCandidate(
         storage_area=storage_area,
         relative_path=relative_path,
@@ -224,3 +224,20 @@ def _optional_positive_number(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, (int, float)) or value <= 0:
         return None
     return float(value)
+
+
+def _skip_directory(name: str) -> bool:
+    return name in SKIPPED_DIRECTORIES or name.startswith(".incoming-")
+
+
+def _display_name(relative_path: str, storage_area: StorageArea) -> str:
+    parts = Path(relative_path).parts
+    if (
+        storage_area == "raw"
+        and len(parts) == 5
+        and parts[0] == "hf"
+        and parts[1] == "rainbowrobotics"
+        and parts[3] == "revisions"
+    ):
+        return parts[2]
+    return Path(relative_path).name if relative_path else storage_area

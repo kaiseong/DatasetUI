@@ -72,6 +72,35 @@ export type SystemHealth = {
   schema_versions: number[];
 };
 
+export type HuggingFaceDatasetStatus =
+  | "not_downloaded"
+  | "queued"
+  | "downloading"
+  | "ready"
+  | "update_available"
+  | "incomplete"
+  | "validation_failed";
+
+export type HuggingFaceDataset = {
+  repo_id: string;
+  name: string;
+  private: boolean;
+  gated: boolean;
+  downloads: number;
+  likes: number;
+  last_modified: string | null;
+  latest_commit_sha: string;
+  current_commit_sha: string | null;
+  tags: string[];
+  status: HuggingFaceDatasetStatus;
+};
+
+export type HuggingFaceRevision = {
+  name: string;
+  kind: "branch" | "tag";
+  commit_sha: string;
+};
+
 export class WorkbenchApiError extends Error {
   constructor(
     message: string,
@@ -159,6 +188,41 @@ export function getSystemHealth(): Promise<SystemHealth> {
   return requestJson("/api/v1/system/health");
 }
 
+export function listHuggingFaceDatasets(
+  query = "",
+  signal?: AbortSignal,
+): Promise<HuggingFaceDataset[]> {
+  const parameters = new URLSearchParams({ limit: "200" });
+  if (query.trim()) parameters.set("q", query.trim());
+  return requestJson(`/api/v1/hf/datasets?${parameters}`, { signal });
+}
+
+export function listHuggingFaceRevisions(
+  datasetName: string,
+): Promise<HuggingFaceRevision[]> {
+  return requestJson(
+    `/api/v1/hf/datasets/${encodeURIComponent(datasetName)}/revisions`,
+  );
+}
+
+export function importHuggingFaceDataset(
+  profileId: string,
+  datasetName: string,
+  revision: HuggingFaceRevision,
+  idempotencyKey: string,
+): Promise<Job> {
+  return requestJson("/api/v1/hf/imports", {
+    method: "POST",
+    body: JSON.stringify({
+      profile_id: profileId,
+      dataset_name: datasetName,
+      requested_revision: revision.name,
+      commit_sha: revision.commit_sha,
+      idempotency_key: idempotencyKey,
+    }),
+  });
+}
+
 export function refreshLibrary(
   profileId: string,
   idempotencyKey: string,
@@ -184,6 +248,24 @@ export function publicJobError(errorCode: string | null): string {
   }
   if (errorCode === "storage_unavailable") {
     return "공유 저장소를 읽을 수 없습니다. 관리자에게 확인해 주세요.";
+  }
+  if (errorCode === "hf_unavailable") {
+    return "Hugging Face에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.";
+  }
+  if (errorCode === "hf_source_not_found") {
+    return "선택한 revision을 찾을 수 없습니다. 목록을 새로 확인해 주세요.";
+  }
+  if (errorCode === "hf_import_too_large") {
+    return "허용된 가져오기 용량을 초과했습니다. 관리자에게 확인해 주세요.";
+  }
+  if (errorCode === "hf_revision_conflict") {
+    return "같은 revision의 저장 내용이 달라 안전하게 중단했습니다.";
+  }
+  if (errorCode === "hf_validation_failed") {
+    return "LeRobot 데이터셋 구조 확인에 실패했습니다.";
+  }
+  if (errorCode === "worker_lost") {
+    return "작업자가 중단되어 자동으로 다시 시도하고 있습니다.";
   }
   return "작업을 완료하지 못했습니다. 관리자에게 확인해 주세요.";
 }

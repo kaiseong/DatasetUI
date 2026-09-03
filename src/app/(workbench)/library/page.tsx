@@ -10,6 +10,7 @@ import {
 } from "react-icons/lu";
 import DatasetRow from "@/components/workbench/dataset-row";
 import EmptyState from "@/components/workbench/empty-state";
+import HuggingFaceLibrary from "@/components/workbench/hf-library";
 import { useProfile } from "@/components/workbench/profile-context";
 import {
   getJob,
@@ -25,6 +26,32 @@ type AreaFilter = "all" | "raw" | "derived";
 type ReadinessFilter = "all" | DatasetReadiness;
 
 export default function LibraryPage() {
+  const [source, setSource] = useState<"nas" | "hf">("nas");
+
+  return (
+    <div className="workbench-page">
+      <nav className="library-source-tabs" aria-label="라이브러리 위치">
+        <button
+          type="button"
+          className={source === "nas" ? "is-active" : ""}
+          onClick={() => setSource("nas")}
+        >
+          NAS Library
+        </button>
+        <button
+          type="button"
+          className={source === "hf" ? "is-active" : ""}
+          onClick={() => setSource("hf")}
+        >
+          Hugging Face
+        </button>
+      </nav>
+      {source === "nas" ? <NasLibrary /> : <HuggingFaceLibrary />}
+    </div>
+  );
+}
+
+function NasLibrary() {
   const { currentProfile, openProfileDialog } = useProfile();
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -149,7 +176,7 @@ export default function LibraryPage() {
   ).length;
 
   return (
-    <div className="workbench-page">
+    <>
       <section className="workbench-page__heading">
         <div>
           <p className="workbench-eyebrow">NAS LIBRARY</p>
@@ -291,7 +318,7 @@ export default function LibraryPage() {
           ))}
         </section>
       )}
-    </div>
+    </>
   );
 }
 

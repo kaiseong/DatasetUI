@@ -138,6 +138,7 @@ function jobLabel(job: Job) {
     {
       "datasets.scan": "라이브러리 새로 확인",
       "phase2.smoke": "시스템 확인",
+      "hf.import": "Hugging Face 원본 가져오기",
     }[job.kind] ?? "지원되지 않는 작업"
   );
 }
@@ -145,6 +146,12 @@ function jobLabel(job: Job) {
 function jobDescription(job: Job) {
   if (job.kind === "datasets.scan") return "공유 저장소에서 데이터셋 찾기";
   if (job.kind === "phase2.smoke") return "DatasetUI 작동 상태 확인";
+  if (job.kind === "hf.import") {
+    const datasetName = job.payload.dataset_name;
+    return typeof datasetName === "string"
+      ? `${datasetName} revision을 원본으로 보존`
+      : "선택한 revision을 원본으로 보존";
+  }
   return "이 작업 유형은 현재 화면에서 지원되지 않습니다.";
 }
 
@@ -157,6 +164,7 @@ function eventLabel(eventType: string) {
       succeeded: "작업 완료",
       failed: "작업 실패",
       interrupted: "작업 중단",
+      requeued: "자동 재시도 대기",
       dispatch_uncertain: "전달 상태 확인 중",
       dispatch_recovered: "작업 전달 복구",
     }[eventType] ?? "기타 작업 기록"

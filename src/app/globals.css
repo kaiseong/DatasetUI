@@ -344,6 +344,33 @@ body {
   gap: 32px;
 }
 
+.library-source-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 34px;
+  padding: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.library-source-tabs button {
+  min-height: 34px;
+  padding: 0 14px;
+  color: #707b8e;
+  border-radius: 5px;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+}
+
+.library-source-tabs button:hover,
+.library-source-tabs button.is-active {
+  color: #e9f6fb;
+  background: rgba(56, 189, 248, 0.1);
+}
+
 .workbench-page__heading h1 {
   margin-top: 9px;
   font-family: "Avenir Next", "Noto Sans KR", sans-serif;
@@ -634,6 +661,174 @@ body {
   padding: 10px 2px 0;
   color: #7ecce8;
   font-size: 12px;
+}
+
+.hf-trust-note {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 36px;
+  padding: 13px 15px;
+  color: #80a5b3;
+  border: 1px solid rgba(56, 189, 248, 0.13);
+  border-radius: 8px;
+  background: rgba(56, 189, 248, 0.04);
+  font-size: 12px;
+}
+
+.hf-trust-note svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.hf-dataset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 26px;
+}
+
+.hf-dataset-card {
+  position: relative;
+  min-width: 0;
+  padding: 19px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.018);
+}
+
+.hf-dataset-card::before {
+  position: absolute;
+  top: 0;
+  right: 20px;
+  left: 20px;
+  height: 1px;
+  content: "";
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(56, 189, 248, 0.55),
+    transparent
+  );
+}
+
+.hf-dataset-card__top,
+.hf-dataset-card__meta,
+.hf-import-dialog__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.hf-dataset-card__top code {
+  color: #596477;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+}
+
+.hf-dataset-card h2 {
+  margin-top: 22px;
+  overflow: hidden;
+  color: #ebf0f6;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hf-dataset-card > p {
+  margin-top: 6px;
+  color: #6c788b;
+  font-size: 11px;
+}
+
+.hf-dataset-card__meta {
+  margin: 22px 0 15px;
+  color: #626e80;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 9px;
+}
+
+.hf-dataset-card > .workbench-button {
+  width: 100%;
+}
+
+.hf-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 23px;
+  padding: 0 8px;
+  color: #8691a2;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.055);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.hf-status--ready {
+  color: #7dd3a7;
+  background: rgba(52, 211, 153, 0.09);
+}
+
+.hf-status--queued,
+.hf-status--downloading,
+.hf-status--update_available {
+  color: #75cdef;
+  background: rgba(56, 189, 248, 0.1);
+}
+
+.hf-status--incomplete,
+.hf-status--validation_failed {
+  color: #e9b779;
+  background: rgba(245, 158, 11, 0.09);
+}
+
+.hf-import-dialog {
+  width: min(640px, calc(100vw - 32px));
+}
+
+.hf-revision-field {
+  display: grid;
+  gap: 8px;
+  margin-top: 28px;
+}
+
+.hf-revision-field > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #8b96a7;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.hf-revision-field select {
+  width: 100%;
+  min-height: 46px;
+  padding: 0 12px;
+  color: #dae2ec;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 7px;
+  outline: none;
+  background: #0c111a;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 12px;
+}
+
+.hf-import-dialog__footer {
+  align-items: flex-end;
+  margin-top: 26px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.075);
+}
+
+.hf-import-dialog__footer p {
+  max-width: 300px;
+  color: #e7b679;
+  font-size: 11px;
 }
 
 .dataset-list,
@@ -1308,6 +1503,23 @@ body {
   }
   .workbench-page__heading h1 {
     font-size: 32px;
+  }
+  .library-source-tabs {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    width: 100%;
+  }
+  .hf-dataset-grid {
+    grid-template-columns: 1fr;
+  }
+  .hf-import-dialog__footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .hf-import-dialog__footer p,
+  .hf-import-dialog__footer .workbench-button {
+    width: 100%;
+    max-width: none;
   }
   .library-summary {
     grid-template-columns: repeat(3, 1fr);

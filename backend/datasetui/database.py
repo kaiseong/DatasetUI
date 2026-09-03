@@ -7,7 +7,7 @@ import unicodedata
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -24,11 +24,19 @@ class JobNotFoundError(LookupError):
     pass
 
 
+class JobLeaseLostError(RuntimeError):
+    pass
+
+
 class DatasetNotFoundError(LookupError):
     pass
 
 
 class IdempotencyConflictError(ValueError):
+    pass
+
+
+class ImmutableRevisionConflictError(RuntimeError):
     pass
 
 
@@ -127,12 +135,68 @@ MIGRATIONS: tuple[tuple[int, tuple[str, ...]], ...] = (
             "CREATE INDEX datasets_storage_idx ON datasets(storage_area, relative_path)",
         ),
     ),
+    (
+        3,
+        (
+            "ALTER TABLE jobs ADD COLUMN worker_id TEXT",
+            "ALTER TABLE jobs ADD COLUMN heartbeat_at TEXT",
+            "ALTER TABLE jobs ADD COLUMN lease_expires_at TEXT",
+            "ALTER TABLE jobs ADD COLUMN attempt INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE jobs ADD COLUMN dispatch_generation INTEGER NOT NULL DEFAULT 0",
+            "CREATE INDEX jobs_lease_idx ON jobs(status, lease_expires_at)",
+            """
+            CREATE TABLE hf_sources (
+                repo_id TEXT PRIMARY KEY,
+                desired_commit_sha TEXT NOT NULL,
+                generation INTEGER NOT NULL,
+                current_commit_sha TEXT,
+                current_generation INTEGER,
+                pointer_confirmed INTEGER NOT NULL DEFAULT 0 CHECK (
+                    pointer_confirmed IN (0, 1)
+                ),
+                updated_at TEXT NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE hf_import_requests (
+                job_id TEXT PRIMARY KEY REFERENCES jobs(id) ON DELETE CASCADE,
+                repo_id TEXT NOT NULL,
+                requested_revision TEXT NOT NULL,
+                commit_sha TEXT NOT NULL,
+                generation INTEGER NOT NULL
+            )
+            """,
+            """
+            CREATE TABLE hf_revisions (
+                repo_id TEXT NOT NULL,
+                commit_sha TEXT NOT NULL,
+                requested_revision TEXT NOT NULL,
+                relative_path TEXT NOT NULL UNIQUE,
+                manifest_sha256 TEXT NOT NULL,
+                file_count INTEGER NOT NULL,
+                total_bytes INTEGER NOT NULL,
+                imported_at TEXT NOT NULL,
+                PRIMARY KEY (repo_id, commit_sha)
+            )
+            """,
+            "CREATE INDEX hf_import_requests_repo_idx ON hf_import_requests(repo_id, generation)",
+            "CREATE INDEX hf_revisions_repo_idx ON hf_revisions(repo_id, imported_at DESC)",
+        ),
+    ),
 )
 
 
 def utc_now() -> str:
     return (
         datetime.now(timezone.utc)
+        .isoformat(timespec="milliseconds")
+        .replace("+00:00", "Z")
+    )
+
+
+def _utc_after(seconds: int) -> str:
+    return (
+        (datetime.now(timezone.utc) + timedelta(seconds=seconds))
         .isoformat(timespec="milliseconds")
         .replace("+00:00", "Z")
     )
@@ -356,6 +420,102 @@ class Database:
             raise
         return self.get_job(job_id), True
 
+    def create_hf_import_job(
+        self,
+        *,
+        profile_id: str,
+        repo_id: str,
+        dataset_name: str,
+        requested_revision: str,
+        commit_sha: str,
+        expected_file_count: int,
+        expected_total_bytes: int | None,
+        idempotency_key: str,
+    ) -> tuple[dict[str, Any], bool]:
+        self.get_profile(profile_id)
+        existing = self._job_for_idempotency(profile_id, idempotency_key)
+        if existing is not None:
+            return self._resolve_hf_idempotent_job(
+                existing,
+                repo_id=repo_id,
+                dataset_name=dataset_name,
+                requested_revision=requested_revision,
+                commit_sha=commit_sha,
+                expected_file_count=expected_file_count,
+                expected_total_bytes=expected_total_bytes,
+            )
+
+        job_id = str(uuid.uuid4())
+        now = utc_now()
+        try:
+            with self.connect() as connection:
+                connection.execute("BEGIN IMMEDIATE")
+                source = connection.execute(
+                    "SELECT generation FROM hf_sources WHERE repo_id = ?",
+                    (repo_id,),
+                ).fetchone()
+                generation = (source["generation"] if source else 0) + 1
+                connection.execute(
+                    """
+                    INSERT INTO hf_sources(
+                        repo_id, desired_commit_sha, generation, updated_at
+                    ) VALUES (?, ?, ?, ?)
+                    ON CONFLICT(repo_id) DO UPDATE SET
+                        desired_commit_sha = excluded.desired_commit_sha,
+                        generation = excluded.generation,
+                        updated_at = excluded.updated_at
+                    """,
+                    (repo_id, commit_sha, generation, now),
+                )
+                payload = {
+                    "repo_id": repo_id,
+                    "dataset_name": dataset_name,
+                    "requested_revision": requested_revision,
+                    "commit_sha": commit_sha,
+                    "generation": generation,
+                    "expected_file_count": expected_file_count,
+                    "expected_total_bytes": expected_total_bytes,
+                }
+                connection.execute(
+                    """
+                    INSERT INTO jobs(
+                        id, kind, queue_name, status, profile_id, payload_json,
+                        idempotency_key, created_at
+                    ) VALUES (?, 'hf.import', 'io', 'queued', ?, ?, ?, ?)
+                    """,
+                    (job_id, profile_id, _json_dump(payload), idempotency_key, now),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO hf_import_requests(
+                        job_id, repo_id, requested_revision, commit_sha, generation
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (job_id, repo_id, requested_revision, commit_sha, generation),
+                )
+                self._append_event(
+                    connection,
+                    job_id,
+                    "queued",
+                    {"kind": "hf.import", "queue": "io"},
+                    now=now,
+                )
+        except sqlite3.IntegrityError as exc:
+            if "jobs.profile_id, jobs.idempotency_key" in str(exc):
+                existing = self._job_for_idempotency(profile_id, idempotency_key)
+                if existing is not None:
+                    return self._resolve_hf_idempotent_job(
+                        existing,
+                        repo_id=repo_id,
+                        dataset_name=dataset_name,
+                        requested_revision=requested_revision,
+                        commit_sha=commit_sha,
+                        expected_file_count=expected_file_count,
+                        expected_total_bytes=expected_total_bytes,
+                    )
+            raise
+        return self.get_job(job_id), True
+
     def mark_enqueued(self, job_id: str, rq_job_id: str) -> dict[str, Any]:
         now = utc_now()
         with self.connect() as connection:
@@ -417,38 +577,294 @@ class Database:
                 )
         return self.get_job(job_id)
 
-    def claim_job(self, job_id: str) -> dict[str, Any] | None:
+    def claim_job(
+        self,
+        job_id: str,
+        *,
+        worker_id: str = "manual",
+        lease_seconds: int = 120,
+    ) -> dict[str, Any] | None:
         now = utc_now()
+        lease_expires_at = _utc_after(lease_seconds)
         with self.connect() as connection:
             updated = connection.execute(
                 """
                 UPDATE jobs
                 SET status = 'running', started_at = ?,
-                    error_code = NULL, error_message = NULL
+                    error_code = NULL, error_message = NULL,
+                    worker_id = ?, heartbeat_at = ?, lease_expires_at = ?,
+                    attempt = attempt + 1
                 WHERE id = ? AND status = 'queued'
                 """,
-                (now, job_id),
+                (now, worker_id, now, lease_expires_at, job_id),
             ).rowcount
             if updated != 1:
                 return None
             self._append_event(connection, job_id, "running", {}, now=now)
         return self.get_job(job_id)
 
-    def succeed_job(self, job_id: str, result: dict[str, Any]) -> dict[str, Any]:
+    def heartbeat_job(self, job_id: str, *, worker_id: str, lease_seconds: int) -> bool:
+        now = utc_now()
+        with self.connect() as connection:
+            return (
+                connection.execute(
+                    """
+                    UPDATE jobs SET heartbeat_at = ?, lease_expires_at = ?
+                    WHERE id = ? AND status = 'running' AND worker_id = ?
+                    """,
+                    (now, _utc_after(lease_seconds), job_id, worker_id),
+                ).rowcount
+                == 1
+            )
+
+    def requeue_expired_jobs(self) -> list[str]:
+        now = utc_now()
+        requeued: list[str] = []
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            rows = connection.execute(
+                """
+                SELECT id FROM jobs
+                WHERE status = 'running'
+                  AND lease_expires_at IS NOT NULL
+                  AND lease_expires_at < ?
+                """,
+                (now,),
+            ).fetchall()
+            for row in rows:
+                updated = connection.execute(
+                    """
+                    UPDATE jobs
+                    SET status = 'queued', error_code = 'worker_lost',
+                        error_message = 'The worker stopped responding', finished_at = NULL,
+                        started_at = NULL, rq_job_id = NULL,
+                        worker_id = NULL, heartbeat_at = NULL, lease_expires_at = NULL,
+                        dispatch_generation = dispatch_generation + 1
+                    WHERE id = ? AND status = 'running' AND lease_expires_at < ?
+                    """,
+                    (row["id"], now),
+                ).rowcount
+                if updated == 1:
+                    self._append_event(
+                        connection,
+                        row["id"],
+                        "interrupted",
+                        {"error_code": "worker_lost"},
+                        now=now,
+                    )
+                    self._append_event(
+                        connection,
+                        row["id"],
+                        "requeued",
+                        {},
+                        now=now,
+                    )
+                    requeued.append(row["id"])
+        return requeued
+
+    def rq_job_id_for(self, job_id: str) -> str:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT dispatch_generation FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+        if row is None:
+            raise JobNotFoundError(job_id)
+        generation = row["dispatch_generation"]
+        return (
+            f"datasetui-{job_id}"
+            if generation == 0
+            else f"datasetui-{job_id}-{generation}"
+        )
+
+    def assert_job_lease(self, job_id: str, *, worker_id: str) -> None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT 1 FROM jobs
+                WHERE id = ? AND status = 'running' AND worker_id = ?
+                  AND lease_expires_at >= ?
+                """,
+                (job_id, worker_id, utc_now()),
+            ).fetchone()
+        if row is None:
+            raise JobLeaseLostError(job_id)
+
+    def record_hf_revision(
+        self,
+        *,
+        repo_id: str,
+        requested_revision: str,
+        commit_sha: str,
+        relative_path: str,
+        manifest_sha256: str,
+        file_count: int,
+        total_bytes: int,
+    ) -> None:
+        record = {
+            "relative_path": relative_path,
+            "manifest_sha256": manifest_sha256,
+            "file_count": file_count,
+            "total_bytes": total_bytes,
+        }
+        with self.connect() as connection:
+            inserted = connection.execute(
+                """
+                INSERT INTO hf_revisions(
+                    repo_id, commit_sha, requested_revision, relative_path,
+                    manifest_sha256, file_count, total_bytes, imported_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(repo_id, commit_sha) DO NOTHING
+                """,
+                (
+                    repo_id,
+                    commit_sha,
+                    requested_revision,
+                    relative_path,
+                    manifest_sha256,
+                    file_count,
+                    total_bytes,
+                    utc_now(),
+                ),
+            ).rowcount
+            if inserted == 0:
+                existing = connection.execute(
+                    """
+                    SELECT relative_path, manifest_sha256, file_count, total_bytes
+                    FROM hf_revisions
+                    WHERE repo_id = ? AND commit_sha = ?
+                    """,
+                    (repo_id, commit_sha),
+                ).fetchone()
+                if existing is None or any(
+                    existing[key] != value for key, value in record.items()
+                ):
+                    raise ImmutableRevisionConflictError(
+                        "immutable Hugging Face revision metadata conflicts"
+                    )
+
+    def claim_hf_current(
+        self,
+        *,
+        repo_id: str,
+        commit_sha: str,
+        generation: int,
+        job_id: str,
+        worker_id: str,
+    ) -> bool:
+        with self.connect() as connection:
+            updated = connection.execute(
+                """
+                UPDATE hf_sources
+                SET current_commit_sha = ?, current_generation = ?,
+                    pointer_confirmed = 0, updated_at = ?
+                WHERE repo_id = ? AND desired_commit_sha = ? AND generation = ?
+                  AND EXISTS (
+                    SELECT 1 FROM jobs
+                    WHERE id = ? AND status = 'running' AND worker_id = ?
+                      AND lease_expires_at >= ?
+                  )
+                """,
+                (
+                    commit_sha,
+                    generation,
+                    utc_now(),
+                    repo_id,
+                    commit_sha,
+                    generation,
+                    job_id,
+                    worker_id,
+                    utc_now(),
+                ),
+            ).rowcount
+        return updated == 1
+
+    def confirm_hf_current(
+        self,
+        *,
+        repo_id: str,
+        commit_sha: str,
+        generation: int,
+        job_id: str,
+        worker_id: str,
+    ) -> bool:
+        with self.connect() as connection:
+            updated = connection.execute(
+                """
+                UPDATE hf_sources SET pointer_confirmed = 1, updated_at = ?
+                WHERE repo_id = ? AND current_commit_sha = ?
+                  AND current_generation = ?
+                  AND desired_commit_sha = ? AND generation = ?
+                  AND EXISTS (
+                    SELECT 1 FROM jobs
+                    WHERE id = ? AND status = 'running' AND worker_id = ?
+                      AND lease_expires_at >= ?
+                  )
+                """,
+                (
+                    utc_now(),
+                    repo_id,
+                    commit_sha,
+                    generation,
+                    commit_sha,
+                    generation,
+                    job_id,
+                    worker_id,
+                    utc_now(),
+                ),
+            ).rowcount
+        return updated == 1
+
+    def list_hf_sources(self) -> list[dict[str, Any]]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT s.repo_id, s.desired_commit_sha, s.generation,
+                       s.current_commit_sha, s.current_generation,
+                       s.pointer_confirmed, s.updated_at,
+                       r.relative_path, r.manifest_sha256, r.file_count,
+                       r.total_bytes, r.imported_at
+                FROM hf_sources AS s
+                LEFT JOIN hf_revisions AS r
+                  ON r.repo_id = s.repo_id
+                 AND r.commit_sha = s.current_commit_sha
+                ORDER BY s.repo_id
+                """
+            ).fetchall()
+        return [
+            {**dict(row), "pointer_confirmed": bool(row["pointer_confirmed"])}
+            for row in rows
+        ]
+
+    def succeed_job(
+        self,
+        job_id: str,
+        result: dict[str, Any],
+        *,
+        worker_id: str | None = None,
+    ) -> dict[str, Any]:
         return self._finish_job(
             job_id,
             from_statuses=("running",),
             status="succeeded",
             result=result,
+            worker_id=worker_id,
         )
 
-    def fail_job(self, job_id: str, code: str, message: str) -> dict[str, Any]:
+    def fail_job(
+        self,
+        job_id: str,
+        code: str,
+        message: str,
+        *,
+        worker_id: str | None = None,
+    ) -> dict[str, Any]:
         return self._finish_job(
             job_id,
             from_statuses=("running",),
             status="failed",
             error_code=code,
             error_message=message,
+            worker_id=worker_id,
         )
 
     def get_job(self, job_id: str) -> dict[str, Any]:
@@ -717,6 +1133,33 @@ class Database:
             )
         return existing, False
 
+    @staticmethod
+    def _resolve_hf_idempotent_job(
+        existing: dict[str, Any],
+        *,
+        repo_id: str,
+        dataset_name: str,
+        requested_revision: str,
+        commit_sha: str,
+        expected_file_count: int,
+        expected_total_bytes: int | None,
+    ) -> tuple[dict[str, Any], bool]:
+        expected = {
+            "repo_id": repo_id,
+            "dataset_name": dataset_name,
+            "requested_revision": requested_revision,
+            "commit_sha": commit_sha,
+            "expected_file_count": expected_file_count,
+            "expected_total_bytes": expected_total_bytes,
+        }
+        if existing["kind"] != "hf.import" or any(
+            existing["payload"].get(key) != value for key, value in expected.items()
+        ):
+            raise IdempotencyConflictError(
+                "idempotency key is already bound to a different request"
+            )
+        return existing, False
+
     def _finish_job(
         self,
         job_id: str,
@@ -726,16 +1169,18 @@ class Database:
         result: dict[str, Any] | None = None,
         error_code: str | None = None,
         error_message: str | None = None,
+        worker_id: str | None = None,
     ) -> dict[str, Any]:
         now = utc_now()
         placeholders = ",".join("?" for _ in from_statuses)
+        worker_clause = " AND worker_id = ?" if worker_id is not None else ""
         with self.connect() as connection:
             updated = connection.execute(
                 f"""
                 UPDATE jobs
                 SET status = ?, result_json = ?, error_code = ?, error_message = ?,
                     finished_at = ?
-                WHERE id = ? AND status IN ({placeholders})
+                WHERE id = ? AND status IN ({placeholders}){worker_clause}
                 """,
                 (
                     status,
@@ -745,9 +1190,12 @@ class Database:
                     now,
                     job_id,
                     *from_statuses,
+                    *((worker_id,) if worker_id is not None else ()),
                 ),
             ).rowcount
             if updated != 1:
+                if worker_id is not None:
+                    raise JobLeaseLostError(job_id)
                 raise JobNotFoundError(job_id)
             event_payload: dict[str, Any] = {}
             if error_code:

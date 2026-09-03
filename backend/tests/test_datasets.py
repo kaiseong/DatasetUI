@@ -85,6 +85,21 @@ def test_scanner_reports_bad_metadata_without_following_symlinks(
     assert records[0]["scan_error"].startswith("Invalid meta/info.json")
 
 
+def test_scanner_hides_incoming_imports_and_names_managed_revisions(
+    tmp_path: Path,
+) -> None:
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    base = "hf/rainbowrobotics/pick-cup/revisions"
+    _write_dataset(raw, f"{base}/{'a' * 40}")
+    _write_dataset(raw, f"{base}/.incoming-{'b' * 40}-staging")
+
+    records = scan_storage_area(tmp_path, "raw", max_depth=8)
+    assert len(records) == 1
+    assert records[0]["name"] == "pick-cup"
+    assert records[0]["relative_path"].endswith("a" * 40)
+
+
 def test_scanner_rejects_symlinked_storage_area(tmp_path: Path) -> None:
     outside = tmp_path / "outside"
     outside.mkdir()
