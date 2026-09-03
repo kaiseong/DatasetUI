@@ -73,13 +73,13 @@ After the first successful start, publish the generated Root CA and Ubuntu
 installer to the NAS:
 
 ```bash
-set -a
-source .env
-set +a
-bash scripts/publish-client-tools.sh
+sudo bash scripts/publish-client-tools.sh
 ```
 
-The published files appear under `client-tools/` in the configured NAS root.
+The script reads `.env` automatically, and the published files appear under
+`client-tools/` in the configured NAS root. Use `sudo` because Caddy protects
+its generated CA private state and the host account may not have Docker socket
+access.
 
 ## Security boundary
 

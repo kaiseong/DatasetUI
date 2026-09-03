@@ -2,6 +2,15 @@
 set -euo pipefail
 
 repo_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+env_file="${1:-${repo_root}/.env}"
+
+if [[ -f "${env_file}" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${env_file}"
+  set +a
+fi
+
 data_root="${DATASETUI_DATA_ROOT:-${repo_root}/.runtime/data}"
 nas_root="${DATASETUI_NAS_ROOT:-${repo_root}/.runtime/nas}"
 
