@@ -1,4 +1,4 @@
-import type { Job } from "@/lib/workbench-api";
+import { getJob, type Job } from "@/lib/workbench-api";
 
 /** Active drawing tool on the frame canvas. */
 export type Tool = "positive" | "negative" | "box" | "brush";
@@ -43,4 +43,39 @@ export function readRawBase64(file: File): Promise<string> {
     };
     reader.readAsDataURL(file);
   });
+}
+
+/**
+ * Follow a job until it reaches a terminal status.
+ *
+ * `onUpdate` receives the initial job and every refreshed one. Polling stops
+ * (returning null) as soon as `isCurrent` reports that the request was
+ * superseded or the editor unmounted; no update is applied after that.
+ */
+export async function waitForJob(
+  initial: Job,
+  {
+    onUpdate,
+    isCurrent,
+    fetchJob = getJob,
+    sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms)),
+    intervalMs = 1200,
+  }: {
+    onUpdate?: (job: Job) => void;
+    isCurrent: () => boolean;
+    fetchJob?: (id: string) => Promise<Job>;
+    sleep?: (ms: number) => Promise<unknown>;
+    intervalMs?: number;
+  },
+): Promise<Job | null> {
+  let job = initial;
+  onUpdate?.(job);
+  while (!TERMINAL.has(job.status)) {
+    await sleep(intervalMs);
+    if (!isCurrent()) return null;
+    job = await fetchJob(job.id);
+    if (!isCurrent()) return null;
+    onUpdate?.(job);
+  }
+  return job;
 }

@@ -21,6 +21,8 @@ import { LabelingPanel } from "./segmentation/labeling-panel";
 import { ObjectChips } from "./segmentation/object-chips";
 import { PreviewReview } from "./segmentation/preview-review";
 import { SampleResult } from "./segmentation/sample-result";
+import { useFrameSelection } from "./segmentation/use-frame-selection";
+import { useUnsavedEditGuard } from "./segmentation/use-unsaved-edit-guard";
 import {
   BACKGROUND_TYPES,
   MAX_BACKGROUND_BYTES,
@@ -29,6 +31,7 @@ import {
   errorText,
   jobMessage,
   readRawBase64,
+  waitForJob,
   type EditorPanel,
   type Tool,
 } from "./segmentation/support";
@@ -61,14 +64,11 @@ import {
   type SegmentationWorkspace,
   type ConfirmedSegmentationObject,
   createSegmentationSample,
-  getSegmentationSelection,
   type SegmentationSampleResult,
-  type SegmentationSelection,
   approveSegmentationPreview,
   createSegmentationPreview,
   exportSegmentationDataset,
   isSegmentationPreviewResult,
-  segmentationFrameUrl,
   type SegmentationCapabilities,
   type SegmentationPreviewResult,
   type SegmentationScope,
@@ -115,13 +115,6 @@ export default function SegmentationEditor({
     initialVideoKey ?? scope.video_keys[0] ?? "",
   );
   const [frameIndex, setFrameIndex] = useState(0);
-  const [selection, setSelection] = useState<SegmentationSelection | null>(
-    null,
-  );
-  const [selectionLoading, setSelectionLoading] = useState(false);
-  const [selectionAttempt, setSelectionAttempt] = useState(0);
-  const [frameSource, setFrameSource] = useState("");
-  const [frameLoading, setFrameLoading] = useState(false);
   const [sample, setSample] = useState<SegmentationSampleResult | null>(null);
   const [sampleJob, setSampleJob] = useState<Job | null>(null);
   const [sampleView, setSampleView] = useState("composite.png");
@@ -188,6 +181,22 @@ export default function SegmentationEditor({
     [number, number, number, number] | null
   >(null);
   const [message, setMessage] = useState<string | null>(null);
+  const {
+    selection,
+    selectionLoading,
+    frameSource,
+    frameLoading,
+    frameUrl,
+    setSelectionAttempt,
+  } = useFrameSelection({
+    datasetId,
+    episodeIndex,
+    videoKey,
+    frameIndex,
+    scope,
+    setFrameIndex,
+    setMessage,
+  });
   const [previewJob, setPreviewJob] = useState<Job | null>(null);
   const [preview, setPreview] = useState<SegmentationPreviewResult | null>(
     initialPreview ?? null,
@@ -344,44 +353,7 @@ export default function SegmentationEditor({
     return () => controller.abort();
   }, [currentProfile, datasetId, episodeIndex, videoKey]);
 
-  useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => {
-      if (dirty || savingObject) {
-        event.preventDefault();
-        event.returnValue = "";
-      }
-    };
-    window.addEventListener("beforeunload", warn);
-    // Parent dataset/camera selectors live outside this editor.
-    const guard = (event: Event) => {
-      const element = event.target instanceof Element ? event.target : null;
-      if (
-        (!dirty && !savingObject) ||
-        !element ||
-        element.closest("[data-object-editor]")
-      )
-        return;
-      if (
-        (event.type === "change" && element.matches("select")) ||
-        element.closest("a,button")
-      ) {
-        if (
-          savingObject ||
-          !window.confirm("저장하지 않은 객체 편집을 버리고 이동할까요?")
-        ) {
-          event.preventDefault();
-          event.stopImmediatePropagation();
-        }
-      }
-    };
-    document.addEventListener("change", guard, true);
-    document.addEventListener("click", guard, true);
-    return () => {
-      window.removeEventListener("beforeunload", warn);
-      document.removeEventListener("change", guard, true);
-      document.removeEventListener("click", guard, true);
-    };
-  }, [dirty, savingObject]);
+  useUnsavedEditGuard(dirty, savingObject);
 
   async function persistObjects(
     objects: ConfirmedSegmentationObject[],
@@ -486,14 +458,13 @@ export default function SegmentationEditor({
           ...candidateGuidance(moved, objectId, frameIndex),
         },
       );
-      setCandidateJob(job);
-      while (!TERMINAL.has(job.status)) {
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-        if (!mountedRef.current || generation !== candidateGeneration.current)
-          return;
-        job = await getJob(job.id);
-        setCandidateJob(job);
-      }
+      const finished = await waitForJob(job, {
+        onUpdate: setCandidateJob,
+        isCurrent: () =>
+          mountedRef.current && generation === candidateGeneration.current,
+      });
+      if (!finished) return;
+      job = finished;
       if (!mountedRef.current || generation !== candidateGeneration.current)
         return;
       if (job.status !== "succeeded")
@@ -813,17 +784,14 @@ export default function SegmentationEditor({
   }
 
   async function pollJob(initial: Job, requestGeneration: number) {
-    let current = initial;
-    while (!TERMINAL.has(current.status)) {
-      await new Promise((resolve) => window.setTimeout(resolve, 1200));
-      if (!mountedRef.current || generationRef.current !== requestGeneration) {
-        return null;
-      }
-      current = await getJob(current.id);
-      if (current.kind === "segmentation.preview") setPreviewJob(current);
-      else setExportJob(current);
-    }
-    return current;
+    return waitForJob(initial, {
+      onUpdate: (job) =>
+        job.kind === "segmentation.preview"
+          ? setPreviewJob(job)
+          : setExportJob(job),
+      isCurrent: () =>
+        mountedRef.current && generationRef.current === requestGeneration,
+    });
   }
 
   function draftRenderMode() {
@@ -1019,69 +987,6 @@ export default function SegmentationEditor({
   }
 
   const shownBox = boxPreview ?? prompt.box;
-  const frameUrl = segmentationFrameUrl(
-    datasetId,
-    episodeIndex,
-    videoKey,
-    frameIndex,
-    selection?.frame_token ?? scope.frame_token,
-  );
-
-  useEffect(() => {
-    if (scope.frame_token) return;
-    const controller = new AbortController();
-    setSelection(null);
-    setSelectionLoading(true);
-    setMessage(null);
-    void getSegmentationSelection(
-      datasetId,
-      episodeIndex,
-      videoKey,
-      controller.signal,
-    )
-      .then((value) => {
-        if (!controller.signal.aborted) {
-          setSelection(value);
-          setFrameIndex(0);
-        }
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) setMessage(errorText(error));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setSelectionLoading(false);
-      });
-    return () => controller.abort();
-  }, [datasetId, episodeIndex, videoKey, scope.frame_token, selectionAttempt]);
-
-  useEffect(() => {
-    setFrameSource("");
-    if (!selection?.frame_token && !scope.frame_token) return;
-    const controller = new AbortController();
-    let url = "";
-    setFrameLoading(true);
-    void fetch(frameUrl, { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error("프레임 로딩 실패");
-        return response.blob();
-      })
-      .then((blob) => {
-        if (!controller.signal.aborted) {
-          url = URL.createObjectURL(blob);
-          setFrameSource(url);
-        }
-      })
-      .catch((error) => {
-        if (!controller.signal.aborted) setMessage(errorText(error));
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setFrameLoading(false);
-      });
-    return () => {
-      controller.abort();
-      if (url) URL.revokeObjectURL(url);
-    };
-  }, [frameUrl, selection?.frame_token, scope.frame_token, selectionAttempt]);
 
   useEffect(() => {
     sampleGeneration.current += 1;
@@ -1108,7 +1013,7 @@ export default function SegmentationEditor({
     const { selected_candidate_ids: _ids, ...guidance } = draft;
     void _ids;
     try {
-      let job = await createSegmentationSample(
+      const job = await createSegmentationSample(
         currentProfile.id,
         crypto.randomUUID(),
         {
@@ -1120,23 +1025,19 @@ export default function SegmentationEditor({
           frame_token: selection?.frame_token ?? scope.frame_token,
         },
       );
-      while (mountedRef.current && sampleGeneration.current === generation) {
-        setSampleJob(job);
-        if (TERMINAL.has(job.status)) {
-          if (
-            job.status === "succeeded" &&
-            job.result?.result_type === "segmentation.sample"
-          ) {
-            setSample(job.result as unknown as SegmentationSampleResult);
-            setSampleView("composite.png");
-          } else setMessage(jobMessage(job));
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 1200));
-        if (!mountedRef.current || sampleGeneration.current !== generation)
-          break;
-        job = await getJob(job.id);
-      }
+      const finished = await waitForJob(job, {
+        onUpdate: setSampleJob,
+        isCurrent: () =>
+          mountedRef.current && sampleGeneration.current === generation,
+      });
+      if (!finished) return;
+      if (
+        finished.status === "succeeded" &&
+        finished.result?.result_type === "segmentation.sample"
+      ) {
+        setSample(finished.result as unknown as SegmentationSampleResult);
+        setSampleView("composite.png");
+      } else setMessage(jobMessage(finished));
     } catch (error) {
       if (mountedRef.current && sampleGeneration.current === generation)
         setMessage(errorText(error));
