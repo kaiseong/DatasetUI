@@ -10,17 +10,18 @@ import {
   LuSearch,
   LuServerOff,
   LuShieldCheck,
+  LuTrash2,
   LuX,
 } from "react-icons/lu";
 import EmptyState from "@/components/workbench/empty-state";
 import { useProfile } from "@/components/workbench/profile-context";
 import {
-  getJob,
+  deleteHuggingFaceDataset,
+  getDeliveryCapabilities,
   importHuggingFaceDataset,
-  isActiveJob,
+  listActiveTeamJobs,
   listHuggingFaceDatasets,
   listHuggingFaceRevisions,
-  publicJobError,
   type HuggingFaceDataset,
   type HuggingFaceDatasetStatus,
   type HuggingFaceRevision,
@@ -54,12 +55,43 @@ export default function HuggingFaceLibrary() {
   const [message, setMessage] = useState("");
   const dialogRef = useRef<HTMLDialogElement>(null);
   const importIntent = useRef<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<HuggingFaceDataset | null>(
+    null,
+  );
+  const [deletingNames, setDeletingNames] = useState<string[]>([]);
+  const [deleteConfigured, setDeleteConfigured] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [submittingDelete, setSubmittingDelete] = useState(false);
+  const deleteDialogRef = useRef<HTMLDialogElement>(null);
+  const deleteIntent = useRef<string | null>(null);
+  const deleteInFlight = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void getDeliveryCapabilities()
+      .then((capabilities) => {
+        if (active) setDeleteConfigured(capabilities.hf_delete_configured);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const load = useCallback(
     async (search = submittedQuery) => {
       setError(null);
       try {
-        setDatasets(await listHuggingFaceDatasets(search));
+        const [items, jobs] = await Promise.all([
+          listHuggingFaceDatasets(search),
+          listActiveTeamJobs(),
+        ]);
+        setDatasets(items);
+        setDeletingNames(
+          jobs
+            .filter((job) => job.kind === "hf.delete")
+            .map((job) => String(job.payload.dataset_name)),
+        );
       } catch (requestError) {
         setError(
           requestError instanceof Error
@@ -79,6 +111,7 @@ export default function HuggingFaceLibrary() {
 
   useEffect(() => {
     if (
+      deletingNames.length === 0 &&
       !datasets.some((dataset) =>
         ["queued", "downloading"].includes(dataset.status),
       )
@@ -87,10 +120,11 @@ export default function HuggingFaceLibrary() {
     }
     const timer = window.setInterval(() => void load(), 2500);
     return () => window.clearInterval(timer);
-  }, [datasets, load]);
+  }, [datasets, deletingNames.length, load]);
 
   async function openImport(dataset: HuggingFaceDataset) {
     setSelected(dataset);
+    importIntent.current = null;
     setRevision(null);
     setRevisions([]);
     setMessage("");
@@ -122,7 +156,7 @@ export default function HuggingFaceLibrary() {
     setMessage("원본 revision을 안전하게 가져오고 있습니다…");
     importIntent.current ??= `hf-import-${selected.name}-${revision.commit_sha}-${crypto.randomUUID()}`;
     try {
-      const job = await importHuggingFaceDataset(
+      await importHuggingFaceDataset(
         currentProfile.id,
         selected.name,
         revision,
@@ -136,7 +170,6 @@ export default function HuggingFaceLibrary() {
           item.name === selected.name ? { ...item, status: "queued" } : item,
         ),
       );
-      await waitForImport(job.id);
     } catch (requestError) {
       const safeMessage =
         requestError instanceof Error
@@ -149,16 +182,42 @@ export default function HuggingFaceLibrary() {
     }
   }
 
-  async function waitForImport(jobId: string) {
-    for (;;) {
-      const job = await getJob(jobId);
-      if (!isActiveJob(job.status)) {
-        if (job.status !== "succeeded")
-          setError(publicJobError(job.error_code));
-        await load();
-        return;
-      }
-      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+  function openDelete(dataset: HuggingFaceDataset) {
+    if (!currentProfile) {
+      openProfileDialog();
+      return;
+    }
+    setDeleteTarget(dataset);
+    setDeleteError("");
+    deleteIntent.current = null;
+    deleteDialogRef.current?.showModal();
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget || !currentProfile || deleteInFlight.current) return;
+    deleteInFlight.current = true;
+    setSubmittingDelete(true);
+    setDeleteError("");
+    try {
+      deleteIntent.current ??= `hf-delete-${crypto.randomUUID()}`;
+      await deleteHuggingFaceDataset(
+        currentProfile.id,
+        deleteTarget,
+        deleteIntent.current,
+      );
+      setDeletingNames((current) => [...current, deleteTarget.name]);
+      deleteDialogRef.current?.close();
+      deleteIntent.current = null;
+      void load();
+    } catch (requestError) {
+      setDeleteError(
+        requestError instanceof Error
+          ? requestError.message
+          : "삭제 요청을 접수하지 못했습니다.",
+      );
+    } finally {
+      deleteInFlight.current = false;
+      setSubmittingDelete(false);
     }
   }
 
@@ -250,6 +309,7 @@ export default function HuggingFaceLibrary() {
             const status = STATUS[dataset.status];
             const active =
               dataset.status === "queued" || dataset.status === "downloading";
+            const deleting = deletingNames.includes(dataset.name);
             return (
               <article className="hf-dataset-card" key={dataset.repo_id}>
                 <div className="hf-dataset-card__top">
@@ -271,7 +331,7 @@ export default function HuggingFaceLibrary() {
                 <button
                   type="button"
                   className="workbench-button"
-                  disabled={active}
+                  disabled={active || deleting}
                   onClick={() => void openImport(dataset)}
                 >
                   {active ? (
@@ -282,6 +342,20 @@ export default function HuggingFaceLibrary() {
                     <LuCloudDownload aria-hidden />
                   )}
                   {status.action}
+                </button>
+                <button
+                  type="button"
+                  className="workbench-button workbench-button--danger"
+                  disabled={active || deleting || !deleteConfigured}
+                  title={
+                    !deleteConfigured
+                      ? "서버의 Hugging Face 쓰기 토큰 설정이 필요합니다."
+                      : undefined
+                  }
+                  onClick={() => openDelete(dataset)}
+                >
+                  <LuTrash2 aria-hidden />{" "}
+                  {deleting ? "삭제 대기·진행 중" : "Hugging Face에서 삭제"}
                 </button>
               </article>
             );
@@ -361,6 +435,55 @@ export default function HuggingFaceLibrary() {
               <LuCloudDownload aria-hidden />
             )}
             {submitting ? "작업 접수 중…" : "선택한 revision 가져오기"}
+          </button>
+        </div>
+      </dialog>
+      <dialog
+        ref={deleteDialogRef}
+        className="profile-dialog"
+        aria-labelledby="hf-delete-title"
+        onCancel={(event) => {
+          if (submittingDelete) event.preventDefault();
+        }}
+        onClose={() => {
+          setDeleteTarget(null);
+          setDeleteError("");
+        }}
+      >
+        <div className="profile-dialog__topline" />
+        <h2 id="hf-delete-title" className="text-2xl font-semibold">
+          정말 Hugging Face에서 삭제할까요?
+        </h2>
+        <p className="mt-4">
+          <strong>{deleteTarget?.repo_id}</strong>
+        </p>
+        <p className="mt-3 text-sm text-[var(--text-muted)]">
+          원격 데이터셋 저장소 전체가 영구 삭제됩니다. 이 작업은 되돌릴 수
+          없습니다. 이미 NAS에 가져온 복사본은 유지됩니다. 확인 이후 원격
+          revision이 바뀌면 삭제하지 않습니다.
+        </p>
+        {deleteError && (
+          <p role="alert" className="mt-3">
+            {deleteError}
+          </p>
+        )}
+        <div className="hf-import-dialog__footer">
+          <button
+            autoFocus
+            type="button"
+            className="workbench-button"
+            disabled={submittingDelete}
+            onClick={() => deleteDialogRef.current?.close()}
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            className="workbench-button workbench-button--danger"
+            disabled={submittingDelete || !deleteTarget}
+            onClick={() => void handleDelete()}
+          >
+            {submittingDelete ? "접수 중…" : "원격 데이터셋 영구 삭제"}
           </button>
         </div>
       </dialog>

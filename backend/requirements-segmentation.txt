@@ -1,0 +1,7 @@
+# Inference imports listed only under optional extras in the pinned SAM 3 source.
+# Keep notebook/training UI dependencies out of the GPU worker.
+einops>=0.8,<1
+decord>=0.6,<1
+pycocotools>=2.0,<3
+scipy>=1.14,<2
+psutil>=7,<8

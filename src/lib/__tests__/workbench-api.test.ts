@@ -1,20 +1,28 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import {
   WorkbenchApiError,
+  cancelJob,
   createCurationRecipe,
   createProfile,
   getEpisodeAnnotations,
   getEpisodeFlags,
+  getSystemResources,
   getDataset,
+  getDatasetInfo,
   importHuggingFaceDataset,
   isActiveJob,
+  listDatasetTrash,
   listJobs,
+  listMergeJobs,
   listProfiles,
   publicJobError,
   refreshLibrary,
   replaceEpisodeAnnotations,
+  restoreDatasetFromTrash,
   runCurationRecipe,
+  trashDataset,
   updateEpisodeFlags,
+  updateCurationRecipe,
 } from "../workbench-api";
 
 const originalFetch = globalThis.fetch;
@@ -84,6 +92,80 @@ describe("Workbench API client", () => {
     }
   });
 
+  test("retains structured API error codes for safe UI messages", async () => {
+    globalThis.fetch = mock(async () =>
+      Response.json(
+        {
+          detail: {
+            code: "dataset_in_use",
+            message: "internal dataset detail",
+          },
+        },
+        { status: 409 },
+      ),
+    ) as unknown as typeof fetch;
+
+    try {
+      await trashDataset("dataset-1", "profile-1", "Dataset", "fp");
+      throw new Error("request should fail");
+    } catch (error) {
+      expect(error).toBeInstanceOf(WorkbenchApiError);
+      expect((error as WorkbenchApiError).status).toBe(409);
+      expect((error as WorkbenchApiError).code).toBe("dataset_in_use");
+    }
+  });
+
+  test("moves a dataset to trash with name and fingerprint preconditions", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({ dataset: { id: "dataset/id" }, state: "trashed" }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await trashDataset("dataset/id", "profile/id", "원본 데이터", "fp-1");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/datasets/dataset%2Fid/trash",
+    );
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      profile_id: "profile/id",
+      expected_name: "원본 데이터",
+      expected_fingerprint: "fp-1",
+    });
+  });
+
+  test("loads up to 500 shared trash entries with the selected profile", async () => {
+    const fetchMock = mock(async () => Response.json([]));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const controller = new AbortController();
+
+    await listDatasetTrash("profile/id", controller.signal);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/dataset-trash?profile_id=profile%2Fid&limit=500",
+    );
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal).toBe(
+      controller.signal,
+    );
+  });
+
+  test("restores trash without an overwrite option", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({ id: "dataset/id", name: "복구 데이터" }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await restoreDatasetFromTrash("dataset/id", "profile/id", "fp-1");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/dataset-trash/dataset%2Fid/restore",
+    );
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      profile_id: "profile/id",
+      expected_fingerprint: "fp-1",
+    });
+  });
+
   test("filters jobs by the selected profile", async () => {
     const fetchMock = mock(async () => Response.json([]));
     globalThis.fetch = fetchMock as unknown as typeof fetch;
@@ -91,6 +173,60 @@ describe("Workbench API client", () => {
     await listJobs("profile/id");
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       "/api/v1/jobs?limit=200&profile_id=profile%2Fid",
+    );
+  });
+
+  test("cancels only through the queued-job endpoint with the selected profile", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({
+        id: "job/id",
+        kind: "datasets.merge",
+        status: "running",
+        profile_id: "profile/id",
+        cancellation_requested: true,
+        cancellation_requested_at: "2026-09-21T00:00:00Z",
+        cancellation_guarded_at: null,
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const updated = await cancelJob("job/id", "profile/id");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/jobs/job%2Fid/cancel");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe('{"profile_id":"profile/id"}');
+    expect(updated.status).toBe("running");
+    expect(updated.cancellation_requested).toBe(true);
+  });
+
+  test("loads scheduler resource status with request cancellation", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({
+        enabled: true,
+        healthy: true,
+        decision: "ready",
+      }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const controller = new AbortController();
+
+    await getSystemResources(controller.signal);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/system/resources");
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal).toBe(
+      controller.signal,
+    );
+  });
+
+  test("loads persisted merge jobs for the selected profile with cancellation", async () => {
+    const fetchMock = mock(async () => Response.json([]));
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const controller = new AbortController();
+    await listMergeJobs("profile/id", controller.signal);
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/jobs?profile_id=profile%2Fid&kind=datasets.merge&limit=50",
+    );
+    expect((fetchMock.mock.calls[0]?.[1] as RequestInit).signal).toBe(
+      controller.signal,
     );
   });
 
@@ -154,6 +290,8 @@ describe("Workbench API client", () => {
       "subset",
       {
         enabled: false,
+        method: "stationary",
+        state_epsilon: 0.0005,
         threshold: 0.02,
         hold_time_s: 0.5,
         margin_s: 1,
@@ -172,6 +310,8 @@ describe("Workbench API client", () => {
       operation: "subset",
       trim_config: {
         enabled: false,
+        method: "stationary",
+        state_epsilon: 0.0005,
         threshold: 0.02,
         hold_time_s: 0.5,
         margin_s: 1,
@@ -179,8 +319,71 @@ describe("Workbench API client", () => {
         episode_overrides: {},
       },
       include_annotations: false,
-      relative_action: { enabled: false, dimensions: [] },
+      relative_action: { enabled: false, dimensions: [], chunk_size: 50 },
+      split_config: { method: "flagged", eval_percent: 20, seed: 0 },
     });
+  });
+
+  test("sends a deterministic random Train/Eval split definition", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({ id: "recipe-random" }, { status: 201 }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await createCurationRecipe(
+      "dataset-1",
+      "profile-1",
+      "Random split",
+      "all",
+      "train_eval_split",
+      {
+        enabled: false,
+        method: "stationary",
+        state_epsilon: 0.0005,
+        threshold: 0.02,
+        hold_time_s: 0.5,
+        margin_s: 1,
+        dimensions: [],
+        episode_overrides: {},
+      },
+      false,
+      { enabled: false, dimensions: [], chunk_size: 50 },
+      { method: "random", eval_percent: 12.5, seed: 2026 },
+    );
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(JSON.parse(init.body as string).split_config).toEqual({
+      method: "random",
+      eval_percent: 12.5,
+      seed: 2026,
+    });
+  });
+
+  test("loads registered dataset info metadata without a guessed path", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({ features: { action: { shape: [2] } } }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await getDatasetInfo("dataset/id");
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "/api/v1/datasets/dataset%2Fid/files/meta/info.json",
+    );
+  });
+
+  test("soft-deletes a recipe by archiving it instead of issuing a hard delete", async () => {
+    const fetchMock = mock(async () =>
+      Response.json({ id: "recipe/id", archived_at: "2026-09-21T00:00:00Z" }),
+    );
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    await updateCurationRecipe("recipe/id", "profile/id", {
+      archived: true,
+    });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("/api/v1/recipes/recipe%2Fid");
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.method).toBe("PATCH");
+    expect(init.body).toBe('{"profile_id":"profile/id","archived":true}');
   });
 
   test("loads and replaces an episode annotation draft without paths", async () => {

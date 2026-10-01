@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { LuCloudUpload, LuHardDrive, LuLaptop, LuSend } from "react-icons/lu";
 import { useProfile } from "@/components/workbench/profile-context";
 import {
@@ -8,6 +8,7 @@ import {
   copyDatasetToPcWithPassword,
   exportDatasetToNas,
   listDatasets,
+  getDeliveryCapabilities,
   uploadDatasetToHuggingFace,
   type DatasetSummary,
 } from "@/lib/workbench-api";
@@ -27,8 +28,35 @@ export default function DeliverPage() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
+  const currentProfileId = currentProfile?.id;
+  const latestProfileId = useRef(currentProfileId);
+  useEffect(() => {
+    latestProfileId.current = currentProfileId;
+    setMessage(null);
+    setPassword("");
+  }, [currentProfileId]);
+  const [pendingLabel, setPendingLabel] = useState("");
+  const [hfConfigured, setHfConfigured] = useState<boolean | null>(null);
+  const [capabilitiesError, setCapabilitiesError] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void getDeliveryCapabilities()
+      .then((value) => {
+        if (active) setHfConfigured(value.hf_upload_configured);
+      })
+      .catch(() => {
+        if (active) setCapabilitiesError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
   const selected = datasets.find((item) => item.id === datasetId);
   const selectedName = selected?.name;
+  useEffect(() => {
+    setPassword("");
+  }, [datasetId]);
 
   useEffect(() => {
     void listDatasets().then((items) => {
@@ -53,19 +81,32 @@ export default function DeliverPage() {
     }
     return currentProfile.id;
   }
-  async function run(action: () => Promise<object>, success: string) {
+  async function run(
+    action: () => Promise<object>,
+    success: string,
+    pending = "전달 요청 접수 중",
+  ) {
+    if (busyRef.current) return;
+    busyRef.current = true;
+    const submittedProfile = currentProfileId;
+    setPendingLabel(pending);
     setBusy(true);
     setMessage(null);
     try {
       const result = await action();
       const jobId =
         "id" in result && typeof result.id === "string" ? result.id : null;
-      setMessage(`${success}${jobId ? ` (${jobId.slice(0, 8)})` : ""}`);
+      if (latestProfileId.current === submittedProfile)
+        setMessage(`${success}${jobId ? ` (${jobId.slice(0, 8)})` : ""}`);
     } catch (error) {
-      setMessage(
-        error instanceof Error ? error.message : "전달을 시작하지 못했습니다.",
-      );
+      if (latestProfileId.current === submittedProfile)
+        setMessage(
+          error instanceof Error
+            ? error.message
+            : "전달을 시작하지 못했습니다.",
+        );
     } finally {
+      busyRef.current = false;
       setPassword("");
       setBusy(false);
     }
@@ -77,11 +118,12 @@ export default function DeliverPage() {
     await run(
       () =>
         exportDatasetToNas(datasetId, id, nasName.trim(), crypto.randomUUID()),
-      "NAS Export를 시작했습니다.",
+      "NAS 전달 요청을 접수했습니다. 필요한 검사 후 자동으로 전달합니다.",
     );
   }
   async function hf(event: FormEvent) {
     event.preventDefault();
+    if (hfConfigured !== true) return;
     const id = profileId();
     if (!id) return;
     await run(
@@ -93,7 +135,7 @@ export default function DeliverPage() {
           visibility,
           crypto.randomUUID(),
         ),
-      "Hugging Face 업로드를 시작했습니다.",
+      "Hugging Face 업로드 요청을 접수했습니다. 필요한 검사 후 자동으로 업로드합니다.",
     );
   }
   async function pc(event: FormEvent) {
@@ -105,12 +147,19 @@ export default function DeliverPage() {
       await run(
         () =>
           copyDatasetToPcWithKey(datasetId, id, target, crypto.randomUUID()),
-        "PC 복사를 시작했습니다.",
+        "PC 전달 요청을 접수했습니다. 필요한 검사 후 자동으로 전송합니다.",
       );
     } else {
       await run(
-        () => copyDatasetToPcWithPassword(datasetId, id, target, password),
-        "PC 복사를 마쳤습니다.",
+        () =>
+          copyDatasetToPcWithPassword(
+            datasetId,
+            id,
+            target,
+            password,
+            crypto.randomUUID(),
+          ),
+        "PC 전달 요청을 접수했습니다. 화면을 이동해도 검사와 전송이 이어집니다.",
       );
     }
   }
@@ -121,7 +170,7 @@ export default function DeliverPage() {
         <div>
           <p className="workbench-eyebrow">DELIVER</p>
           <h1>데이터셋 전달</h1>
-          <p>내보내기 검사를 통과한 현재 리비전만 전달할 수 있습니다.</p>
+          <p>필요한 전체 검사를 자동으로 실행하고, 통과한 결과를 전달합니다.</p>
         </div>
       </section>
       <div className="delivery-dataset-picker">
@@ -164,6 +213,20 @@ export default function DeliverPage() {
           </span>
           <h2>Hugging Face</h2>
           <p>rainbowrobotics 아래 새 저장소만 만들며 기본값은 비공개입니다.</p>
+          {hfConfigured === false && (
+            <p role="status">
+              서버에 Hugging Face 쓰기 토큰이 설정되지 않았습니다. 관리자 설정
+              후 업로드할 수 있습니다.
+            </p>
+          )}
+          {capabilitiesError && (
+            <p role="status">
+              업로드 설정을 확인하지 못했습니다. 새로고침 후 다시 확인하세요.
+            </p>
+          )}
+          {hfConfigured === null && !capabilitiesError && (
+            <p>업로드 설정 확인 중…</p>
+          )}
           <label className="delivery-field">
             <span>저장소 이름</span>
             <input
@@ -184,7 +247,10 @@ export default function DeliverPage() {
               <option value="public">공개</option>
             </select>
           </label>
-          <button className="workbench-button" disabled={busy || !datasetId}>
+          <button
+            className="workbench-button"
+            disabled={busy || !datasetId || hfConfigured !== true}
+          >
             <LuSend aria-hidden /> 업로드
           </button>
         </form>
@@ -193,7 +259,11 @@ export default function DeliverPage() {
             <LuLaptop aria-hidden />
           </span>
           <h2>Ubuntu PC</h2>
-          <p>SSH로 복사합니다. 비밀번호는 이 요청 중에만 메모리에 있습니다.</p>
+          <p>
+            SSH로 복사합니다. 비밀번호는 별도 메모리 저장소에 일시 보관하며,
+            처리·취소·만료 후 삭제합니다. 서버가 재시작되면 다시 요청해야
+            합니다.
+          </p>
           <div className="delivery-card__fields">
             <label className="delivery-field">
               <span>IP</span>
@@ -235,7 +305,10 @@ export default function DeliverPage() {
               <input
                 type="radio"
                 checked={auth === "key"}
-                onChange={() => setAuth("key")}
+                onChange={() => {
+                  setPassword("");
+                  setAuth("key");
+                }}
               />{" "}
               등록된 SSH key
             </label>
@@ -255,9 +328,10 @@ export default function DeliverPage() {
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
-                autoComplete="new-password"
+                autoComplete="off"
                 required
                 aria-label="일회용 SSH 비밀번호"
+                disabled={busy}
               />
             </label>
           )}
@@ -266,6 +340,27 @@ export default function DeliverPage() {
           </button>
         </form>
       </section>
+      {busy && (
+        <section
+          className="generic-job-progress"
+          aria-label="전달 요청 진행 상황"
+        >
+          <p role="status">{pendingLabel}</p>
+          <div
+            className="validation-progress"
+            data-active="true"
+            data-determinate="false"
+          >
+            <div
+              className="validation-progress__track"
+              role="progressbar"
+              aria-label="전달 요청 처리 중"
+            >
+              <span />
+            </div>
+          </div>
+        </section>
+      )}
       <p className="workbench-live-message" aria-live="polite">
         {message}
       </p>

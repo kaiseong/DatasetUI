@@ -20,6 +20,11 @@ from datasetui.hf_errors import (
     HuggingFaceUnavailableError,
 )
 from datasetui.jobs import run_registered_job
+from datasetui.job_cancellation import (
+    JobCancellationRequested,
+    cancellation_monitor,
+)
+from datasetui.job_progress import JobProgressReporter
 from datasetui.transform_errors import CurationTransformError
 
 
@@ -49,15 +54,46 @@ def run_job(job_id: str) -> dict[str, object]:
             worker_id=worker_id,
             lease_seconds=settings.job_lease_seconds,
             heartbeat_seconds=settings.job_heartbeat_seconds,
+        ), cancellation_monitor(
+            database,
+            job_id=job_id,
+            worker_id=worker_id,
         ):
+            progress = JobProgressReporter(
+                database,
+                job_id=job_id,
+                worker_id=worker_id,
+                output_name=_job_output_name(job),
+            )
+            progress(
+                {
+                    "stage": "preparing",
+                    "completed": 0,
+                    "total": 0,
+                    "unit": "items",
+                    "current_item": "작업자가 처리를 시작했습니다",
+                    "_force": True,
+                }
+            )
             if job["kind"] in {
                 "hf.import",
+                "datasets.scan",
+                "datasets.validate",
                 "curation.materialize",
                 "datasets.merge",
                 "datasets.convert_v21",
                 "datasets.export_nas",
                 "datasets.upload_hf",
                 "datasets.copy_pc_key",
+                "datasets.copy_pc_password",
+                "datasets.delivery_preflight",
+                "hf.delete",
+                "datasets.empty_trash",
+                "segmentation.preview",
+                "segmentation.sample",
+                "segmentation.batch_prepare",
+                "segmentation.export",
+                "segmentation.batch_export",
             }:
                 result = run_registered_job(
                     job["kind"],
@@ -68,8 +104,28 @@ def run_job(job_id: str) -> dict[str, object]:
             else:
                 result = run_registered_job(job["kind"], job["payload"])
             database.assert_job_lease(job_id, worker_id=worker_id)
+            progress(
+                {
+                    "stage": "complete",
+                    "completed": 1,
+                    "total": 1,
+                    "unit": "items",
+                    "current_item": "작업 완료",
+                    "_force": True,
+                }
+            )
+            finished = database.succeed_job(job_id, result, worker_id=worker_id)
+    except JobCancellationRequested:
+        logger.info("job %s cancellation acknowledged", job_id)
+        finished = _complete_cancellation(database, job_id, worker_id=worker_id)
+        return {"job_id": job_id, "status": finished["status"], "claimed": True}
     except Exception as exc:
-        logger.exception("job %s failed", job_id)
+        if job["kind"] == "datasets.copy_pc_password":
+            # SSH/network exception text can include credentials. Neither our
+            # logs nor RQ's persisted failure traceback may receive it.
+            logger.warning("password transfer job %s failed", job_id)
+        else:
+            logger.exception("job %s failed", job_id)
         error_code, public_message = _public_failure(exc)
         try:
             database.fail_job(
@@ -78,12 +134,54 @@ def run_job(job_id: str) -> dict[str, object]:
                 public_message,
                 worker_id=worker_id,
             )
+        except JobCancellationRequested:
+            finished = _complete_cancellation(database, job_id, worker_id=worker_id)
+            return {
+                "job_id": job_id,
+                "status": finished["status"],
+                "claimed": True,
+            }
         except JobLeaseLostError:
             logger.warning("job %s lost its lease before failure was recorded", job_id)
+        if job["kind"] == "datasets.copy_pc_password":
+            raise RuntimeError(public_message) from None
         raise
+    finally:
+        from datasetui.delivery_workflow import reconcile_deliveries
+        from datasetui.queueing import RQDispatcher
 
-    finished = database.succeed_job(job_id, result, worker_id=worker_id)
+        try:
+            dispatcher = RQDispatcher(
+                settings.redis_url,
+                settings.job_timeout_seconds,
+                settings.io_job_timeout_seconds,
+            )
+            reconcile_deliveries(database, dispatcher, settings)
+        except Exception:
+            logger.warning("workflow follow-up delayed for job %s", job_id)
+
     return {"job_id": job_id, "status": finished["status"], "claimed": True}
+
+
+def _complete_cancellation(
+    database: Database, job_id: str, *, worker_id: str
+) -> dict[str, object]:
+    try:
+        return database.complete_job_cancellation(job_id, worker_id=worker_id)
+    except JobLeaseLostError:
+        logger.warning("job %s lost its lease before cancellation was recorded", job_id)
+        return database.get_job(job_id)
+
+
+def _job_output_name(job: dict[str, object]) -> str:
+    payload = job.get("payload")
+    if not isinstance(payload, dict):
+        return ""
+    for key in ("output_name", "repo_name", "dataset_name"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            return value
+    return ""
 
 
 @contextmanager
@@ -132,6 +230,51 @@ def _heartbeat_lease(
 
 
 def _public_failure(exc: Exception) -> tuple[str, str]:
+    from datasetui.library_operations import LibraryOperationError
+    from datasetui.credential_store import CredentialUnavailableError
+
+    if isinstance(exc, LibraryOperationError):
+        return exc.code, str(exc)
+    if isinstance(exc, CredentialUnavailableError):
+        return (
+            "credential_unavailable",
+            "비밀번호가 만료되거나 임시 저장소에 연결할 수 없습니다. 다시 입력해 새 작업을 요청하세요.",
+        )
+    from datasetui.delivery import ExportGateRequiredError, HuggingFaceExternalOperationAmbiguousError
+
+    if isinstance(exc, ExportGateRequiredError):
+        return (
+            "export_gate_required",
+            "Run the current content-bound export gate before delivery",
+        )
+    if isinstance(exc, HuggingFaceExternalOperationAmbiguousError):
+        return (
+            "external_outcome_uncertain",
+            "External delivery outcome needs manual verification",
+        )
+    from rq.timeouts import JobTimeoutException
+
+    if isinstance(exc, JobTimeoutException):
+        return "job_timeout", "The job exceeded its execution time limit"
+
+    from datasetui.sam3_engine import Sam3UnavailableError, Sam3InferenceError, Sam3PromptMatchError
+
+    if isinstance(exc, Sam3PromptMatchError):
+        return "segmentation_guidance", str(exc)
+    from datasetui.segmentation_selection import SegmentationGuidanceError
+
+    if isinstance(exc, SegmentationGuidanceError):
+        return "segmentation_guidance", str(exc)
+    if isinstance(exc, Sam3UnavailableError):
+        return (
+            "segmentation_unavailable",
+            "Check the SAM 3.1 checkpoint, SHA256 and CUDA worker configuration",
+        )
+    if isinstance(exc, Sam3InferenceError):
+        return (
+            "segmentation_failed",
+            "SAM 3.1 did not produce a complete valid mask sequence",
+        )
     if isinstance(exc, DatasetRootUnavailableError):
         return "storage_unavailable", "Dataset storage is unavailable"
     if isinstance(exc, HuggingFaceImportTooLargeError):

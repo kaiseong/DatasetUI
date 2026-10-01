@@ -1,0 +1,5 @@
+# Source bytes are verified against datasetui/lerobot_source_lock.json at startup.
+lerobot[dataset] @ https://github.com/huggingface/lerobot/archive/30074f7f1358b3c015ae1750017200e86e9c4eb6.tar.gz
+# 0.10 is the Torch 2.10 ABI pair; 0.11 requires Torch 2.11.
+# https://github.com/meta-pytorch/torchcodec/releases/tag/v0.10.0
+torchcodec==0.10.0

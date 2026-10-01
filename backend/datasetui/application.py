@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import asynccontextmanager
+import asyncio
+import logging
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,6 +13,8 @@ from datasetui.api import create_router
 from datasetui.config import Settings
 from datasetui.database import Database
 from datasetui.queueing import QueueDispatcher
+from datasetui.segmentation_api import create_segmentation_router
+from datasetui.segmentation_workflow_api import create_segmentation_workflow_router
 
 
 def create_application(
@@ -20,7 +25,42 @@ def create_application(
     legacy_app: FastAPI,
     settings: Settings | None = None,
 ) -> FastAPI:
-    application = FastAPI(title="DatasetUI backend")
+    configured = settings or Settings.from_env()
+
+    @asynccontextmanager
+    async def lifespan(_application):
+        from datasetui.delivery_workflow import recover_workflows
+        from datasetui.segmentation_workflows import recover_segmentation_batches
+
+        async def reconcile():
+            while True:
+                try:
+                    await asyncio.to_thread(
+                        recover_workflows, database, dispatcher, configured
+                    )
+                except Exception:
+                    logging.getLogger(__name__).warning(
+                        "workflow reconciliation delayed"
+                    )
+                try:
+                    await asyncio.to_thread(
+                        recover_segmentation_batches, database, dispatcher, configured
+                    )
+                except Exception:
+                    logging.getLogger(__name__).warning("segmentation reconciliation delayed")
+                await asyncio.sleep(5)
+
+        task = asyncio.create_task(reconcile())
+        try:
+            yield
+        finally:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    application = FastAPI(title="DatasetUI backend", lifespan=lifespan)
 
     @application.middleware("http")
     async def protect_workbench_origin(request: Request, call_next):
@@ -36,6 +76,14 @@ def create_application(
     application.state.datasetui_database = database
     application.state.datasetui_dispatcher = dispatcher
     application.include_router(create_router(database, dispatcher, settings=settings))
+    application.include_router(
+        create_segmentation_router(
+            database, dispatcher, settings or Settings.from_env()
+        )
+    )
+    application.include_router(
+        create_segmentation_workflow_router(database, dispatcher, configured)
+    )
     application.mount("", legacy_app)
     application.add_middleware(
         CORSMiddleware,

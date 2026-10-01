@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import stat as stat_module
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
@@ -13,7 +14,9 @@ from typing import Any, Literal
 StorageArea = Literal["raw", "derived"]
 SUPPORTED_VERSIONS = frozenset({"v2.0", "v2.1", "v3.0"})
 MAX_INFO_BYTES = 2 * 1024 * 1024
-SKIPPED_DIRECTORIES = frozenset({".git", ".cache", "__pycache__"})
+SKIPPED_DIRECTORIES = frozenset(
+    {".git", ".cache", ".datasetui-trash", "__pycache__"}
+)
 logger = logging.getLogger("datasetui.datasets")
 
 
@@ -47,6 +50,7 @@ def scan_storage_area(
     storage_area: StorageArea,
     *,
     max_depth: int,
+    on_discovered: Callable[[int], None] | None = None,
 ) -> list[dict[str, Any]]:
     if max_depth < 1 or max_depth > 20:
         raise ValueError("dataset scan max depth must be between 1 and 20")
@@ -96,6 +100,8 @@ def scan_storage_area(
                 relative_path=relative_path,
             ).as_record()
         )
+        if on_discovered is not None:
+            on_discovered(len(candidates))
         directory_names[:] = []
 
     if traversal_errors:

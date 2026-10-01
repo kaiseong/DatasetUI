@@ -5,13 +5,20 @@ x-backend-environment: &backend-environment
   DATASETUI_HOST: ${DATASETUI_HOST:-192.168.0.3}
   DATASETUI_ALLOWED_ORIGINS: ${DATASETUI_ALLOWED_ORIGINS:-}
   REDIS_URL: redis://redis:6379/0
+  DATASETUI_CREDENTIAL_REDIS_URL: redis://credential-store:6379/0
+  DATASETUI_CREDENTIAL_TTL_SECONDS: ${DATASETUI_CREDENTIAL_TTL_SECONDS:-86400}
   DATASETUI_DB_PATH: /data/registry/datasetui.sqlite3
   DATASETUI_NAS_ROOT: /mnt/datasetui-nas/DatasetUI
   DATASETUI_CACHE_ROOT: /data/cache
   DATASETUI_STAGING_ROOT: /data/staging
   DATASETUI_JOBS_ROOT: /data/jobs
+  DATASETUI_SAM3_CHECKPOINT: /data/models/sam3.1.pt
+  DATASETUI_SAM3_SHA256: ${DATASETUI_SAM3_SHA256:-}
+  DATASETUI_SEGMENTATION_MAX_FRAMES: ${DATASETUI_SEGMENTATION_MAX_FRAMES:-3600}
   DATASETUI_SCAN_MAX_DEPTH: ${DATASETUI_SCAN_MAX_DEPTH:-6}
   DATASETUI_JOB_TIMEOUT_SECONDS: ${DATASETUI_JOB_TIMEOUT_SECONDS:-900}
+  DATASETUI_VALIDATION_TIMEOUT_SECONDS: ${DATASETUI_VALIDATION_TIMEOUT_SECONDS:-3600}
+  DATASETUI_MERGE_TIMEOUT_SECONDS: ${DATASETUI_MERGE_TIMEOUT_SECONDS:-86400}
   DATASETUI_IO_JOB_TIMEOUT_SECONDS: ${DATASETUI_IO_JOB_TIMEOUT_SECONDS:-86400}
   DATASETUI_JOB_LEASE_SECONDS: ${DATASETUI_JOB_LEASE_SECONDS:-120}
   DATASETUI_JOB_HEARTBEAT_SECONDS: ${DATASETUI_JOB_HEARTBEAT_SECONDS:-20}
@@ -26,6 +33,7 @@ x-backend-environment: &backend-environment
 
 x-backend-read-volumes: &backend-read-volumes
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/cache:/data/cache
+  - ${DATASETUI_MODEL_ROOT:-./.runtime/models}:/data/models:ro
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/staging:/data/staging
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/jobs:/data/jobs
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/registry:/data/registry
@@ -38,6 +46,7 @@ x-backend-read-volumes: &backend-read-volumes
 
 x-backend-io-volumes: &backend-io-volumes
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/cache:/data/cache
+  - ${DATASETUI_MODEL_ROOT:-./.runtime/models}:/data/models:ro
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/staging:/data/staging
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/jobs:/data/jobs
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/registry:/data/registry
@@ -100,10 +109,26 @@ services:
     user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
     environment:
       <<: *backend-environment
+      DATASETUI_HF_UPLOAD_CONFIGURED: ${HF_WRITE_TOKEN:+true}
       HF_READ_TOKEN: ${HF_READ_TOKEN:-}
-    volumes: *backend-read-volumes
+    # Only the API may move raw datasets into the recoverable library trash.
+    # CPU/converter workers keep the read-only raw mount above.
+    volumes:
+      - ${DATASETUI_DATA_ROOT:-./.runtime/data}/cache:/data/cache
+      - ${DATASETUI_MODEL_ROOT:-./.runtime/models}:/data/models:ro
+      - ${DATASETUI_DATA_ROOT:-./.runtime/data}/staging:/data/staging
+      - ${DATASETUI_DATA_ROOT:-./.runtime/data}/jobs:/data/jobs
+      - ${DATASETUI_DATA_ROOT:-./.runtime/data}/registry:/data/registry
+      - ${DATASETUI_DATA_ROOT:-./.runtime/data}/logs:/data/logs
+      - ${DATASETUI_DATA_ROOT:-./.runtime/data}/ssh-known-hosts:/data/ssh-known-hosts:ro
+      - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/raw:/mnt/datasetui-nas/DatasetUI/raw
+      - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/derived:/mnt/datasetui-nas/DatasetUI/derived
+      - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/exports:/mnt/datasetui-nas/DatasetUI/exports
+      - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/manifests:/mnt/datasetui-nas/DatasetUI/manifests
     depends_on:
       redis:
+        condition: service_healthy
+      credential-store:
         condition: service_healthy
     expose:
       - "7861"
@@ -127,6 +152,32 @@ services:
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - ${DATASETUI_DATA_ROOT:-./.runtime/data}/redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Passwords must never enter SQLite, persistent RQ Redis, or disk snapshots.
+  credential-store:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
+    command:
+      [
+        "redis-server",
+        "--save",
+        "",
+        "--appendonly",
+        "no",
+        "--maxmemory",
+        "32mb",
+        "--maxmemory-policy",
+        "noeviction",
+      ]
+    tmpfs:
+      - /data:rw,noexec,nosuid,size=64m,mode=1777
+    mem_limit: 128m
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -157,11 +208,13 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      credential-store:
+        condition: service_healthy
 
   worker-cpu:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.processor
     restart: unless-stopped
     user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
     command:
@@ -174,7 +227,9 @@ services:
         "rq.serializers.JSONSerializer",
         "cpu",
       ]
-    environment: *backend-environment
+    environment:
+      <<: *backend-environment
+      TORCHINDUCTOR_CACHE_DIR: /data/cache/torchinductor
     volumes: *backend-read-volumes
     depends_on:
       redis:
@@ -188,6 +243,39 @@ services:
     user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
     environment: *backend-environment
     volumes: *backend-read-volumes
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker-gpu:
+    profiles: ["segmentation"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.segmentation
+    restart: unless-stopped
+    user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
+    command:
+      [
+        "rq",
+        "worker",
+        "--url",
+        "redis://redis:6379/0",
+        "--serializer",
+        "rq.serializers.JSONSerializer",
+        "--worker-class",
+        "rq.worker.SimpleWorker",
+        "gpu",
+      ]
+    # One long-lived process keeps the verified SAM model loaded between jobs;
+    # a failed or timed-out job discards it and the next job reloads it.
+    environment:
+      <<: *backend-environment
+      DATASETUI_SAM3_REUSE_PREDICTOR: "1"
+    volumes: *backend-read-volumes
+    shm_size: "8gb"
+    # Native Docker CDI; generate the NVIDIA CDI spec after driver installation.
+    devices:
+      - "${DATASETUI_GPU_DEVICE:-nvidia.com/gpu=0}"
     depends_on:
       redis:
         condition: service_healthy

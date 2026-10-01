@@ -7,7 +7,7 @@ import re
 import unicodedata
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 
 PROFILE_NAME_PATTERN = re.compile(r"^[^\x00-\x1f\x7f]+$")
@@ -54,6 +54,17 @@ def normalize_recipe_name(value: str) -> str:
     return name
 
 
+def normalize_dataset_name(value: str) -> str:
+    name = value.strip()
+    if not name:
+        raise ValueError("dataset name cannot be empty")
+    if len(name) > 120:
+        raise ValueError("dataset name must be at most 120 characters")
+    if any(unicodedata.category(character) == "Cc" for character in name):
+        raise ValueError("dataset name cannot contain control characters")
+    return name
+
+
 class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -95,7 +106,46 @@ class JobCreate(StrictModel):
     idempotency_key: str = Field(min_length=1, max_length=120)
 
 
+class JobCancel(StrictModel):
+    profile_id: str = Field(min_length=1)
+
+
+class HuggingFaceDeleteCreate(StrictModel):
+    profile_id: str = Field(min_length=1)
+    expected_repo_id: str = Field(min_length=1, max_length=160)
+    expected_commit_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    confirmed: Literal[True]
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+
+class TrashPurgeItem(StrictModel):
+    dataset_id: str = Field(pattern=r"^[0-9a-f-]{36}$")
+    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DatasetTrashEmptyCreate(StrictModel):
+    profile_id: str = Field(min_length=1)
+    items: list[TrashPurgeItem] = Field(min_length=1, max_length=500)
+    confirmed: Literal[True]
+    idempotency_key: str = Field(min_length=1, max_length=120)
+
+
 class Job(StrictModel):
+    @field_serializer("payload")
+    def public_payload(self, value: dict[str, Any]) -> dict[str, Any]:
+        if self.kind not in {"segmentation.preview", "segmentation.sample"} or not isinstance(
+            value.get("spec"), dict
+        ):
+            return value
+        return {
+            **value,
+            "spec": {
+                key: item
+                for key, item in value["spec"].items()
+                if key != "background_base64"
+            },
+        }
+
     id: str
     kind: str
     queue_name: str
@@ -103,6 +153,7 @@ class Job(StrictModel):
     profile_id: str
     payload: dict[str, Any]
     result: dict[str, Any] | None
+    progress: dict[str, Any] | None = None
     error_code: str | None
     error_message: str | None
     idempotency_key: str
@@ -111,6 +162,13 @@ class Job(StrictModel):
     enqueued_at: str | None
     started_at: str | None
     finished_at: str | None
+    cancellation_requested: bool = False
+    cancellation_requested_at: str | None = None
+    cancellation_guarded_at: str | None = None
+    validation_job_id: str | None = None
+    wait_reason: str | None = None
+    queue_position: int | None = None
+    profile_name: str | None = None
 
 
 class JobEvent(StrictModel):
@@ -145,6 +203,40 @@ class Dataset(StrictModel):
     first_seen_at: str
     last_seen_at: str
     available: bool
+
+
+class DatasetUpdate(StrictModel):
+    name: str
+    expected_name: str
+
+    _normalize_name = field_validator("name")(normalize_dataset_name)
+
+
+class DatasetTrashCreate(StrictModel):
+    profile_id: str
+    expected_name: str = Field(min_length=1, max_length=160)
+    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DatasetTrashRestore(StrictModel):
+    profile_id: str
+    expected_fingerprint: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class DatasetTrashEntry(StrictModel):
+    dataset: Dataset
+    original_relative_path: str
+    trashed_at: str | None
+    state: Literal[
+        "moving",
+        "trashed",
+        "restoring",
+        "recovery_required",
+        "purge_queued",
+        "purging",
+        "purged",
+    ]
+    requested_by_profile_id: str
 
 
 class EpisodeFlagChange(StrictModel):
@@ -381,6 +473,12 @@ CurationSelectionMode = Literal["all", "flagged", "unflagged"]
 CurationOperation = Literal["subset", "delete_flagged", "train_eval_split"]
 
 
+class TrainEvalSplitConfig(StrictModel):
+    method: Literal["flagged", "random"] = "flagged"
+    eval_percent: float = Field(default=20.0, ge=0, le=100, allow_inf_nan=False)
+    seed: int = Field(default=0, ge=0, le=2_147_483_647)
+
+
 class TrimEpisodeOverride(StrictModel):
     start_frame: int = Field(ge=0)
     end_frame: int = Field(gt=0)
@@ -394,9 +492,17 @@ class TrimEpisodeOverride(StrictModel):
 
 class TrimConfig(StrictModel):
     enabled: bool = False
+    # Missing fields in existing recipes/clients retain the original behavior.
+    recompute_statistics: bool = True
+    method: Literal["legacy_motion", "stationary"] = "legacy_motion"
+    state_epsilon: float = Field(default=0.0005, gt=0, allow_inf_nan=False)
     threshold: float = Field(default=0.02, ge=0, le=10)
     hold_time_s: float = Field(default=0.5, gt=0, le=30)
     margin_s: float = Field(default=1.0, ge=0, le=60)
+    start_hold_time_s: float | None = Field(default=None, gt=0, le=30)
+    end_hold_time_s: float | None = Field(default=None, gt=0, le=30)
+    start_margin_s: float | None = Field(default=None, ge=0, le=60)
+    end_margin_s: float | None = Field(default=None, ge=0, le=60)
     dimensions: list[str] = Field(default_factory=list, max_length=256)
     episode_overrides: dict[int, TrimEpisodeOverride] = Field(
         default_factory=dict, max_length=500
@@ -412,10 +518,19 @@ class TrimConfig(StrictModel):
             raise ValueError("trim dimensions cannot contain duplicates")
         return cleaned
 
+    @model_validator(mode="after")
+    def validate_stationary_dimensions(self) -> "TrimConfig":
+        if self.method == "stationary" and self.dimensions:
+            raise ValueError(
+                "stationary trim always uses every observation.state dimension"
+            )
+        return self
+
 
 class RelativeActionConfig(StrictModel):
     enabled: bool = False
     dimensions: list[str] = Field(default_factory=list, max_length=256)
+    chunk_size: int = Field(default=50, ge=1, le=1024, strict=True)
 
     @field_validator("dimensions")
     @classmethod
@@ -442,6 +557,7 @@ class CurationRecipeCreate(StrictModel):
     trim_config: TrimConfig = Field(default_factory=TrimConfig)
     include_annotations: bool = False
     relative_action: RelativeActionConfig = Field(default_factory=RelativeActionConfig)
+    split_config: TrainEvalSplitConfig = Field(default_factory=TrainEvalSplitConfig)
 
     _normalize_name = field_validator("name")(normalize_recipe_name)
 
@@ -454,6 +570,7 @@ class CurationRecipeUpdate(StrictModel):
     trim_config: TrimConfig | None = None
     include_annotations: bool | None = None
     relative_action: RelativeActionConfig | None = None
+    split_config: TrainEvalSplitConfig | None = None
     archived: bool | None = None
 
     @field_validator("name")
@@ -472,6 +589,7 @@ class CurationRecipeUpdate(StrictModel):
                 self.trim_config,
                 self.include_annotations,
                 self.relative_action,
+                self.split_config,
                 self.archived,
             )
         ):
@@ -490,6 +608,7 @@ class CurationRecipe(StrictModel):
     trim_config: TrimConfig
     include_annotations: bool
     relative_action: RelativeActionConfig
+    split_config: TrainEvalSplitConfig
     created_at: str
     updated_at: str
     archived_at: str | None
@@ -511,10 +630,12 @@ class CurationRecipeSnapshot(StrictModel):
     trim_config: TrimConfig
     include_annotations: bool
     relative_action: RelativeActionConfig
+    split_config: TrainEvalSplitConfig
     annotation_episode_indices: list[int]
     flag_revision: int
     flagged_episode_indices: list[int]
     selected_episode_indices: list[int]
+    eval_episode_indices: list[int]
     created_at: str
 
 
@@ -647,6 +768,8 @@ class DatasetConversionCreate(StrictModel):
 
 
 class ValidationRun(StrictModel):
+    progress: dict[str, Any] | None = None
+    started_at: str | None = None
     job_id: str
     dataset_id: str
     dataset_fingerprint: str
@@ -742,6 +865,7 @@ class PcPasswordDeliveryCreate(StrictModel):
     )
     password: str = Field(min_length=1, max_length=1000)
     destination: str = Field(min_length=3, max_length=1000)
+    idempotency_key: str = Field(min_length=1, max_length=120)
 
     @model_validator(mode="after")
     def validate_target(self) -> "PcPasswordDeliveryCreate":

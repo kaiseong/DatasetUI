@@ -15,13 +15,16 @@ import {
   LuMerge,
   LuShieldCheck,
   LuSend,
+  LuSparkles,
 } from "react-icons/lu";
 import { getSystemHealth } from "@/lib/workbench-api";
 import { ProfileProvider, useProfile } from "./profile-context";
+import { WorkbenchJobProgress } from "./workbench-job-progress";
 
 const NAV_ITEMS = [
   { href: "/library", label: "라이브러리", icon: LuDatabase },
   { href: "/merge", label: "합치기", icon: LuMerge },
+  { href: "/augment", label: "분할·증강", icon: LuSparkles },
   { href: "/validate", label: "검증", icon: LuShieldCheck },
   { href: "/deliver", label: "전달", icon: LuSend },
   { href: "/jobs", label: "작업 기록", icon: LuActivity },
@@ -99,7 +102,10 @@ function ShellFrame({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="workbench-main">{children}</main>
+      <main className="workbench-main">
+        {children}
+        <WorkbenchJobProgress />
+      </main>
 
       <nav className="workbench-mobile-nav" aria-label="모바일 주요 메뉴">
         {NAV_ITEMS.map((item) => {

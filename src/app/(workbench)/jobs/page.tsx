@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { LuActivity, LuListFilter, LuServerOff } from "react-icons/lu";
 import EmptyState from "@/components/workbench/empty-state";
 import JobRow from "@/components/workbench/job-row";
+import { ResourceSchedulerStatus } from "@/components/workbench/resource-scheduler-status";
 import { useProfile } from "@/components/workbench/profile-context";
 import { isActiveJob, listJobs, type Job } from "@/lib/workbench-api";
 
@@ -27,13 +28,13 @@ export default function JobsPage() {
         return;
       }
       try {
-        setError(null);
         const loaded = await listJobs(
           scope === "mine" ? currentProfile?.id : undefined,
           controller.signal,
         );
         if (!active) return;
         setJobs(loaded);
+        setError(null);
         timer = window.setTimeout(
           poll,
           loaded.some((job) => isActiveJob(job.status)) ? 1500 : 8000,
@@ -45,6 +46,7 @@ export default function JobsPage() {
             ? requestError.message
             : "작업 기록을 불러오지 못했습니다.",
         );
+        timer = window.setTimeout(poll, 2000);
       } finally {
         if (active) setLoading(false);
       }
@@ -61,7 +63,13 @@ export default function JobsPage() {
     () => new Map(profiles.map((profile) => [profile.id, profile])),
     [profiles],
   );
-  const completed = jobs.filter((job) => job.status === "succeeded").length;
+  const visibleJobs =
+    scope === "everyone"
+      ? jobs
+      : jobs.filter((job) => job.profile_id === currentProfile?.id);
+  const completed = visibleJobs.filter(
+    (job) => job.status === "succeeded",
+  ).length;
   const needsAttention = jobs.filter((job) =>
     ["failed", "interrupted"].includes(job.status),
   ).length;
@@ -86,6 +94,8 @@ export default function JobsPage() {
           </select>
         </label>
       </section>
+
+      <ResourceSchedulerStatus />
 
       <div className="activity-summary">
         <div>
@@ -114,7 +124,7 @@ export default function JobsPage() {
             <div key={item} />
           ))}
         </div>
-      ) : error ? (
+      ) : error && visibleJobs.length === 0 ? (
         <EmptyState
           icon={<LuServerOff />}
           title="작업 기록에 연결할 수 없습니다"
@@ -129,7 +139,7 @@ export default function JobsPage() {
             </button>
           }
         />
-      ) : jobs.length === 0 ? (
+      ) : visibleJobs.length === 0 ? (
         <EmptyState
           icon={<LuActivity />}
           title="아직 작업 기록이 없습니다"
@@ -137,11 +147,26 @@ export default function JobsPage() {
         />
       ) : (
         <section className="job-list" aria-label="작업 목록">
-          {jobs.map((job) => (
+          {error && (
+            <p role="alert">
+              상태 갱신이 지연되고 있습니다. 마지막 확인 상태를 유지하며 다시
+              연결합니다.
+            </p>
+          )}
+          {visibleJobs.map((job) => (
             <JobRow
               key={job.id}
               job={job}
               profile={profileById.get(job.profile_id)}
+              currentProfileId={currentProfile?.id}
+              onJobUpdate={(updated) =>
+                setJobs((current) =>
+                  current.map((item) =>
+                    item.id === updated.id ? updated : item,
+                  ),
+                )
+              }
+              stale={Boolean(error)}
             />
           ))}
         </section>

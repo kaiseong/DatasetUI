@@ -7,6 +7,7 @@ import re
 from datasetui.config import Settings
 from datasetui.database import Database
 from datasetui.datasets import scan_storage_area
+from datasetui.job_progress import JobProgressReporter
 
 
 JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
@@ -40,23 +41,69 @@ def _validate_dataset_scan_payload(payload: dict[str, Any]) -> dict[str, Any]:
     return {"storage_areas": areas}
 
 
-def _scan_datasets(payload: dict[str, Any]) -> dict[str, Any]:
+def _scan_datasets(
+    payload: dict[str, Any],
+    *,
+    job_id: str | None = None,
+    worker_id: str | None = None,
+) -> dict[str, Any]:
     settings = Settings.from_env()
     database = Database(settings.database_path)
     database.initialize()
+    progress = (
+        JobProgressReporter(database, job_id=job_id, worker_id=worker_id)
+        if job_id is not None and worker_id is not None
+        else None
+    )
     summaries: dict[str, dict[str, int]] = {}
-    for area in payload["storage_areas"]:
+    areas = payload["storage_areas"]
+    for area_index, area in enumerate(areas):
+        if progress is not None:
+            progress(
+                {
+                    "stage": "scan",
+                    "completed": area_index,
+                    "total": len(areas),
+                    "unit": "items",
+                    "current_item": f"{area} 저장 영역 탐색 중",
+                    "_force": True,
+                }
+            )
         scan_generation = database.begin_dataset_scan(area)
         records = scan_storage_area(
             settings.nas_root,
             area,
             max_depth=settings.dataset_scan_max_depth,
+            on_discovered=(
+                lambda count, area=area: progress(
+                    {
+                        "stage": "scan",
+                        "completed": count,
+                        "total": 0,
+                        "unit": "items",
+                        "current_item": f"{area}: 데이터셋 {count}개 발견",
+                    }
+                )
+                if progress is not None
+                else None
+            ),
         )
         summaries[area] = database.synchronize_datasets(
             storage_area=area,
             records=records,
             scan_generation=scan_generation,
         )
+        if progress is not None:
+            progress(
+                {
+                    "stage": "scan",
+                    "completed": area_index + 1,
+                    "total": len(areas),
+                    "unit": "items",
+                    "current_item": f"{area}: 데이터셋 {len(records)}개 발견",
+                    "_force": True,
+                }
+            )
     return {"storage_areas": summaries}
 
 
@@ -142,19 +189,35 @@ def _validate_merge_payload(payload: dict[str, Any]) -> dict[str, Any]:
     for source in sources:
         if not isinstance(source, dict) or set(source) != {"id", "fingerprint"}:
             raise ValueError("invalid internal merge source")
-        if not isinstance(source["id"], str) or not UUID_PATTERN.fullmatch(source["id"]):
+        if not isinstance(source["id"], str) or not UUID_PATTERN.fullmatch(
+            source["id"]
+        ):
             raise ValueError("invalid internal merge source")
         fingerprint = source["fingerprint"]
-        if not isinstance(fingerprint, str) or not re.fullmatch(r"[0-9a-f]{64}", fingerprint):
+        if not isinstance(fingerprint, str) or not re.fullmatch(
+            r"[0-9a-f]{64}", fingerprint
+        ):
             raise ValueError("invalid internal merge fingerprint")
         normalized.append({"id": source["id"], "fingerprint": fingerprint})
     output_name = payload["output_name"]
     robot_type = payload["robot_type"]
-    if not isinstance(output_name, str) or not OUTPUT_NAME_PATTERN.fullmatch(output_name) or ".." in output_name:
+    if (
+        not isinstance(output_name, str)
+        or not OUTPUT_NAME_PATTERN.fullmatch(output_name)
+        or ".." in output_name
+    ):
         raise ValueError("invalid merge output name")
-    if not isinstance(robot_type, str) or not robot_type.strip() or len(robot_type) > 120:
+    if (
+        not isinstance(robot_type, str)
+        or not robot_type.strip()
+        or len(robot_type) > 120
+    ):
         raise ValueError("invalid merge robot type")
-    return {"sources": normalized, "output_name": output_name, "robot_type": robot_type.strip()}
+    return {
+        "sources": normalized,
+        "output_name": output_name,
+        "robot_type": robot_type.strip(),
+    }
 
 
 def _validate_dataset_job_payload(
@@ -167,18 +230,30 @@ def _validate_dataset_job_payload(
         expected.add("mode")
     if set(payload) != expected:
         raise ValueError("invalid internal dataset job payload")
-    if not isinstance(payload["dataset_id"], str) or not UUID_PATTERN.fullmatch(payload["dataset_id"]):
+    if not isinstance(payload["dataset_id"], str) or not UUID_PATTERN.fullmatch(
+        payload["dataset_id"]
+    ):
         raise ValueError("invalid internal dataset ID")
-    if not isinstance(payload["fingerprint"], str) or not re.fullmatch(r"[0-9a-f]{64}", payload["fingerprint"]):
+    if not isinstance(payload["fingerprint"], str) or not re.fullmatch(
+        r"[0-9a-f]{64}", payload["fingerprint"]
+    ):
         raise ValueError("invalid internal dataset fingerprint")
     if payload["storage_area"] not in {"raw", "derived"}:
         raise ValueError("invalid internal storage area")
     relative = payload["relative_path"]
-    if not isinstance(relative, str) or relative.startswith("/") or any(part in {"", ".", ".."} for part in relative.split("/")):
+    if (
+        not isinstance(relative, str)
+        or relative.startswith("/")
+        or any(part in {"", ".", ".."} for part in relative.split("/"))
+    ):
         raise ValueError("invalid internal dataset path")
     if conversion:
         output = payload["output_name"]
-        if not isinstance(output, str) or not OUTPUT_NAME_PATTERN.fullmatch(output) or ".." in output:
+        if (
+            not isinstance(output, str)
+            or not OUTPUT_NAME_PATTERN.fullmatch(output)
+            or ".." in output
+        ):
             raise ValueError("invalid conversion output name")
     elif payload["mode"] not in {"quick", "full", "export_gate"}:
         raise ValueError("invalid validation mode")
@@ -191,6 +266,7 @@ def _validate_delivery_payload(payload: dict[str, Any], kind: str) -> dict[str, 
         "datasets.export_nas": {"output_name"},
         "datasets.upload_hf": {"repo_name", "visibility"},
         "datasets.copy_pc_key": {"host", "port", "username", "destination"},
+        "datasets.copy_pc_password": {"host", "port", "username", "destination"},
     }[kind]
     if set(payload) != base | extras:
         raise ValueError("invalid internal delivery payload")
@@ -201,12 +277,20 @@ def _validate_delivery_payload(payload: dict[str, Any], kind: str) -> dict[str, 
     result = {**core}
     if kind == "datasets.export_nas":
         name = payload["output_name"]
-        if not isinstance(name, str) or not OUTPUT_NAME_PATTERN.fullmatch(name) or ".." in name:
+        if (
+            not isinstance(name, str)
+            or not OUTPUT_NAME_PATTERN.fullmatch(name)
+            or ".." in name
+        ):
             raise ValueError("invalid NAS export name")
         result["output_name"] = name
     elif kind == "datasets.upload_hf":
         name = payload["repo_name"]
-        if not isinstance(name, str) or not OUTPUT_NAME_PATTERN.fullmatch(name) or ".." in name:
+        if (
+            not isinstance(name, str)
+            or not OUTPUT_NAME_PATTERN.fullmatch(name)
+            or ".." in name
+        ):
             raise ValueError("invalid Hugging Face repository name")
         if payload["visibility"] not in {"private", "public"}:
             raise ValueError("invalid Hugging Face visibility")
@@ -214,11 +298,19 @@ def _validate_delivery_payload(payload: dict[str, Any], kind: str) -> dict[str, 
     else:
         if not isinstance(payload["host"], str) or len(payload["host"]) > 64:
             raise ValueError("invalid PC host")
-        if isinstance(payload["port"], bool) or not isinstance(payload["port"], int) or not 1 <= payload["port"] <= 65535:
+        if (
+            isinstance(payload["port"], bool)
+            or not isinstance(payload["port"], int)
+            or not 1 <= payload["port"] <= 65535
+        ):
             raise ValueError("invalid PC port")
-        if not isinstance(payload["username"], str) or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", payload["username"]):
+        if not isinstance(payload["username"], str) or not re.fullmatch(
+            r"[A-Za-z_][A-Za-z0-9_.-]*", payload["username"]
+        ):
             raise ValueError("invalid PC username")
-        if not isinstance(payload["destination"], str) or not payload["destination"].startswith("~/"):
+        if not isinstance(payload["destination"], str) or not payload[
+            "destination"
+        ].startswith("~/"):
             raise ValueError("invalid PC destination")
         result.update(
             host=payload["host"],
@@ -236,11 +328,43 @@ JOB_HANDLERS: dict[str, tuple[str, JobHandler]] = {
 
 
 def queue_for_kind(kind: str) -> str | None:
+    if kind == "datasets.delivery_preflight":
+        return "cpu"
+    if kind in {"hf.delete", "datasets.empty_trash", "datasets.copy_pc_password"}:
+        return "io"
     registered = JOB_HANDLERS.get(kind)
     return registered[0] if registered else None
 
 
 def validate_job_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if kind == "segmentation.batch_prepare":
+        from datasetui.segmentation_workflow_contract import BatchPrepare
+        return BatchPrepare.model_validate(payload).model_dump(mode="json")
+    if kind == "segmentation.batch_export":
+        from datasetui.segmentation_workflow_contract import BatchExportPayload
+
+        return BatchExportPayload.model_validate(payload).model_dump(mode="json")
+    if kind == "segmentation.sample":
+        from datasetui.segmentation_sample import SampleSpec
+        if set(payload) != {"spec"}:
+            raise ValueError("invalid sample payload")
+        return {"spec": SampleSpec.model_validate(payload["spec"]).model_dump(mode="json")}
+    if kind == "segmentation.preview":
+        from datasetui.segmentation_contract import SegmentationSpec, PendingPreviewSpec
+
+        if set(payload) != {"spec"}:
+            raise ValueError("invalid segmentation preview payload")
+        return {
+            "spec": (SegmentationSpec if payload["spec"].get("fingerprint") else PendingPreviewSpec).model_validate(payload["spec"]).model_dump(
+                mode="json"
+            )
+        }
+    if kind == "segmentation.export":
+        from datasetui.segmentation_contract import SegmentationExport
+
+        return SegmentationExport.model_validate(
+            {**payload, "idempotency_key": "internal"}
+        ).model_dump(mode="json", exclude={"idempotency_key"})
     if kind == "phase2.smoke":
         return _validate_empty_payload(payload)
     if kind == "datasets.scan":
@@ -249,12 +373,21 @@ def validate_job_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         return _validate_curation_payload(payload)
     if kind == "datasets.merge":
         return _validate_merge_payload(payload)
-    if kind == "datasets.validate":
+    if kind in {"datasets.validate", "datasets.delivery_preflight"}:
         return _validate_dataset_job_payload(payload)
     if kind == "datasets.convert_v21":
         return _validate_dataset_job_payload(payload, conversion=True)
-    if kind in {"datasets.export_nas", "datasets.upload_hf", "datasets.copy_pc_key"}:
+    if kind in {
+        "datasets.export_nas",
+        "datasets.upload_hf",
+        "datasets.copy_pc_key",
+        "datasets.copy_pc_password",
+    }:
         return _validate_delivery_payload(payload, kind)
+    if kind in {"hf.delete", "datasets.empty_trash"}:
+        from datasetui.library_operations import validate_library_operation
+
+        return validate_library_operation(kind, payload)
     raise ValueError(f"Unsupported job kind: {kind}")
 
 
@@ -265,6 +398,152 @@ def run_registered_job(
     job_id: str | None = None,
     worker_id: str | None = None,
 ) -> dict[str, Any]:
+    if kind in {
+        "datasets.delivery_preflight",
+        "hf.delete",
+        "datasets.empty_trash",
+        "datasets.copy_pc_password",
+    }:
+        if job_id is None or worker_id is None:
+            raise ValueError("operation requires worker ownership")
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        validated = validate_job_payload(kind, payload)
+        if kind == "datasets.delivery_preflight":
+            from datasetui.delivery_workflow import run_delivery_preflight
+
+            return run_delivery_preflight(
+                database, settings, validated, job_id, worker_id
+            )
+        if kind == "datasets.copy_pc_password":
+            from datasetui.delivery import _source, _copy_verified_to_pc
+            from datasetui.credential_store import credential_store
+
+            record, source, manifest = _source(database, settings, validated)
+            password = credential_store(settings).take(job_id)
+            try:
+                return _copy_verified_to_pc(
+                    expected_manifest=manifest,
+                    settings=settings,
+                    source=source,
+                    record=record,
+                    host=validated["host"],
+                    port=validated["port"],
+                    username=validated["username"],
+                    destination=validated["destination"],
+                    password=password,
+                    expected_fingerprint=manifest["tree_sha256"],
+                    lease_check=lambda: database.assert_job_lease(
+                        job_id, worker_id=worker_id
+                    ),
+                    finalize=lambda: database.begin_job_finalization(
+                        job_id, worker_id=worker_id
+                    ),
+                    on_progress=JobProgressReporter(
+                        database, job_id=job_id, worker_id=worker_id
+                    ),
+                )
+            finally:
+                password = None
+                try:
+                    credential_store(settings).delete(job_id)
+                except Exception:
+                    # GETDEL already consumed the credential. A cleanup outage
+                    # must not turn a confirmed remote publication into failure.
+                    import logging
+
+                    logging.getLogger(__name__).warning(
+                        "credential cleanup delayed for job %s", job_id
+                    )
+        from datasetui.library_operations import run_library_operation
+
+        return run_library_operation(
+            kind, database, settings, validated, job_id, worker_id
+        )
+    if kind == "segmentation.batch_prepare":
+        from datasetui.segmentation_workflow_contract import BatchPrepare, BatchCreate
+        from datasetui.segmentation_catalog import dataset_catalog
+        from datasetui.segmentation_workflows import create_batch
+        from datasetui.segmentation import load_source
+        from datasetui.queueing import RQDispatcher
+        if job_id is None or worker_id is None:
+            raise ValueError("batch preparation requires a worker lease")
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        parsed = BatchPrepare.model_validate(payload)
+        database.assert_job_lease(job_id, worker_id=worker_id)
+        catalog = dataset_catalog(database, settings, str(parsed.dataset_id))
+        if catalog["metadata_revision"] != parsed.metadata_revision:
+            raise ValueError("Dataset metadata changed")
+        _, source = load_source(database, settings, str(parsed.dataset_id))
+        request = parsed.model_dump(mode="json", exclude={"metadata_revision"})
+        request["fingerprint"] = source.segmentation_fingerprint
+        database.assert_job_lease(job_id, worker_id=worker_id)
+        dispatcher = RQDispatcher(settings.redis_url, settings.job_timeout_seconds, settings.io_job_timeout_seconds)
+        batch = create_batch(database, dispatcher, settings, BatchCreate.model_validate(request))
+        return {"batch_id": batch["id"]}
+    if kind == "segmentation.sample":
+        from datasetui.segmentation_sample import create_sample
+        if job_id is None or worker_id is None:
+            raise ValueError("sample jobs require a worker lease")
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        validated = validate_job_payload(kind, payload)
+        return create_sample(database, settings, job_id=job_id, worker_id=worker_id,
+                             spec=validated["spec"])
+    if kind in {"segmentation.preview", "segmentation.export"}:
+        from datasetui.segmentation import create_preview, export_preview
+        from datasetui.segmentation_api import verify_approval
+
+        if job_id is None or worker_id is None:
+            raise ValueError("segmentation jobs require a worker lease")
+        payload = validate_job_payload(kind, payload)
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        if kind == "segmentation.preview":
+            return create_preview(
+                database,
+                settings,
+                job_id=job_id,
+                worker_id=worker_id,
+                spec=payload["spec"],
+            )
+        previews = payload.get("previews") or [{
+            "preview_id": payload["preview_id"],
+            "approval_token": payload["approval_token"],
+        }]
+        for preview in previews:
+            verify_approval(
+                database, settings, preview_id=preview["preview_id"],
+                profile_id=payload["profile_id"], approval_token=preview["approval_token"],
+                # export_preview verifies the complete source once, below.
+                verify_source=False,
+            )
+        return export_preview(
+            database, settings, job_id=job_id, worker_id=worker_id,
+            previews=previews, output_name=payload["output_name"],
+            recompute_statistics=payload.get("recompute_statistics", False),
+        )
+    if kind == "segmentation.batch_export":
+        from datasetui.segmentation import export_preview
+        from datasetui.segmentation_workflows import verify_batch_export
+
+        if job_id is None or worker_id is None:
+            raise ValueError("segmentation jobs require a worker lease")
+        payload = validate_job_payload(kind, payload)
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        verify_batch_export(database, settings, payload)
+        return export_preview(
+            database, settings, job_id=job_id, worker_id=worker_id,
+            preview_ids=payload["preview_ids"], output_name=payload["output_name"],
+            recompute_statistics=payload.get("recompute_statistics", False),
+        )
     if kind == "hf.import":
         from datasetui.huggingface import import_huggingface_dataset
 
@@ -316,10 +595,40 @@ def run_registered_job(
         settings = Settings.from_env()
         database = Database(settings.database_path)
         database.initialize()
+        job_progress = (
+            JobProgressReporter(database, job_id=job_id, worker_id=worker_id)
+            if job_id is not None and worker_id is not None
+            else None
+        )
+
+        def report_validation(progress: dict[str, Any]) -> None:
+            if job_id is None or worker_id is None:
+                return
+            database.update_validation_progress(
+                job_id, worker_id=worker_id, progress=progress
+            )
+            if job_progress is not None:
+                stage = str(progress.get("stage", "validate"))
+                job_progress(
+                    {
+                        "stage": {
+                            "metadata": "validate",
+                            "data": "validate",
+                        }.get(stage, stage),
+                        "completed": progress.get("completed", 0),
+                        "total": progress.get("total", 0),
+                        "unit": "episodes",
+                        "_force": stage == "complete",
+                    }
+                )
+
         return validate_registered_dataset(
             database=database,
             settings=settings,
             payload=_validate_dataset_job_payload(payload),
+            on_progress=report_validation
+            if job_id is not None and worker_id is not None
+            else None,
         )
     if kind == "datasets.convert_v21":
         from datasetui.conversion import convert_dataset_to_v21
@@ -366,9 +675,15 @@ def run_registered_job(
                 worker_id=worker_id,
             )
         return copy_to_pc_with_key(
-            database=database, settings=settings, payload=safe_payload
+            database=database,
+            settings=settings,
+            payload=safe_payload,
+            job_id=job_id,
+            worker_id=worker_id,
         )
     registered = JOB_HANDLERS.get(kind)
     if registered is None:
         raise ValueError(f"Unsupported job kind: {kind}")
+    if kind == "datasets.scan":
+        return _scan_datasets(payload, job_id=job_id, worker_id=worker_id)
     return registered[1](payload)

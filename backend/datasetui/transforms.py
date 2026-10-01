@@ -9,6 +9,8 @@ import shutil
 import stat
 import tempfile
 import uuid
+from collections.abc import Callable
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +22,7 @@ import pyarrow.parquet as pq
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import MAX_INFO_BYTES, inspect_dataset, scan_storage_area
+from datasetui.job_progress import JobProgressReporter
 from datasetui.transform_errors import CurationTransformError
 
 
@@ -28,6 +31,8 @@ LANGUAGE_PERSISTENT = "language_persistent"
 LANGUAGE_EVENTS = "language_events"
 PERSISTENT_STYLES = {"task_aug", "subtask", "plan", "memory"}
 EVENT_STYLES = {"interjection", "vqa"}
+ProgressCallback = Callable[[dict[str, Any]], None]
+CURATION_PROCESSING_POLICY = "official-preferred-source-relative-v2"
 SAY_TOOL_SCHEMA = {
     "type": "function",
     "function": {
@@ -47,6 +52,31 @@ SAY_TOOL_SCHEMA = {
 }
 
 
+def _report_progress(
+    callback: ProgressCallback | None,
+    *,
+    stage: str,
+    completed: int,
+    total: int,
+    unit: str,
+    current_item: str | None = None,
+    force: bool = False,
+) -> None:
+    if callback is None:
+        return
+    progress: dict[str, Any] = {
+        "stage": stage,
+        "completed": completed,
+        "total": total,
+        "unit": unit,
+    }
+    if current_item is not None:
+        progress["current_item"] = current_item
+    if force:
+        progress["_force"] = True
+    callback(progress)
+
+
 def materialize_curation_recipe(
     *,
     database: Database,
@@ -55,6 +85,21 @@ def materialize_curation_recipe(
     job_id: str,
     worker_id: str,
 ) -> dict[str, Any]:
+    progress = JobProgressReporter(
+        database,
+        job_id=job_id,
+        worker_id=worker_id,
+        output_name=payload["output_name"],
+    )
+    _report_progress(
+        progress,
+        stage="preparing",
+        completed=0,
+        total=1,
+        unit="items",
+        current_item="원본 데이터셋 확인",
+        force=True,
+    )
     snapshot = database.get_curation_snapshot(payload["snapshot_id"])
     if (
         snapshot["missing_since"] is not None
@@ -77,13 +122,54 @@ def materialize_curation_recipe(
     version = info.get("codebase_version")
     if version not in {"v2.0", "v2.1", "v3.0"}:
         raise CurationTransformError("Unsupported source dataset version")
+    _report_progress(
+        progress,
+        stage="preparing",
+        completed=1,
+        total=1,
+        unit="items",
+        current_item="원본 데이터셋 확인",
+    )
 
     outputs = _output_selections(snapshot, payload["output_name"], job_id)
+    annotations = (
+        database.get_curation_snapshot_annotations(snapshot["id"])
+        if snapshot["include_annotations"]
+        else {}
+    )
+    from datasetui.deferred_statistics import read_deferred_statistics
+
+    processing = _curation_processing(
+        version, snapshot["trim_config"], annotations, snapshot["relative_action"],
+        source_statistics_deferred=read_deferred_statistics(source_root),
+    )
     completed = _reuse_published_outputs(
-        settings=settings, job_id=job_id, outputs=outputs
+        settings=settings,
+        job_id=job_id,
+        outputs=outputs,
+        processing=processing,
+        snapshot=snapshot,
     )
     if completed is not None:
+        _report_progress(
+            progress,
+            stage="register",
+            completed=0,
+            total=1,
+            unit="items",
+            current_item="라이브러리 갱신",
+            force=True,
+        )
         _refresh_derived_registry(database, settings)
+        _report_progress(
+            progress,
+            stage="complete",
+            completed=1,
+            total=1,
+            unit="items",
+            current_item="기존 출력 재사용",
+            force=True,
+        )
         return completed
 
     staging_parent = settings.staging_root / "curation"
@@ -92,13 +178,17 @@ def materialize_curation_recipe(
     published: list[dict[str, Any]] = []
     try:
         source = _DatasetSource(source_root, info)
-        annotations = (
-            database.get_curation_snapshot_annotations(snapshot["id"])
-            if snapshot["include_annotations"]
-            else {}
-        )
-        for output in outputs:
+        for output_index, output in enumerate(outputs):
             destination = staging_root / output["name"]
+
+            def output_progress(event: dict[str, Any]) -> None:
+                update = dict(event)
+                item = update.get("current_item")
+                update["current_item"] = (
+                    f"{output['name']} · {item}" if item else output["name"]
+                )
+                progress(update)
+
             built = _write_dataset(
                 source=source,
                 destination=destination,
@@ -106,8 +196,19 @@ def materialize_curation_recipe(
                 trim_config=snapshot["trim_config"],
                 annotations=annotations,
                 relative_action=snapshot["relative_action"],
+                video_codec_policy="source",
+                on_progress=output_progress,
             )
             lineage = built["lineage"]
+            _report_progress(
+                progress,
+                stage="validate",
+                completed=output_index,
+                total=len(outputs),
+                unit="items",
+                current_item=f"{output['name']} 구조 검사",
+                force=True,
+            )
             candidate = inspect_dataset(
                 area_root=staging_root,
                 storage_area="derived",
@@ -117,6 +218,14 @@ def materialize_curation_recipe(
                 raise CurationTransformError(
                     "Derived dataset failed structural validation"
                 )
+            _report_progress(
+                progress,
+                stage="validate",
+                completed=output_index + 1,
+                total=len(outputs),
+                unit="items",
+                current_item=f"{output['name']} 구조 검사",
+            )
             database.assert_job_lease(job_id, worker_id=worker_id)
             manifest = _publish_output(
                 database=database,
@@ -125,6 +234,7 @@ def materialize_curation_recipe(
                 worker_id=worker_id,
                 staging_path=destination,
                 output_name=output["name"],
+                on_progress=output_progress,
             )
             published.append(
                 {
@@ -136,6 +246,15 @@ def materialize_curation_recipe(
                     "manifest_sha256": manifest["tree_sha256"],
                     "lineage": lineage,
                     "relative_action": built["relative_action"],
+                    "processing": built.get("processing", processing),
+                    "statistics": built.get(
+                        "statistics",
+                        {
+                            "policy": "exact-global-numeric-sampled-rgb-v1",
+                            "source": "full-output-recompute",
+                            "fallback": False,
+                        },
+                    ),
                 }
             )
 
@@ -143,12 +262,40 @@ def materialize_curation_recipe(
             "snapshot_id": snapshot["id"],
             "source_dataset_id": snapshot["dataset_id"],
             "source_fingerprint": snapshot["dataset_fingerprint"],
+            "video_codec_policy": "source",
+            "processing_policy": CURATION_PROCESSING_POLICY,
             "operation": snapshot["operation"],
             "outputs": published,
             "reused": False,
         }
         _write_run_manifest(settings, job_id, result)
+        _report_progress(
+            progress,
+            stage="register",
+            completed=0,
+            total=1,
+            unit="items",
+            current_item="라이브러리 갱신",
+            force=True,
+        )
         _refresh_derived_registry(database, settings)
+        _report_progress(
+            progress,
+            stage="register",
+            completed=1,
+            total=1,
+            unit="items",
+            current_item="라이브러리 갱신",
+        )
+        _report_progress(
+            progress,
+            stage="complete",
+            completed=1,
+            total=1,
+            unit="items",
+            current_item="데이터셋 처리 완료",
+            force=True,
+        )
         return result
     finally:
         shutil.rmtree(staging_root, ignore_errors=True)
@@ -159,30 +306,47 @@ def _output_selections(
 ) -> list[dict[str, Any]]:
     suffix = job_id.split("-", 1)[0]
     selected = list(snapshot["selected_episode_indices"])
-    flagged = set(snapshot["flagged_episode_indices"])
     if snapshot["operation"] == "train_eval_split":
-        train = [index for index in selected if index not in flagged]
-        evaluation = [index for index in selected if index in flagged]
-        if not train or not evaluation:
-            raise CurationTransformError(
-                "Train and eval outputs must both be non-empty"
+        evaluation_set = set(snapshot["eval_episode_indices"])
+        train = [index for index in selected if index not in evaluation_set]
+        evaluation = [index for index in selected if index in evaluation_set]
+        outputs = []
+        if train:
+            outputs.append(
+                {
+                    "role": "train",
+                    "name": f"{base_name}_train--{suffix}",
+                    "episodes": train,
+                }
             )
-        return [
-            {
-                "role": "train",
-                "name": f"{base_name}_train--{suffix}",
-                "episodes": train,
-            },
-            {
-                "role": "eval",
-                "name": f"{base_name}_eval--{suffix}",
-                "episodes": evaluation,
-            },
-        ]
+        if evaluation:
+            outputs.append(
+                {
+                    "role": "eval",
+                    "name": f"{base_name}_eval--{suffix}",
+                    "episodes": evaluation,
+                }
+            )
+        if not outputs:
+            raise CurationTransformError("Train/eval selection cannot be empty")
+        return outputs
     if not selected:
         raise CurationTransformError("Derived output cannot be empty")
     role = "delete_flagged" if snapshot["operation"] == "delete_flagged" else "subset"
     return [{"role": role, "name": f"{base_name}--{suffix}", "episodes": selected}]
+
+
+def _task_rows_from_frame(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """Preserve v3 task text stored either as a column or a string index."""
+    rows = frame.to_dict("records")
+    description_column = next(
+        (name for name in ("task", "name") if name in frame.columns), None
+    )
+    if description_column is not None:
+        return rows
+    for row, description in zip(rows, frame.index, strict=True):
+        row["task"] = description if isinstance(description, str) else None
+    return rows
 
 
 class _DatasetSource:
@@ -205,6 +369,7 @@ class _DatasetSource:
             )
         self.tasks = self._load_tasks()
         self.episode_metadata = self._load_episode_metadata()
+        self._v3_data_cache: tuple[Path, pd.DataFrame] | None = None
 
     def _load_tasks(self) -> dict[int, str]:
         if self.version == "v3.0":
@@ -213,9 +378,10 @@ class _DatasetSource:
                 return {}
             _require_regular_file(path)
             frame = _read_parquet(path)
+            rows = _task_rows_from_frame(frame)
             return {
                 int(row["task_index"]): str(row.get("task", row.get("name", "")))
-                for row in frame.to_dict("records")
+                for row in rows
             }
         path = self.root / "meta" / "tasks.jsonl"
         if not path.is_file():
@@ -245,7 +411,9 @@ class _DatasetSource:
             file_index = int(metadata.get("data/file_index", 0))
             path = self.root / f"data/chunk-{chunk:03d}/file-{file_index:03d}.parquet"
             _require_regular_file(path)
-            data = _read_parquet(path)
+            if self._v3_data_cache is None or self._v3_data_cache[0] != path:
+                self._v3_data_cache = (path, _read_parquet(path))
+            data = self._v3_data_cache[1]
             data = data[data["episode_index"] == episode_index].copy()
         else:
             chunk_size = int(self.info.get("chunks_size", 1000))
@@ -296,6 +464,34 @@ class _DatasetSource:
         return _safe_child(self.root, relative), 0
 
 
+def _curation_processing(
+    version, trim_config, annotations, relative_action, output_version=None,
+    *, source_statistics_deferred=False,
+):
+    from datasetui.official_operations import enabled, provenance
+    from datasetui.output_statistics import STATISTICS_POLICY
+    from datasetui.deferred_statistics import POLICY, should_defer
+
+    if should_defer(trim_config, relative_action, inherited=source_statistics_deferred):
+        return {"engine": "datasetui-custom-extension-v5", "statistics_policy": POLICY,
+                "relative_action_policy": "lerobot-exact-mask-chunk-v1"}
+
+    if (
+        version == "v3.0"
+        and output_version in {None, "v3.0"}
+        and not trim_config.get("enabled", False)
+        and not annotations
+        and not (relative_action or {}).get("enabled", False)
+        and enabled()
+    ):
+        return provenance("split_dataset")
+    return {
+        "engine": "datasetui-custom-extension-v4",
+        "statistics_policy": STATISTICS_POLICY,
+        "relative_action_policy": "lerobot-exact-mask-chunk-v1",
+    }
+
+
 def _write_dataset(
     *,
     source: _DatasetSource,
@@ -305,7 +501,106 @@ def _write_dataset(
     annotations: dict[int, dict[str, Any]],
     relative_action: dict[str, Any] | None = None,
     output_version: str | None = None,
+    video_codec_policy: str = "source",
+    on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
+    from datasetui.official_operations import write_official_subset
+    from datasetui.relative_artifacts import reject_relative_profile
+    from datasetui.deferred_statistics import (
+        read_deferred_statistics, should_defer, preserve_deferred_statistics,
+    )
+
+    if not (relative_action or {}).get("enabled", False):
+        reject_relative_profile(source.root, operation="Curation without Relative")
+
+    stationary_trim = trim_config.get("enabled", False) and (
+        trim_config.get("method", "legacy_motion") == "stationary"
+    )
+    target_version = output_version or source.version
+    if stationary_trim and (source.version != "v3.0" or target_version != "v3.0"):
+        raise CurationTransformError(
+            "Stationary no-reencode trim supports only v3.0 to v3.0 datasets; "
+            "use legacy motion trim when a v2 dataset must be re-encoded"
+        )
+    if stationary_trim and video_codec_policy != "source":
+        raise CurationTransformError(
+            "Stationary no-reencode trim requires the source video codec policy"
+        )
+
+    source_statistics_deferred = read_deferred_statistics(source.root)
+    defer_statistics = should_defer(
+        trim_config, relative_action, inherited=source_statistics_deferred,
+    )
+
+    if (
+        (relative_action or {}).get("enabled", False)
+        and not source_statistics_deferred
+        and not trim_config.get("enabled", False)
+        and not annotations
+        and output_version in {None, source.version}
+        and source_indices == sorted(source.episode_metadata)
+    ):
+        # Relative is a training transform, not a video or row rewrite. Preserve
+        # every original data/video byte when the whole dataset is selected.
+        from datasetui.exact_statistics import recompute_numeric_statistics
+        from datasetui.official_operations import _validate_destination
+        from datasetui.processing_sources import private_sources
+        from datasetui.relative_artifacts import DatasetEpisodes
+        from datasetui.visual_statistics import recompute_visual_statistics
+
+        _validate_destination(destination, [source.root.resolve()])
+        with private_sources(
+            [source.root], destination.parent, on_progress=on_progress
+        ) as copies:
+            copied = _DatasetSource(copies[0], _read_json(copies[0] / "meta/info.json"))
+            relative_profile = _relative_action_profile(
+                copied.info,
+                DatasetEpisodes(copied),
+                relative_action,
+                on_progress=on_progress,
+            )
+            stats_path = copies[0] / "meta/stats.json"
+            absolute_stats = _read_json(stats_path) if stats_path.exists() else {}
+            absolute_stats.update(
+                recompute_numeric_statistics(copies[0], on_progress=on_progress)
+            )
+            absolute_stats.update(
+                recompute_visual_statistics(copies[0], on_progress=on_progress)
+            )
+            _write_json(copies[0] / "meta/stats.json", absolute_stats)
+            _write_relative_profile(copies[0], relative_profile)
+            shutil.move(str(copies[0]), str(destination))
+        return {
+            "lineage": [
+                {
+                    "source_episode_index": index,
+                    "output_episode_index": index,
+                    "source_start_frame": 0,
+                    "source_end_frame": int(source.episode_metadata[index]["length"]),
+                    "output_length": int(source.episode_metadata[index]["length"]),
+                    "trim_method": "disabled",
+                    "task_overridden": False,
+                    "persistent_annotations": 0,
+                    "event_annotations": 0,
+                }
+                for index in source_indices
+            ],
+            "relative_action": relative_profile,
+        }
+
+    if (
+        _curation_processing(
+            source.version, trim_config, annotations, relative_action, output_version,
+            source_statistics_deferred=source_statistics_deferred,
+        ).get("official_function")
+        == "split_dataset"
+    ):
+        return write_official_subset(
+            source=source,
+            destination=destination,
+            source_indices=source_indices,
+            on_progress=on_progress,
+        )
     (destination / "meta").mkdir(parents=True)
     (destination / "data").mkdir()
     if source.video_keys:
@@ -317,6 +612,14 @@ def _write_dataset(
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]] = []
     lineage: list[dict[str, Any]] = []
     global_index = 0
+    _report_progress(
+        on_progress,
+        stage="read",
+        completed=0,
+        total=len(source_indices),
+        unit="episodes",
+        force=True,
+    )
     for output_index, source_index in enumerate(source_indices):
         data, metadata = source.episode(source_index)
         metadata = {**metadata, "_source_episode_index": source_index}
@@ -341,8 +644,12 @@ def _write_dataset(
                 "Trim would create an episode shorter than two frames"
             )
         trimmed["episode_index"] = output_index
-        trimmed["frame_index"] = np.arange(len(trimmed), dtype=np.int64)
-        trimmed["timestamp"] = np.arange(len(trimmed), dtype=np.float64) / source.fps
+        if start != 0 or end != len(data):
+            trimmed["frame_index"] = np.arange(len(trimmed), dtype=np.int64)
+            timestamp_dtype = data["timestamp"].dtype
+            trimmed["timestamp"] = (
+                np.arange(len(trimmed), dtype=np.float64) / source.fps
+            ).astype(timestamp_dtype)
         trimmed["index"] = np.arange(
             global_index, global_index + len(trimmed), dtype=np.int64
         )
@@ -370,6 +677,14 @@ def _write_dataset(
                 "event_annotations": event_count,
             }
         )
+        _report_progress(
+            on_progress,
+            stage="read",
+            completed=output_index + 1,
+            total=len(source_indices),
+            unit="episodes",
+            current_item=f"에피소드 {source_index}",
+        )
 
     task_mapping, tasks = _remap_tasks(
         episodes, _apply_task_overrides(episodes, source.tasks)
@@ -378,10 +693,31 @@ def _write_dataset(
         if "task_index" in data.columns:
             data["task_index"] = data["task_index"].map(task_mapping).astype("int64")
 
+    relative_profile = _relative_action_profile(
+        source.info,
+        [item[0] for item in episodes],
+        relative_action or {},
+        on_progress=on_progress,
+    )
+
     language_types = _language_column_types(episodes)
-    target_version = output_version or source.version
+    output_video_codecs = (
+        {}
+        if stationary_trim
+        else _output_video_codecs(source, episodes, policy=video_codec_policy)
+    )
     if target_version == "v3.0":
-        _write_v3(source, destination, episodes, tasks, language_types)
+        _write_v3(
+            source,
+            destination,
+            episodes,
+            tasks,
+            language_types,
+            output_video_codecs=output_video_codecs,
+            preserve_source_codec=video_codec_policy == "source",
+            logical_stationary=stationary_trim,
+            on_progress=on_progress,
+        )
     else:
         _write_v2(
             source,
@@ -390,70 +726,107 @@ def _write_dataset(
             tasks,
             language_types,
             target_version=target_version,
+            output_video_codecs=output_video_codecs,
+            preserve_source_codec=video_codec_policy == "source",
+            on_progress=on_progress,
         )
-    _write_stats(destination / "meta" / "stats.json", [item[0] for item in episodes])
+    used_legacy_aggregate = False
+    legacy_aggregate_eligible = (
+        source.version in {"v2.0", "v2.1"}
+        and not source_statistics_deferred
+        and target_version == source.version
+        and not trim_config.get("enabled", False)
+        and not annotations
+        and not (relative_action or {}).get("enabled", False)
+    )
+    if legacy_aggregate_eligible:
+        from datasetui.official_operations import (
+            write_legacy_aggregated_statistics,
+        )
+
+        used_legacy_aggregate = write_legacy_aggregated_statistics(
+            destination,
+            [
+                (source.root, source_index, item[0])
+                for source_index, item in zip(source_indices, episodes, strict=True)
+            ],
+        )
+    if not used_legacy_aggregate and not defer_statistics:
+        if legacy_aggregate_eligible:
+            _report_progress(
+                on_progress,
+                stage="statistics",
+                completed=0,
+                total=0,
+                unit="items",
+                current_item=(
+                    "에피소드 통계가 없거나 불완전하여 전체 통계를 재계산합니다"
+                ),
+                force=True,
+            )
+        _write_stats(
+            destination / "meta" / "stats.json",
+            [item[0] for item in episodes],
+            on_progress=on_progress,
+        )
+    from datasetui.output_metadata import copy_modality_metadata
+
+    copy_modality_metadata([source.root], destination)
+    _write_relative_profile(destination, relative_profile)
+    deferred_result = None
+    if defer_statistics:
+        deferred_result = preserve_deferred_statistics(source.root, destination)
+        _report_progress(on_progress, stage="statistics", completed=1, total=1,
+                         unit="items", current_item="분포 통계 재계산 생략 · 학습 전 norm_stats 계산 필요")
     return {
         "lineage": lineage,
-        "relative_action": _relative_action_profile(
-            source.info, [item[0] for item in episodes], relative_action or {}
-        ),
+        "relative_action": relative_profile,
+        "statistics_reused": used_legacy_aggregate,
+        "statistics": deferred_result or {
+            "policy": (
+                "lerobot-official-aggregate-v1"
+                if used_legacy_aggregate
+                else "exact-global-numeric-sampled-rgb-v1"
+            ),
+            "source": (
+                "legacy-episode-statistics"
+                if used_legacy_aggregate
+                else "full-output-recompute"
+            ),
+            "fallback": legacy_aggregate_eligible and not used_legacy_aggregate,
+        },
     }
+
+
+def _write_relative_profile(destination: Path, relative_profile: dict) -> None:
+    if relative_profile["enabled"]:
+        absolute_stats = _read_json(destination / "meta/stats.json")
+        _write_json(destination / "meta/stats.absolute.json", absolute_stats)
+        _write_json(
+            destination / "meta/stats.json",
+            {**absolute_stats, "action": relative_profile["statistics"]},
+        )
+        _write_json(
+            destination / "meta/relative_action.json",
+            {"format_version": 1, **relative_profile},
+        )
+        from datasetui.relative_artifacts import write_training_instructions
+
+        write_training_instructions(destination)
 
 
 def _relative_action_profile(
     info: dict[str, Any],
     episodes: list[pd.DataFrame],
     config: dict[str, Any],
+    *,
+    on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
-    if not config.get("enabled", False):
-        return {"enabled": False, "dimensions": [], "statistics": {}}
-    action_names = _feature_names(
-        info, "action", _matrix_column(episodes[0], "action").shape[1]
+    from datasetui.relative_actions import compute_relative_action_profile
+
+    return compute_relative_action_profile(
+        info, episodes, config, on_progress=on_progress
     )
-    state_names = _feature_names(
-        info,
-        "observation.state",
-        _matrix_column(episodes[0], "observation.state").shape[1],
-    )
-    dimensions = list(config.get("dimensions") or [])
-    for name in dimensions:
-        if name not in action_names or name not in state_names:
-            raise CurationTransformError(
-                "A relative action dimension is not shared by action and state"
-            )
-        if action_names.index(name) != state_names.index(name):
-            raise CurationTransformError(
-                "Relative action requires matching action/state dimension order"
-            )
-    values: list[np.ndarray] = []
-    for data in episodes:
-        action = _matrix_column(data, "action").astype(np.float64)
-        state = _matrix_column(data, "observation.state").astype(np.float64)
-        values.append(
-            np.column_stack(
-                [action[:, action_names.index(name)] - state[:, state_names.index(name)] for name in dimensions]
-            )
-        )
-    combined = np.concatenate(values, axis=0)
-    if not np.isfinite(combined).all():
-        raise CurationTransformError("Relative action contains non-finite values")
-    statistics = {
-        name: {
-            "min": float(np.min(combined[:, index])),
-            "max": float(np.max(combined[:, index])),
-            "mean": float(np.mean(combined[:, index])),
-            "std": float(np.std(combined[:, index])),
-        }
-        for index, name in enumerate(dimensions)
-    }
-    return {
-        "enabled": True,
-        "dimensions": dimensions,
-        "absolute_dimensions": [name for name in action_names if name not in dimensions],
-        "formula": "action[i] - observation.state[i]",
-        "stored_action": "absolute",
-        "statistics": statistics,
-    }
 
 
 def _coerce_atom(
@@ -477,8 +850,22 @@ def _coerce_atom(
     if not math.isfinite(timestamp) or timestamp < 0:
         return None
     tool_calls = value.get("tool_calls")
-    if tool_calls is not None and not isinstance(tool_calls, list):
-        tool_calls = [tool_calls]
+    if isinstance(tool_calls, np.ndarray):
+        tool_calls = tool_calls.tolist()
+    if tool_calls is not None:
+        if not isinstance(tool_calls, list):
+            return None
+        from datasetui.models import AnnotationToolCall
+
+        try:
+            tool_calls = [
+                AnnotationToolCall.model_validate(call).model_dump()
+                for call in tool_calls
+            ]
+        except ValueError:
+            # The current writer only represents SAY(text). Reject other JSON
+            # shapes before Arrow can silently discard unknown arguments.
+            return None
     camera = value.get("camera")
     return {
         "role": role,
@@ -492,31 +879,42 @@ def _coerce_atom(
 
 def _extract_existing_language_atoms(data: pd.DataFrame) -> list[dict[str, Any]]:
     atoms: list[dict[str, Any]] = []
-    seen: set[str] = set()
 
-    def append_many(values: Any, *, timestamp: float | None = None) -> None:
+    def read_many(values: Any, *, timestamp: float | None = None) -> list[dict[str, Any]]:
         if values is None:
-            return
+            return []
         if isinstance(values, np.ndarray):
             values = values.tolist()
         if not isinstance(values, list):
-            return
+            raise CurationTransformError("Existing annotation column must contain lists")
+        parsed = []
         for value in values:
+            if not isinstance(value, dict) or set(value) - {
+                "role", "content", "style", "timestamp", "camera", "tool_calls"
+            }:
+                raise CurationTransformError(
+                    "Existing annotation contains unsupported fields or structure"
+                )
             atom = _coerce_atom(value, fallback_timestamp=timestamp)
             if atom is None:
-                continue
-            key = json.dumps(atom, ensure_ascii=False, sort_keys=True, default=str)
-            if key not in seen:
-                seen.add(key)
-                atoms.append(atom)
+                raise CurationTransformError("Existing annotation payload is invalid")
+            parsed.append(atom)
+        return parsed
 
-    persistent_loaded = False
+    persistent_atoms = None
     for _, row in data.iterrows():
-        if LANGUAGE_PERSISTENT in data.columns and not persistent_loaded:
-            append_many(row[LANGUAGE_PERSISTENT])
-            persistent_loaded = True
+        if LANGUAGE_PERSISTENT in data.columns:
+            current = read_many(row[LANGUAGE_PERSISTENT])
+            if persistent_atoms is None:
+                persistent_atoms = current
+                atoms.extend(current)
+            elif current != persistent_atoms:
+                raise CurationTransformError(
+                    "Persistent annotation rows differ; unsupported broadcast structure"
+                )
         if LANGUAGE_EVENTS in data.columns:
-            append_many(row[LANGUAGE_EVENTS], timestamp=float(row["timestamp"]))
+            atoms.extend(read_many(row[LANGUAGE_EVENTS], timestamp=float(row["timestamp"])))
+    # Match upstream canonical ordering without discarding repeated messages.
     atoms.sort(
         key=lambda atom: (atom["timestamp"], atom.get("style") or "", atom["role"])
     )
@@ -546,6 +944,12 @@ def _replace_language_columns(
     fps: float,
     video_keys: list[str],
 ) -> tuple[int, int]:
+    unsupported = {"tools", "subtask_index"}.intersection(source_data.columns)
+    if unsupported:
+        raise CurationTransformError(
+            "Unsupported language columns cannot be removed during curation: "
+            + ", ".join(sorted(unsupported))
+        )
     output.drop(
         columns=[
             name
@@ -700,6 +1104,7 @@ def _updated_info(
     source_info: dict[str, Any],
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
     language_types: dict[str, pa.DataType],
+    output_video_codecs: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     info = copy.deepcopy(source_info)
     features = info.setdefault("features", {})
@@ -714,6 +1119,11 @@ def _updated_info(
         features.setdefault(
             "task_index", {"dtype": "int64", "shape": [1], "names": None}
         )
+    for key, codec in (output_video_codecs or {}).items():
+        feature = features.get(key)
+        if not isinstance(feature, dict):
+            continue
+        _update_video_feature_codec(feature, codec)
     has_speech = any(
         row.get("style") is None and row.get("tool_calls")
         for data, _, _, _ in episodes
@@ -738,9 +1148,18 @@ def _write_parquet(
     data: pd.DataFrame, path: Path, language_types: dict[str, pa.DataType]
 ) -> None:
     language_columns = [name for name in language_types if name in data.columns]
-    table = pa.Table.from_pandas(
-        data.drop(columns=language_columns), preserve_index=False
-    )
+    ordinary = data.drop(columns=language_columns)
+    ordinary.attrs = {}
+    table = pa.Table.from_pandas(ordinary, preserve_index=False)
+    for name, source_type in data.attrs.get("datasetui_arrow_types", {}).items():
+        if name not in table.column_names or name in language_columns:
+            continue
+        column_index = table.schema.get_field_index(name)
+        column = table.column(name)
+        if column.type != source_type:
+            table = table.set_column(
+                column_index, name, column.cast(source_type, safe=True)
+            )
     for name in language_columns:
         table = table.append_column(
             name, pa.array(data[name].tolist(), type=language_types[name])
@@ -766,6 +1185,16 @@ def _trim_bounds(
             raise CurationTransformError("Manual trim override is outside the episode")
         return start, end, "manual"
 
+    method = config.get("method", "legacy_motion")
+    if method == "stationary":
+        from datasetui.stationary_trim import stationary_trim_bounds
+
+        return stationary_trim_bounds(
+            data, fps=fps, config=config, episode_index=episode_index
+        )
+    if method != "legacy_motion":
+        raise CurationTransformError(f"Unsupported trim method: {method}")
+
     action = _matrix_column(data, "action")
     state = _matrix_column(data, "observation.state")
     action_names = _feature_names(info, "action", action.shape[1])
@@ -788,13 +1217,22 @@ def _trim_bounds(
     scale = q95 - q05 + 1e-8
     score = np.max(np.abs(np.diff(signals, axis=0)) / scale, axis=1)
     active = np.isfinite(score) & (score >= float(config.get("threshold", 0.02)))
-    hold = max(1, int(math.ceil(float(config.get("hold_time_s", 0.5)) * fps)))
-    runs = _true_runs(active, hold)
-    if not runs:
+
+    def seconds(side: str, field: str, default: float) -> float:
+        value = config.get(f"{side}_{field}")
+        return float(config.get(field, default) if value is None else value)
+
+    start_hold = max(1, int(math.ceil(seconds("start", "hold_time_s", 0.5) * fps)))
+    end_hold = max(1, int(math.ceil(seconds("end", "hold_time_s", 0.5) * fps)))
+    start_runs = _true_runs(active, start_hold)
+    end_runs = _true_runs(active, end_hold)
+    if not start_runs and not end_runs:
         return 0, len(data), "no_sustained_motion"
-    margin = max(0, int(round(float(config.get("margin_s", 1.0)) * fps)))
-    start = max(0, runs[0][0] + 1 - margin)
-    end = min(len(data), runs[-1][1] + 2 + margin)
+    start_margin = max(0, int(round(seconds("start", "margin_s", 1.0) * fps)))
+    end_margin = max(0, int(round(seconds("end", "margin_s", 1.0) * fps)))
+    # If one side finds no sustained motion, preserve that edge.
+    start = max(0, start_runs[0][0] + 1 - start_margin) if start_runs else 0
+    end = min(len(data), end_runs[-1][1] + 2 + end_margin) if end_runs else len(data)
     return start, end, "motion"
 
 
@@ -819,8 +1257,11 @@ def _write_v2(
     language_types: dict[str, pa.DataType],
     *,
     target_version: str | None = None,
+    output_video_codecs: dict[str, str] | None = None,
+    preserve_source_codec: bool = False,
+    on_progress: ProgressCallback | None = None,
 ) -> None:
-    info = _updated_info(source.info, episodes, language_types)
+    info = _updated_info(source.info, episodes, language_types, output_video_codecs)
     info.pop("total_chunks", None)
     info["data_path"] = (
         "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet"
@@ -843,6 +1284,14 @@ def _write_v2(
         "data_path",
         "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
     )
+    _report_progress(
+        on_progress,
+        stage="write",
+        completed=0,
+        total=len(episodes),
+        unit="episodes",
+        force=True,
+    )
     for index, (data, metadata, start, end) in enumerate(episodes):
         relative = template.format(
             episode_chunk=index // chunk_size, episode_index=index
@@ -857,7 +1306,28 @@ def _write_v2(
                 "length": len(data),
             }
         )
-        _write_episode_videos(
+        _report_progress(
+            on_progress,
+            stage="write",
+            completed=index + 1,
+            total=len(episodes),
+            unit="episodes",
+            current_item=f"에피소드 {index}",
+        )
+    _write_json_lines(root / "meta" / "episodes.jsonl", episode_rows)
+    video_total = sum(len(item[0]) for item in episodes) * len(source.video_keys) * 2
+    video_completed = 0
+    if video_total:
+        _report_progress(
+            on_progress,
+            stage="video",
+            completed=0,
+            total=video_total,
+            unit="frame_operations",
+            force=True,
+        )
+    for index, (data, metadata, start, end) in enumerate(episodes):
+        video_completed += _write_episode_videos(
             source,
             root,
             index,
@@ -866,8 +1336,27 @@ def _write_v2(
             end,
             len(data),
             output_version=target_version or source.version,
+            output_video_codecs=output_video_codecs or {},
+            preserve_source_codec=preserve_source_codec,
+            on_progress=on_progress,
+            progress_base=video_completed,
+            progress_total=video_total,
         )
-    _write_json_lines(root / "meta" / "episodes.jsonl", episode_rows)
+
+
+def _write_v3_tasks(root: Path, tasks: list[dict[str, Any]]) -> None:
+    from datasetui.official_operations import enabled
+
+    frame = pd.DataFrame(tasks, columns=["task_index", "task"]).set_index("task")
+    if enabled():
+        from datasetui.lerobot_runtime import require_runtime
+
+        require_runtime()
+        from lerobot.datasets.io_utils import write_tasks
+
+        write_tasks(frame, root)
+    else:
+        frame.to_parquet(root / "meta/tasks.parquet")
 
 
 def _write_v3(
@@ -876,8 +1365,23 @@ def _write_v3(
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
     tasks: list[dict[str, Any]],
     language_types: dict[str, pa.DataType],
+    *,
+    output_video_codecs: dict[str, str] | None = None,
+    preserve_source_codec: bool = False,
+    logical_stationary: bool = False,
+    on_progress: ProgressCallback | None = None,
 ) -> None:
-    info = _updated_info(source.info, episodes, language_types)
+    if logical_stationary:
+        _write_v3_stationary(
+            source,
+            root,
+            episodes,
+            tasks,
+            language_types,
+            on_progress=on_progress,
+        )
+        return
+    info = _updated_info(source.info, episodes, language_types, output_video_codecs)
     info.update(
         total_episodes=len(episodes),
         total_frames=sum(len(item[0]) for item in episodes),
@@ -889,9 +1393,17 @@ def _write_v3(
         video_path="videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
     )
     _write_json(root / "meta" / "info.json", info)
-    pd.DataFrame(tasks).to_parquet(root / "meta" / "tasks.parquet", index=False)
+    _write_v3_tasks(root, tasks)
     metadata_rows: list[dict[str, Any]] = []
     offset = 0
+    _report_progress(
+        on_progress,
+        stage="write",
+        completed=0,
+        total=len(episodes),
+        unit="episodes",
+        force=True,
+    )
     for index, (data, metadata, start, end) in enumerate(episodes):
         chunk = index // 1000
         file_index = index % 1000
@@ -914,7 +1426,30 @@ def _write_v3(
             row[f"videos/{key}/to_timestamp"] = len(data) / source.fps
         metadata_rows.append(row)
         offset += len(data)
-        _write_episode_videos(
+        _report_progress(
+            on_progress,
+            stage="write",
+            completed=index + 1,
+            total=len(episodes),
+            unit="episodes",
+            current_item=f"에피소드 {index}",
+        )
+    metadata_path = root / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(metadata_rows).to_parquet(metadata_path, index=False)
+    video_total = sum(len(item[0]) for item in episodes) * len(source.video_keys) * 2
+    video_completed = 0
+    if video_total:
+        _report_progress(
+            on_progress,
+            stage="video",
+            completed=0,
+            total=video_total,
+            unit="frame_operations",
+            force=True,
+        )
+    for index, (data, metadata, start, end) in enumerate(episodes):
+        video_completed += _write_episode_videos(
             source,
             root,
             index,
@@ -923,10 +1458,134 @@ def _write_v3(
             end,
             len(data),
             output_version="v3.0",
+            output_video_codecs=output_video_codecs or {},
+            preserve_source_codec=preserve_source_codec,
+            on_progress=on_progress,
+            progress_base=video_completed,
+            progress_total=video_total,
+        )
+
+
+def _write_v3_stationary(
+    source: _DatasetSource,
+    root: Path,
+    episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
+    tasks: list[dict[str, Any]],
+    language_types: dict[str, pa.DataType],
+    *,
+    on_progress: ProgressCallback | None = None,
+) -> None:
+    """Write a v3 logical trim while preserving source video bytes."""
+    from datasetui.merge_writer import _copy_videos
+
+    info = _updated_info(source.info, episodes, language_types)
+    info.update(
+        total_episodes=len(episodes),
+        total_frames=sum(len(item[0]) for item in episodes),
+        total_tasks=len(tasks),
+        total_chunks=max(1, math.ceil(len(episodes) / 1000)),
+        chunks_size=1000,
+        splits={"train": f"0:{len(episodes)}"},
+        data_path="data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
+        video_path="videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
+    )
+    _write_json(root / "meta" / "info.json", info)
+    _write_v3_tasks(root, tasks)
+
+    video_locations: dict[tuple[str, Path], tuple[int, int]] = {}
+    next_video_file: dict[str, int] = {key: 0 for key in source.video_keys}
+    copies: list[tuple[Path, Path, Path]] = []
+    metadata_rows: list[dict[str, Any]] = []
+    offset = 0
+    _report_progress(
+        on_progress,
+        stage="write",
+        completed=0,
+        total=len(episodes),
+        unit="episodes",
+        force=True,
+    )
+    for index, (data, metadata, start, end) in enumerate(episodes):
+        chunk, file_index = index // 1000, index % 1000
+        path = root / f"data/chunk-{chunk:03d}/file-{file_index:03d}.parquet"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        _write_parquet(data, path, language_types)
+        row: dict[str, Any] = {
+            "episode_index": index,
+            "tasks": _episode_task_names(data, tasks),
+            "length": len(data),
+            "data/chunk_index": chunk,
+            "data/file_index": file_index,
+            "dataset_from_index": offset,
+            "dataset_to_index": offset + len(data),
+            "meta/episodes/chunk_index": 0,
+            "meta/episodes/file_index": 0,
+        }
+        source_index = int(metadata["_source_episode_index"])
+        for key in source.video_keys:
+            prefix = f"videos/{key}"
+            from_field = f"{prefix}/from_timestamp"
+            to_field = f"{prefix}/to_timestamp"
+            try:
+                original_from = float(metadata[from_field])
+                original_to = float(metadata[to_field])
+                source_chunk = int(metadata[f"{prefix}/chunk_index"])
+                source_file = int(metadata[f"{prefix}/file_index"])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise CurationTransformError(
+                    "Source v3 video segment metadata is missing or invalid"
+                ) from exc
+            if (
+                not math.isfinite(original_from)
+                or not math.isfinite(original_to)
+                or original_from < 0
+                or original_to <= original_from
+                or source_chunk < 0
+                or source_file < 0
+            ):
+                raise CurationTransformError(
+                    "Source v3 video segment metadata is missing or invalid"
+                )
+            new_from = original_from + start / source.fps
+            new_to = original_from + end / source.fps
+            if new_to > original_to + (0.5 / source.fps):
+                raise CurationTransformError(
+                    "Stationary trim range exceeds its source video segment"
+                )
+            source_path, _ = source.video_source(source_index, key, metadata)
+            identity = (key, source_path)
+            location = video_locations.get(identity)
+            if location is None:
+                ordinal = next_video_file[key]
+                next_video_file[key] += 1
+                location = ordinal // 1000, ordinal % 1000
+                video_locations[identity] = location
+                destination = root / info["video_path"].format(
+                    video_key=key,
+                    chunk_index=location[0],
+                    file_index=location[1],
+                )
+                copies.append((source_path, destination, source.root))
+            row[f"{prefix}/chunk_index"] = location[0]
+            row[f"{prefix}/file_index"] = location[1]
+            row[from_field] = new_from
+            row[to_field] = new_to
+        metadata_rows.append(row)
+        offset += len(data)
+        _report_progress(
+            on_progress,
+            stage="write",
+            completed=index + 1,
+            total=len(episodes),
+            unit="episodes",
+            current_item=f"에피소드 {index}",
         )
     metadata_path = root / "meta" / "episodes" / "chunk-000" / "file-000.parquet"
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(metadata_rows).to_parquet(metadata_path, index=False)
+    info["total_videos"] = len(copies)
+    _write_json(root / "meta" / "info.json", info)
+    _copy_videos(copies, on_progress)
 
 
 def _write_episode_videos(
@@ -939,7 +1598,13 @@ def _write_episode_videos(
     expected_frames: int,
     *,
     output_version: str,
-) -> None:
+    output_video_codecs: dict[str, str],
+    preserve_source_codec: bool,
+    on_progress: ProgressCallback | None = None,
+    progress_base: int = 0,
+    progress_total: int = 0,
+) -> int:
+    completed = 0
     for key in source.video_keys:
         source_path, segment_start = source.video_source(
             int(metadata["_source_episode_index"]), key, metadata
@@ -971,7 +1636,17 @@ def _write_episode_videos(
             segment_start + trim_end,
             source.fps,
             expected_frames,
+            codec=output_video_codecs[key],
+            expected_source_codec=(
+                output_video_codecs[key] if preserve_source_codec else None
+            ),
+            on_progress=on_progress,
+            progress_base=progress_base + completed,
+            progress_total=progress_total,
+            current_item=f"에피소드 {output_index} · 카메라 {key}",
         )
+        completed += expected_frames * 2
+    return completed
 
 
 def _slice_video(
@@ -981,13 +1656,206 @@ def _slice_video(
     end_frame: int,
     fps: float,
     expected_frames: int,
+    *,
+    codec: str = "h264",
+    expected_source_codec: str | None = None,
+    on_progress: ProgressCallback | None = None,
+    progress_base: int = 0,
+    progress_total: int | None = None,
+    current_item: str | None = None,
 ) -> None:
     try:
         import av
     except ImportError as exc:
         raise CurationTransformError("Video transform support is unavailable") from exc
     try:
-        descriptor = os.open(source, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
+        descriptor = os.open(
+            source, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+        )
+    except OSError as exc:
+        raise CurationTransformError("Source episode video is unavailable") from exc
+    try:
+        source_metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(source_metadata.st_mode):
+            raise CurationTransformError("Source episode video is unavailable")
+        with os.fdopen(descriptor, "rb", closefd=False) as stream:
+            input_container = av.open(stream)
+            try:
+                if not input_container.streams.video:
+                    raise CurationTransformError(
+                        "Source episode video has no video stream"
+                    )
+                if expected_source_codec is not None:
+                    source_codec = _normalize_video_codec(
+                        input_container.streams.video[0].name
+                    )
+                    if source_codec != expected_source_codec:
+                        raise CurationTransformError(
+                            "Source video codec changed while the trim was running"
+                        )
+                frames = []
+                copy_whole_file = (
+                    expected_source_codec is not None
+                    and start_frame == 0
+                    and end_frame == expected_frames
+                )
+                for index, frame in enumerate(input_container.decode(video=0)):
+                    if index >= end_frame:
+                        copy_whole_file = False
+                        break
+                    if index < start_frame:
+                        continue
+                    frames.append(frame)
+                    _report_progress(
+                        on_progress,
+                        stage="video",
+                        completed=progress_base + len(frames),
+                        total=progress_total or expected_frames * 2,
+                        unit="frame_operations",
+                        current_item=(
+                            f"{current_item} · 디코딩" if current_item else "디코딩"
+                        ),
+                    )
+            finally:
+                input_container.close()
+        if len(frames) != expected_frames:
+            raise CurationTransformError("Video and data frame counts do not match")
+        if copy_whole_file:
+            _copy_open_regular_file(
+                descriptor,
+                destination,
+                source_metadata=source_metadata,
+            )
+            _report_progress(
+                on_progress,
+                stage="video",
+                completed=progress_base + expected_frames * 2,
+                total=progress_total or expected_frames * 2,
+                unit="frame_operations",
+                current_item=(
+                    f"{current_item} · 원본 영상 복사 (재인코딩 없음)"
+                    if current_item
+                    else "원본 영상 복사 (재인코딩 없음)"
+                ),
+                force=True,
+            )
+            return
+    finally:
+        os.close(descriptor)
+    source_format = frames[0].format.name
+    encoder = _video_encoder(
+        codec,
+        width=frames[0].width,
+        height=frames[0].height,
+        pixel_format=source_format,
+    )
+    output = av.open(str(destination), mode="w")
+    try:
+        frame_rate = Fraction(str(fps)).limit_denominator(1_000_000)
+        stream = output.add_stream(encoder, rate=frame_rate)
+        stream.width = frames[0].width
+        stream.height = frames[0].height
+        stream.pix_fmt = _compatible_pixel_format(encoder, source_format)
+        stream.options = _video_encoder_options(encoder)
+        stream.thread_count = max(1, min(4, os.cpu_count() or 1))
+        frame_time_base = 1 / frame_rate
+        stream.time_base = frame_time_base
+        for encoded_count, frame in enumerate(frames, start=1):
+            frame.pts = encoded_count - 1
+            frame.time_base = frame_time_base
+            for packet in stream.encode(frame):
+                output.mux(packet)
+            _report_progress(
+                on_progress,
+                stage="video",
+                completed=progress_base + expected_frames + encoded_count,
+                total=progress_total or expected_frames * 2,
+                unit="frame_operations",
+                current_item=f"{current_item} · 인코딩" if current_item else "인코딩",
+            )
+        for packet in stream.encode():
+            output.mux(packet)
+    finally:
+        output.close()
+
+
+def _copy_open_regular_file(
+    descriptor: int,
+    destination: Path,
+    *,
+    source_metadata: os.stat_result,
+) -> None:
+    identity = (
+        source_metadata.st_dev,
+        source_metadata.st_ino,
+        source_metadata.st_size,
+        source_metadata.st_mtime_ns,
+        source_metadata.st_ctime_ns,
+    )
+    try:
+        os.lseek(descriptor, 0, os.SEEK_SET)
+        with destination.open("xb") as output:
+            while chunk := os.read(descriptor, 1024 * 1024):
+                output.write(chunk)
+        after = os.fstat(descriptor)
+        if identity != (
+            after.st_dev,
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+            after.st_ctime_ns,
+        ):
+            raise CurationTransformError(
+                "Source episode video changed while it was being copied"
+            )
+    except Exception:
+        destination.unlink(missing_ok=True)
+        raise
+
+
+def _output_video_codecs(
+    source: _DatasetSource,
+    episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
+    *,
+    policy: str,
+) -> dict[str, str]:
+    if policy not in {"h264", "source"}:
+        raise CurationTransformError("Unsupported video codec policy")
+    if policy == "h264":
+        return {key: "h264" for key in source.video_keys}
+
+    codecs: dict[str, set[str]] = {key: set() for key in source.video_keys}
+    inspected: dict[Path, str] = {}
+    for _, metadata, _, _ in episodes:
+        source_index = int(metadata["_source_episode_index"])
+        for key in source.video_keys:
+            path, _ = source.video_source(source_index, key, metadata)
+            actual = inspected.get(path)
+            if actual is None:
+                actual = _probe_video_codec(path)
+                inspected[path] = actual
+            codecs[key].add(actual)
+    resolved: dict[str, str] = {}
+    for key, values in codecs.items():
+        if len(values) != 1:
+            raise CurationTransformError(
+                f"Source videos use inconsistent codecs for {key}"
+            )
+        codec = next(iter(values))
+        _video_encoder(codec)
+        resolved[key] = codec
+    return resolved
+
+
+def _probe_video_codec(path: Path) -> str:
+    try:
+        import av
+    except ImportError as exc:
+        raise CurationTransformError("Video transform support is unavailable") from exc
+    try:
+        descriptor = os.open(
+            path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
+        )
     except OSError as exc:
         raise CurationTransformError("Source episode video is unavailable") from exc
     try:
@@ -995,32 +1863,132 @@ def _slice_video(
         if not stat.S_ISREG(metadata.st_mode):
             raise CurationTransformError("Source episode video is unavailable")
         with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            input_container = av.open(stream)
+            container = av.open(stream)
             try:
-                frames = [
-                    frame
-                    for index, frame in enumerate(input_container.decode(video=0))
-                    if start_frame <= index < end_frame
-                ]
+                if not container.streams.video:
+                    raise CurationTransformError(
+                        "Source episode video has no video stream"
+                    )
+                return _normalize_video_codec(container.streams.video[0].name)
             finally:
-                input_container.close()
+                container.close()
     finally:
         os.close(descriptor)
-    if len(frames) != expected_frames:
-        raise CurationTransformError("Video and data frame counts do not match")
-    output = av.open(str(destination), mode="w")
+
+
+def _normalize_video_codec(name: str) -> str:
+    normalized = name.lower().replace("_", "-")
+    aliases = {
+        "av1": "av1",
+        "libdav1d": "av1",
+        "libaom-av1": "av1",
+        "libsvtav1": "av1",
+        "h264": "h264",
+        "avc1": "h264",
+        "libx264": "h264",
+        "hevc": "hevc",
+        "h265": "hevc",
+        "hev1": "hevc",
+        "hvc1": "hevc",
+        "libx265": "hevc",
+        "vp9": "vp9",
+        "libvpx-vp9": "vp9",
+    }
     try:
-        stream = output.add_stream("libx264", rate=fps)
-        stream.width = frames[0].width
-        stream.height = frames[0].height
-        stream.pix_fmt = "yuv420p"
-        for frame in frames:
-            for packet in stream.encode(frame):
-                output.mux(packet)
-        for packet in stream.encode():
-            output.mux(packet)
-    finally:
-        output.close()
+        return aliases[normalized]
+    except KeyError as exc:
+        raise CurationTransformError(
+            f"Source video codec is not supported for trimming: {name}"
+        ) from exc
+
+
+def _video_encoder(
+    codec: str,
+    *,
+    width: int | None = None,
+    height: int | None = None,
+    pixel_format: str | None = None,
+) -> str:
+    try:
+        import av
+    except ImportError as exc:
+        raise CurationTransformError("Video transform support is unavailable") from exc
+    candidates = {
+        "av1": ("libsvtav1", "libaom-av1"),
+        "h264": ("libx264",),
+        "hevc": ("libx265",),
+        "vp9": ("libvpx-vp9",),
+    }.get(codec, ())
+    for candidate in candidates:
+        if candidate == "libsvtav1" and (
+            (width is not None and width < 64)
+            or (height is not None and height < 64)
+            or (pixel_format is not None and not pixel_format.startswith("yuv420p"))
+        ):
+            continue
+        try:
+            encoder = av.codec.Codec(candidate, "w")
+        except (ValueError, av.error.FFmpegError):
+            continue
+        if pixel_format is not None and pixel_format not in {
+            item.name for item in (encoder.video_formats or [])
+        }:
+            continue
+        return candidate
+    raise CurationTransformError(
+        f"No encoder is available to preserve source video codec: {codec}"
+    )
+
+
+def _compatible_pixel_format(encoder: str, source_format: str) -> str:
+    import av
+
+    codec = av.codec.Codec(encoder, "w")
+    supported = {item.name for item in (codec.video_formats or [])}
+    if source_format in supported:
+        return source_format
+    raise CurationTransformError(
+        f"Encoder cannot preserve source pixel format {source_format}: {encoder}"
+    )
+
+
+def _update_video_feature_codec(feature: dict[str, Any], codec: str) -> None:
+    dotted_settings = {
+        "video.crf",
+        "video.encoder",
+        "video.fast_decode",
+        "video.g",
+        "video.preset",
+    }
+    plain_settings = {"crf", "encoder", "fast_decode", "g", "preset"}
+    for location in ("info", "video_info"):
+        details = feature.get(location)
+        if details is None and location == "info":
+            details = feature.setdefault(location, {})
+        if isinstance(details, dict):
+            for name in dotted_settings:
+                details.pop(name, None)
+            details["video.codec"] = codec
+    video = feature.get("video")
+    if isinstance(video, dict):
+        for name in plain_settings:
+            video.pop(name, None)
+        video["codec"] = codec
+    for name in dotted_settings:
+        feature.pop(name, None)
+    feature["video.codec"] = codec
+
+
+def _video_encoder_options(encoder: str) -> dict[str, str]:
+    if encoder == "libsvtav1":
+        return {"preset": "8", "crf": "30"}
+    if encoder == "libaom-av1":
+        return {"cpu-used": "8", "crf": "30", "row-mt": "1"}
+    if encoder == "libx265":
+        return {"preset": "medium", "crf": "28"}
+    if encoder == "libvpx-vp9":
+        return {"cpu-used": "4", "crf": "30", "b": "0"}
+    return {}
 
 
 def _remap_tasks(
@@ -1035,11 +2003,13 @@ def _remap_tasks(
             for value in data["task_index"].dropna().unique()
         }
     )
+    missing = sorted(set(used) - set(source_tasks))
+    if missing:
+        raise CurationTransformError(
+            f"Task metadata is missing referenced indices: {missing}"
+        )
     mapping = {old: new for new, old in enumerate(used)}
-    tasks = [
-        {"task_index": mapping[old], "task": source_tasks.get(old, f"task_{old}")}
-        for old in used
-    ]
+    tasks = [{"task_index": mapping[old], "task": source_tasks[old]} for old in used]
     return mapping, tasks
 
 
@@ -1072,10 +2042,32 @@ def _feature_names(info: dict[str, Any], key: str, width: int) -> list[str]:
     return [str(index) for index in range(width)]
 
 
-def _write_stats(path: Path, episodes: list[pd.DataFrame]) -> None:
+def _write_stats(
+    path: Path,
+    episodes: list[pd.DataFrame],
+    *,
+    on_progress: ProgressCallback | None = None,
+) -> None:
+    root = path.parent.parent
+    if (root / "meta/info.json").is_file():
+        from datasetui.output_statistics import write_output_statistics
+
+        write_output_statistics(root, on_progress=on_progress)
+        return
+    # Array-only diagnostic compatibility; production outputs always have info.
     combined = pd.concat(episodes, ignore_index=True)
     stats: dict[str, Any] = {}
-    for name in combined.columns:
+    columns = list(combined.columns)
+    _report_progress(
+        on_progress,
+        stage="statistics",
+        completed=0,
+        total=len(columns),
+        unit="items",
+        current_item="수치 특성",
+        force=True,
+    )
+    for column_index, name in enumerate(columns, start=1):
         try:
             matrix = np.stack(
                 [
@@ -1084,8 +2076,24 @@ def _write_stats(path: Path, episodes: list[pd.DataFrame]) -> None:
                 ]
             )
         except (TypeError, ValueError):
+            _report_progress(
+                on_progress,
+                stage="statistics",
+                completed=column_index,
+                total=len(columns),
+                unit="items",
+                current_item=name,
+            )
             continue
         if matrix.size == 0 or not np.isfinite(matrix).all():
+            _report_progress(
+                on_progress,
+                stage="statistics",
+                completed=column_index,
+                total=len(columns),
+                unit="items",
+                current_item=name,
+            )
             continue
         stats[name] = {
             "min": np.min(matrix, axis=0).tolist(),
@@ -1097,8 +2105,16 @@ def _write_stats(path: Path, episodes: list[pd.DataFrame]) -> None:
             "q50": np.quantile(matrix, 0.50, axis=0).tolist(),
             "q90": np.quantile(matrix, 0.90, axis=0).tolist(),
             "q99": np.quantile(matrix, 0.99, axis=0).tolist(),
-            "count": [len(matrix)] * matrix.shape[1],
+            "count": [len(matrix)],
         }
+        _report_progress(
+            on_progress,
+            stage="statistics",
+            completed=column_index,
+            total=len(columns),
+            unit="items",
+            current_item=name,
+        )
     _write_json(path, stats)
 
 
@@ -1110,9 +2126,19 @@ def _publish_output(
     worker_id: str,
     staging_path: Path,
     output_name: str,
+    on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
     derived = _real_directory(settings.nas_root / "derived")
     final = derived / output_name
+    _report_progress(
+        on_progress,
+        stage="publish",
+        completed=0,
+        total=0,
+        unit="bytes",
+        current_item="출력 해시 계산",
+        force=True,
+    )
     source_manifest = _tree_manifest(staging_path)
     if final.exists():
         if (
@@ -1121,34 +2147,100 @@ def _publish_output(
             or _tree_manifest(final) != source_manifest
         ):
             raise CurationTransformError("Derived output name already exists")
+        database.begin_job_finalization(job_id, worker_id=worker_id)
+        _report_progress(
+            on_progress,
+            stage="publish",
+            completed=1,
+            total=1,
+            unit="items",
+            current_item="기존 출력 재사용",
+            force=True,
+        )
         return source_manifest
     incoming = derived / f".incoming-{job_id}-{uuid.uuid4().hex}"
     try:
+        _report_progress(
+            on_progress,
+            stage="publish",
+            completed=0,
+            total=0,
+            unit="bytes",
+            current_item="출력 복사",
+            force=True,
+        )
         shutil.copytree(staging_path, incoming)
+        _report_progress(
+            on_progress,
+            stage="publish",
+            completed=0,
+            total=0,
+            unit="bytes",
+            current_item="복사 결과 확인",
+            force=True,
+        )
         if _tree_manifest(incoming) != source_manifest:
             raise CurationTransformError("Derived output copy verification failed")
-        database.assert_job_lease(job_id, worker_id=worker_id)
+        # This atomic transition is the cancellation/publication boundary: a
+        # cancel request that wins first prevents the final rename, while jobs
+        # already finalizing are no longer advertised as cancellable.
+        database.begin_job_finalization(job_id, worker_id=worker_id)
         incoming.rename(final)
+        _report_progress(
+            on_progress,
+            stage="publish",
+            completed=1,
+            total=1,
+            unit="items",
+            current_item="출력 게시 완료",
+            force=True,
+        )
         return source_manifest
     finally:
         shutil.rmtree(incoming, ignore_errors=True)
 
 
 def _reuse_published_outputs(
-    *, settings: Settings, job_id: str, outputs: list[dict[str, Any]]
+    *,
+    settings: Settings,
+    job_id: str,
+    outputs: list[dict[str, Any]],
+    processing: dict,
+    snapshot: dict,
 ) -> dict[str, Any] | None:
     path = settings.nas_root / "manifests" / "curation" / f"{job_id}.json"
     if not path.is_file() or path.is_symlink():
         return None
     result = _read_json(path)
+    if result.get("video_codec_policy") != "source":
+        raise CurationTransformError(
+            "Curation manifest was produced with a legacy video codec policy"
+        )
+    if result.get("processing_policy") != CURATION_PROCESSING_POLICY:
+        raise CurationTransformError(
+            "Curation manifest uses a previous processing engine; create a new job/output"
+        )
     expected = {item["name"] for item in outputs}
     actual = {item.get("name") for item in result.get("outputs", [])}
-    if expected != actual:
+    if (
+        expected != actual
+        or len(result.get("outputs", [])) != len(outputs)
+        or result.get("snapshot_id") != snapshot["id"]
+        or result.get("source_dataset_id") != snapshot["dataset_id"]
+        or result.get("source_fingerprint") != snapshot["dataset_fingerprint"]
+    ):
         raise CurationTransformError(
             "Curation manifest conflicts with the requested output"
         )
     for item in result["outputs"]:
-        root = settings.nas_root / "derived" / item["relative_path"]
+        if (
+            item.get("processing") != processing
+            or item.get("relative_path") != item["name"]
+        ):
+            raise CurationTransformError(
+                "Curation manifest engine or output path differs from request"
+            )
+        root = _safe_child(settings.nas_root / "derived", item["relative_path"])
         if not root.is_dir() or root.is_symlink():
             return None
         if _tree_manifest(root)["tree_sha256"] != item["manifest_sha256"]:
@@ -1336,7 +2428,12 @@ def _read_parquet(path: Path) -> pd.DataFrame:
         if not stat.S_ISREG(metadata.st_mode):
             raise CurationTransformError("Dataset contains an unsafe file entry")
         with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            return pd.read_parquet(stream)
+            table = pq.read_table(stream)
+            frame = table.to_pandas()
+            frame.attrs["datasetui_arrow_types"] = {
+                field.name: field.type for field in table.schema
+            }
+            return frame
     finally:
         os.close(descriptor)
 

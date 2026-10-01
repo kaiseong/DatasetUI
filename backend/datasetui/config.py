@@ -16,14 +16,24 @@ class Settings:
     jobs_root: Path
     hf_read_token: str | None = None
     hf_write_token: str | None = None
+    hf_upload_configured: bool = False
     ssh_private_key_path: Path = Path("/data/ssh-private/id_ed25519")
     ssh_known_hosts_path: Path = Path("/data/ssh-known-hosts/known_hosts")
     hf_import_max_bytes: int = 2_000_000_000_000
     dataset_scan_max_depth: int = 6
     job_timeout_seconds: int = 900
+    validation_timeout_seconds: int = 3600
+    merge_timeout_seconds: int = 86400
+    trim_timeout_seconds: int = 86400
+    relative_timeout_seconds: int = 86400
     io_job_timeout_seconds: int = 86_400
     job_lease_seconds: int = 120
     job_heartbeat_seconds: int = 20
+    sam3_checkpoint: Path | None = None
+    sam3_checkpoint_sha256: str = ""
+    segmentation_max_frames: int = 3600
+    credential_redis_url: str | None = None
+    credential_ttl_seconds: int = 86400
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -54,8 +64,21 @@ class Settings:
                 os.environ.get("DATASETUI_STAGING_ROOT", "/data/staging")
             ),
             jobs_root=Path(os.environ.get("DATASETUI_JOBS_ROOT", "/data/jobs")),
+            credential_redis_url=os.environ.get("DATASETUI_CREDENTIAL_REDIS_URL")
+            or None,
+            credential_ttl_seconds=max(
+                1,
+                min(
+                    86400,
+                    int(os.environ.get("DATASETUI_CREDENTIAL_TTL_SECONDS", "86400")),
+                ),
+            ),
             hf_read_token=os.environ.get("HF_READ_TOKEN") or None,
             hf_write_token=os.environ.get("HF_WRITE_TOKEN") or None,
+            hf_upload_configured=os.environ.get("DATASETUI_HF_UPLOAD_CONFIGURED", "")
+            .strip()
+            .lower()
+            in {"1", "true", "yes", "on"},
             ssh_private_key_path=Path(
                 os.environ.get(
                     "DATASETUI_SSH_PRIVATE_KEY", "/data/ssh-private/id_ed25519"
@@ -74,11 +97,32 @@ class Settings:
             job_timeout_seconds=int(
                 os.environ.get("DATASETUI_JOB_TIMEOUT_SECONDS", "900")
             ),
+            validation_timeout_seconds=max(
+                1, int(os.environ.get("DATASETUI_VALIDATION_TIMEOUT_SECONDS", "3600"))
+            ),
+            merge_timeout_seconds=max(
+                1, int(os.environ.get("DATASETUI_MERGE_TIMEOUT_SECONDS", "86400"))
+            ),
+            trim_timeout_seconds=max(
+                1, int(os.environ.get("DATASETUI_TRIM_TIMEOUT_SECONDS", "86400"))
+            ),
+            relative_timeout_seconds=max(
+                1, int(os.environ.get("DATASETUI_RELATIVE_TIMEOUT_SECONDS", "86400"))
+            ),
             io_job_timeout_seconds=int(
                 os.environ.get("DATASETUI_IO_JOB_TIMEOUT_SECONDS", "86400")
             ),
             job_lease_seconds=int(os.environ.get("DATASETUI_JOB_LEASE_SECONDS", "120")),
             job_heartbeat_seconds=int(
                 os.environ.get("DATASETUI_JOB_HEARTBEAT_SECONDS", "20")
+            ),
+            sam3_checkpoint=(
+                Path(os.environ["DATASETUI_SAM3_CHECKPOINT"])
+                if os.environ.get("DATASETUI_SAM3_CHECKPOINT")
+                else None
+            ),
+            sam3_checkpoint_sha256=os.environ.get("DATASETUI_SAM3_SHA256", ""),
+            segmentation_max_frames=int(
+                os.environ.get("DATASETUI_SEGMENTATION_MAX_FRAMES", "3600")
             ),
         )

@@ -268,6 +268,119 @@ def test_dataset_library_api_uses_registry_ids_not_absolute_paths(
     assert client.get("/api/v1/datasets/missing").status_code == 404
 
 
+def test_dataset_display_name_survives_rescan_without_changing_source_identity(
+    client: TestClient, database: Database, tmp_path: Path
+) -> None:
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    _write_dataset(raw, "lab/pick-cup")
+    generation = database.begin_dataset_scan("raw")
+    records = scan_storage_area(tmp_path, "raw", max_depth=6)
+    database.synchronize_datasets(
+        storage_area="raw", records=records, scan_generation=generation
+    )
+    original = database.list_datasets()[0]
+
+    response = client.patch(
+        f"/api/v1/datasets/{original['id']}",
+        json={"name": "  왼쪽 로봇 집기  ", "expected_name": original["name"]},
+    )
+
+    assert response.status_code == 200
+    renamed = response.json()
+    assert renamed["name"] == "왼쪽 로봇 집기"
+    assert renamed["id"] == original["id"]
+    assert renamed["relative_path"] == original["relative_path"]
+    assert renamed["fingerprint"] == original["fingerprint"]
+    assert database.list_datasets()[0]["name"] == "왼쪽 로봇 집기"
+
+    next_generation = database.begin_dataset_scan("raw")
+    database.synchronize_datasets(
+        storage_area="raw", records=records, scan_generation=next_generation
+    )
+
+    rescanned = client.get(f"/api/v1/datasets/{original['id']}").json()
+    assert rescanned["name"] == "왼쪽 로봇 집기"
+    assert rescanned["id"] == original["id"]
+    assert rescanned["fingerprint"] == original["fingerprint"]
+    with database.connect() as connection:
+        stored = connection.execute(
+            "SELECT name, display_name FROM datasets WHERE id = ?", (original["id"],)
+        ).fetchone()
+    assert stored["name"] == "pick-cup"
+    assert stored["display_name"] == "왼쪽 로봇 집기"
+
+
+def test_dataset_display_name_rejects_invalid_and_stale_updates(
+    client: TestClient, database: Database, tmp_path: Path
+) -> None:
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    _write_dataset(raw, "source-name")
+    generation = database.begin_dataset_scan("raw")
+    database.synchronize_datasets(
+        storage_area="raw",
+        records=scan_storage_area(tmp_path, "raw", max_depth=6),
+        scan_generation=generation,
+    )
+    dataset = database.list_datasets()[0]
+    url = f"/api/v1/datasets/{dataset['id']}"
+
+    for invalid_name in ("   ", "x" * 121, "bad\nname", "bad\u0085name"):
+        response = client.patch(
+            url, json={"name": invalid_name, "expected_name": dataset["name"]}
+        )
+        assert response.status_code == 422
+
+    first = client.patch(
+        url, json={"name": "first edit", "expected_name": dataset["name"]}
+    )
+    stale = client.patch(
+        url, json={"name": "stale edit", "expected_name": dataset["name"]}
+    )
+
+    assert first.status_code == 200
+    assert stale.status_code == 409
+    assert "다른 곳에서 변경" in stale.json()["detail"]
+    assert client.get(url).json()["name"] == "first edit"
+
+
+def test_dataset_display_name_update_requires_expected_name_and_existing_dataset(
+    client: TestClient,
+) -> None:
+    missing_url = "/api/v1/datasets/00000000-0000-4000-8000-000000000000"
+    assert client.patch(missing_url, json={"name": "new name"}).status_code == 422
+    response = client.patch(
+        missing_url,
+        json={"name": "new name", "expected_name": "old name"},
+    )
+    assert response.status_code == 404
+
+
+def test_dataset_display_name_allows_long_legacy_name_as_expected_value(
+    client: TestClient, database: Database, tmp_path: Path
+) -> None:
+    legacy_name = "l" * 121
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    _write_dataset(raw, legacy_name)
+    generation = database.begin_dataset_scan("raw")
+    database.synchronize_datasets(
+        storage_area="raw",
+        records=scan_storage_area(tmp_path, "raw", max_depth=6),
+        scan_generation=generation,
+    )
+    dataset = database.list_datasets()[0]
+
+    response = client.patch(
+        f"/api/v1/datasets/{dataset['id']}",
+        json={"name": "readable name", "expected_name": legacy_name},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["name"] == "readable name"
+
+
 def test_stale_scan_cannot_resurrect_a_dataset_removed_by_a_newer_scan(
     database: Database, tmp_path: Path
 ) -> None:

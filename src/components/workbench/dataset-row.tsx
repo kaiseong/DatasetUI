@@ -12,8 +12,14 @@ import {
   LuListChecks,
   LuPlay,
 } from "react-icons/lu";
-import type { DatasetReadiness, DatasetSummary } from "@/lib/workbench-api";
+import type {
+  DatasetReadiness,
+  DatasetSummary,
+  DatasetTrashEntry,
+} from "@/lib/workbench-api";
 import { registeredDatasetViewerPath } from "@/utils/versionUtils";
+import { DatasetNameEditor } from "./dataset-name-editor";
+import { DatasetDeleteControl } from "./dataset-delete-control";
 
 const READINESS: Record<
   DatasetReadiness,
@@ -25,23 +31,32 @@ const READINESS: Record<
   invalid: { label: "정보를 읽을 수 없음", icon: LuCircleAlert },
 };
 
-export default function DatasetRow({ dataset }: { dataset: DatasetSummary }) {
+export default function DatasetRow({
+  dataset,
+  onRenamed,
+  currentProfileId,
+  onRequireProfile,
+  onDeleted,
+  onRefresh,
+}: {
+  dataset: DatasetSummary;
+  onRenamed: (dataset: DatasetSummary) => void;
+  currentProfileId?: string;
+  onRequireProfile?: () => void;
+  onDeleted?: (entry: DatasetTrashEntry) => void;
+  onRefresh?: () => Promise<void>;
+}) {
   const [expanded, setExpanded] = useState(false);
   const readiness = READINESS[dataset.readiness];
   const StatusIcon = readiness.icon;
 
   return (
     <article className={`dataset-row dataset-row--${dataset.readiness}`}>
-      <button
-        type="button"
-        className="dataset-row__summary"
-        onClick={() => setExpanded((value) => !value)}
-        aria-expanded={expanded}
-      >
-        <span className="dataset-row__identity">
-          <span className="dataset-row__name">{dataset.name}</span>
+      <div className="dataset-row__summary">
+        <div className="dataset-row__identity">
+          <DatasetNameEditor dataset={dataset} onRenamed={onRenamed} />
           <span className="dataset-row__path">{dataset.relative_path}</span>
-        </span>
+        </div>
 
         <span className={`source-badge source-badge--${dataset.storage_area}`}>
           {dataset.storage_area === "raw" ? (
@@ -71,11 +86,19 @@ export default function DatasetRow({ dataset }: { dataset: DatasetSummary }) {
           <StatusIcon aria-hidden />
           {readiness.label}
         </span>
-        <LuChevronDown
-          className={`dataset-row__chevron ${expanded ? "is-expanded" : ""}`}
-          aria-hidden
-        />
-      </button>
+        <button
+          type="button"
+          className="icon-button"
+          onClick={() => setExpanded((value) => !value)}
+          aria-expanded={expanded}
+          aria-label={`${dataset.name} 상세 정보`}
+        >
+          <LuChevronDown
+            className={`dataset-row__chevron ${expanded ? "is-expanded" : ""}`}
+            aria-hidden
+          />
+        </button>
+      </div>
 
       {expanded && (
         <div className="dataset-row__detail">
@@ -124,6 +147,15 @@ export default function DatasetRow({ dataset }: { dataset: DatasetSummary }) {
             <p className="dataset-row__phase-note">
               파일 상태를 확인한 뒤 Viewer에서 열 수 있습니다.
             </p>
+          )}
+          {dataset.available && onDeleted && onRefresh && (
+            <DatasetDeleteControl
+              dataset={dataset}
+              currentProfileId={currentProfileId}
+              onRequireProfile={onRequireProfile ?? (() => undefined)}
+              onDeleted={onDeleted}
+              onRefresh={onRefresh}
+            />
           )}
         </div>
       )}

@@ -42,6 +42,54 @@ def _profile(client: TestClient, name: str) -> dict:
     return response.json()
 
 
+def test_relative_recipe_dispatch_preserves_mask_chunk_and_large_timeout(
+    client, database, monkeypatch
+):
+    from datasetui.queueing import RecordingDispatcher
+
+    seen = []
+    original = RecordingDispatcher.enqueue
+
+    def capture(self, **kwargs):
+        seen.append(kwargs)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(RecordingDispatcher, "enqueue", capture)
+    dataset = _register(database)
+    profile = _profile(client, "Relative timeout")
+    response = client.post(
+        f"/api/v1/datasets/{dataset['id']}/recipes",
+        json={
+            "profile_id": profile["id"],
+            "name": "Selected relative",
+            "selection_mode": "all",
+            "relative_action": {
+                "enabled": True,
+                "dimensions": ["joint_1"],
+                "chunk_size": 40,
+            },
+        },
+    )
+    assert response.status_code == 201
+    recipe = response.json()
+    started = client.post(
+        f"/api/v1/recipes/{recipe['id']}/runs",
+        json={
+            "profile_id": profile["id"],
+            "output_name": "relative-test",
+            "idempotency_key": "relative-timeout",
+        },
+    )
+    assert started.status_code == 202
+    snapshot = database.get_curation_snapshot(started.json()["payload"]["snapshot_id"])
+    assert snapshot["relative_action"] == {
+        "enabled": True,
+        "dimensions": ["joint_1"],
+        "chunk_size": 40,
+    }
+    assert seen[-1]["job_timeout"] == 86400
+
+
 def test_flags_are_profile_scoped_revision_safe_and_strict(
     client: TestClient, database: Database
 ) -> None:
@@ -346,6 +394,152 @@ def test_recipe_snapshot_freezes_selection_and_flags(
     assert first.json()["selected_episode_indices"] == [1, 4]
 
 
+def test_random_train_eval_split_is_reproducible_and_snapshot_frozen(
+    client: TestClient, database: Database
+) -> None:
+    dataset = _register(database)
+    profile = _profile(client, "Random splitter")
+    recipe_response = client.post(
+        f"/api/v1/datasets/{dataset['id']}/recipes",
+        json={
+            "profile_id": profile["id"],
+            "name": "Seeded split",
+            "selection_mode": "all",
+            "operation": "train_eval_split",
+            "split_config": {
+                "method": "random",
+                "eval_percent": 40,
+                "seed": 2026,
+            },
+        },
+    )
+    assert recipe_response.status_code == 201
+    recipe = recipe_response.json()
+    assert recipe["split_config"] == {
+        "method": "random",
+        "eval_percent": 40.0,
+        "seed": 2026,
+    }
+
+    snapshots = [
+        client.post(
+            f"/api/v1/recipes/{recipe['id']}/snapshots",
+            json={"profile_id": profile["id"]},
+        ).json()
+        for _ in range(2)
+    ]
+    assert snapshots[0]["eval_episode_indices"] == snapshots[1]["eval_episode_indices"]
+    assert len(snapshots[0]["eval_episode_indices"]) == 2
+    assert set(snapshots[0]["eval_episode_indices"]).issubset(
+        snapshots[0]["selected_episode_indices"]
+    )
+    frozen = database.get_curation_snapshot(snapshots[0]["id"])
+    assert frozen["eval_episode_indices"] == snapshots[0]["eval_episode_indices"]
+
+
+def test_random_train_eval_split_supports_zero_and_one_hundred_percent(
+    client: TestClient, database: Database
+) -> None:
+    dataset = _register(database)
+    profile = _profile(client, "Ratio edges")
+    for percent, expected in ((0, []), (100, [0, 1, 2, 3, 4])):
+        recipe = client.post(
+            f"/api/v1/datasets/{dataset['id']}/recipes",
+            json={
+                "profile_id": profile["id"],
+                "name": f"Eval {percent}",
+                "selection_mode": "all",
+                "operation": "train_eval_split",
+                "split_config": {
+                    "method": "random",
+                    "eval_percent": percent,
+                    "seed": 7,
+                },
+            },
+        ).json()
+        snapshot = client.post(
+            f"/api/v1/recipes/{recipe['id']}/snapshots",
+            json={"profile_id": profile["id"]},
+        ).json()
+        assert snapshot["eval_episode_indices"] == expected
+
+    for percent, expected_count in ((9, 0), (10, 1)):
+        recipe = client.post(
+            f"/api/v1/datasets/{dataset['id']}/recipes",
+            json={
+                "profile_id": profile["id"],
+                "name": f"Rounded Eval {percent}",
+                "selection_mode": "all",
+                "operation": "train_eval_split",
+                "split_config": {
+                    "method": "random",
+                    "eval_percent": percent,
+                    "seed": 11,
+                },
+            },
+        ).json()
+        snapshot = client.post(
+            f"/api/v1/recipes/{recipe['id']}/snapshots",
+            json={"profile_id": profile["id"]},
+        ).json()
+        assert len(snapshot["eval_episode_indices"]) == expected_count
+
+    invalid = client.post(
+        f"/api/v1/datasets/{dataset['id']}/recipes",
+        json={
+            "profile_id": profile["id"],
+            "name": "Invalid ratio",
+            "selection_mode": "all",
+            "operation": "train_eval_split",
+            "split_config": {
+                "method": "random",
+                "eval_percent": 100.1,
+                "seed": 0,
+            },
+        },
+    )
+    assert invalid.status_code == 422
+
+
+def test_random_train_eval_split_partitions_the_selected_episode_scope(
+    client: TestClient, database: Database
+) -> None:
+    dataset = _register(database)
+    profile = _profile(client, "Scoped splitter")
+    client.patch(
+        f"/api/v1/datasets/{dataset['id']}/flags",
+        json={
+            "profile_id": profile["id"],
+            "expected_revision": 0,
+            "changes": [
+                {"episode_index": 1, "flagged": True},
+                {"episode_index": 4, "flagged": True},
+            ],
+        },
+    )
+    recipe = client.post(
+        f"/api/v1/datasets/{dataset['id']}/recipes",
+        json={
+            "profile_id": profile["id"],
+            "name": "Flag scope random split",
+            "selection_mode": "flagged",
+            "operation": "train_eval_split",
+            "split_config": {
+                "method": "random",
+                "eval_percent": 50,
+                "seed": 3,
+            },
+        },
+    ).json()
+    snapshot = client.post(
+        f"/api/v1/recipes/{recipe['id']}/snapshots",
+        json={"profile_id": profile["id"]},
+    ).json()
+    assert snapshot["selected_episode_indices"] == [1, 4]
+    assert len(snapshot["eval_episode_indices"]) == 1
+    assert set(snapshot["eval_episode_indices"]).issubset({1, 4})
+
+
 def test_recipes_and_flags_do_not_cross_dataset_revisions(
     client: TestClient, database: Database
 ) -> None:
@@ -447,6 +641,10 @@ def test_recipe_run_freezes_transform_config_and_is_idempotent(
                 "threshold": 0.03,
                 "hold_time_s": 0.5,
                 "margin_s": 1.0,
+                "start_hold_time_s": 0.2,
+                "end_hold_time_s": 0.7,
+                "start_margin_s": 0,
+                "end_margin_s": 2.0,
                 "dimensions": ["joint_0"],
                 "episode_overrides": {"4": {"start_frame": 2, "end_frame": 20}},
             },
@@ -466,6 +664,10 @@ def test_recipe_run_freezes_transform_config_and_is_idempotent(
     assert snapshot["operation"] == "train_eval_split"
     assert snapshot["flagged_episode_indices"] == [4]
     assert snapshot["trim_config"]["episode_overrides"]["4"]["start_frame"] == 2
+    assert snapshot["trim_config"]["start_hold_time_s"] == 0.2
+    assert snapshot["trim_config"]["end_hold_time_s"] == 0.7
+    assert snapshot["trim_config"]["start_margin_s"] == 0
+    assert snapshot["trim_config"]["end_margin_s"] == 2.0
 
     repeated = client.post(f"/api/v1/recipes/{recipe['id']}/runs", json=body)
     assert repeated.status_code == 200

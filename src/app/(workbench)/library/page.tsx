@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   LuDatabase,
   LuFolderSearch,
@@ -9,17 +9,21 @@ import {
   LuServerOff,
 } from "react-icons/lu";
 import DatasetRow from "@/components/workbench/dataset-row";
+import { DatasetTrashPanel } from "@/components/workbench/dataset-trash-panel";
 import EmptyState from "@/components/workbench/empty-state";
 import HuggingFaceLibrary from "@/components/workbench/hf-library";
 import { useProfile } from "@/components/workbench/profile-context";
 import {
   getJob,
   isActiveJob,
+  listDatasetTrash,
   listDatasets,
   publicJobError,
   refreshLibrary,
   type DatasetReadiness,
   type DatasetSummary,
+  type DatasetSort,
+  type DatasetTrashEntry,
 } from "@/lib/workbench-api";
 
 type AreaFilter = "all" | "raw" | "derived";
@@ -54,9 +58,15 @@ export default function LibraryPage() {
 function NasLibrary() {
   const { currentProfile, openProfileDialog } = useProfile();
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
+  const [trashEntries, setTrashEntries] = useState<DatasetTrashEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [trashError, setTrashError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<DatasetSort>("newest");
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [area, setArea] = useState<AreaFilter>("all");
   const [readiness, setReadiness] = useState<ReadinessFilter>("all");
   const [refreshJobId, setRefreshJobId] = useState<string | null>(null);
@@ -64,25 +74,113 @@ function NasLibrary() {
   const [submittingRefresh, setSubmittingRefresh] = useState(false);
   const refreshSubmissionInFlight = useRef(false);
   const refreshIntentKey = useRef<string | null>(null);
+  const loadGeneration = useRef(0);
+  const loadController = useRef<AbortController | null>(null);
+  const moreInFlight = useRef(false);
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("datasetui.library.sort.v1");
+      if (["newest", "oldest", "name_asc", "name_desc"].includes(saved ?? ""))
+        setSort(saved as DatasetSort);
+    } catch {
+      /* Storage can be disabled by browser policy. */
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearch(query.trim()), 200);
+    return () => window.clearTimeout(timer);
+  }, [query]);
 
   const load = useCallback(async () => {
+    const generation = ++loadGeneration.current;
+    loadController.current?.abort();
+    const controller = new AbortController();
+    loadController.current = controller;
     setError(null);
-    try {
-      setDatasets(await listDatasets());
-    } catch (requestError) {
+    setTrashError(null);
+    const profileId = currentProfile?.id;
+    const [datasetResult, trashResult] = await Promise.allSettled([
+      listDatasets({
+        sort,
+        query: search,
+        storageArea: area === "all" ? undefined : area,
+        readiness: readiness === "all" ? undefined : readiness,
+        limit: 100,
+        signal: controller.signal,
+      }),
+      profileId ? listDatasetTrash(profileId) : Promise.resolve([]),
+    ]);
+    if (controller.signal.aborted || generation !== loadGeneration.current)
+      return;
+    if (datasetResult.status === "fulfilled") {
+      setDatasets(datasetResult.value);
+      setHasMore(datasetResult.value.length === 100);
+    } else {
+      const requestError = datasetResult.reason as unknown;
       setError(
         requestError instanceof Error
           ? requestError.message
           : "라이브러리를 불러오지 못했습니다.",
       );
-    } finally {
-      setLoading(false);
     }
-  }, []);
+    if (trashResult.status === "fulfilled") {
+      setTrashEntries(trashResult.value);
+    } else {
+      setTrashEntries([]);
+      setTrashError("휴지통을 불러오지 못했습니다. 잠시 후 다시 확인하세요.");
+    }
+    setLoading(false);
+  }, [currentProfile?.id, sort, search, area, readiness]);
 
   useEffect(() => {
     void load();
+    return () => loadController.current?.abort();
   }, [load]);
+
+  async function loadMore() {
+    if (moreInFlight.current || !hasMore) return;
+    moreInFlight.current = true;
+    setLoadingMore(true);
+    const generation = loadGeneration.current;
+    try {
+      const items = await listDatasets({
+        sort,
+        query: search,
+        storageArea: area === "all" ? undefined : area,
+        readiness: readiness === "all" ? undefined : readiness,
+        limit: 100,
+        offset: datasets.length,
+      });
+      if (generation !== loadGeneration.current) return;
+      setDatasets((current) => [
+        ...new Map(
+          [...current, ...items].map((item) => [item.id, item]),
+        ).values(),
+      ]);
+      setHasMore(items.length === 100);
+    } catch (requestError) {
+      if (generation === loadGeneration.current)
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "목록을 더 불러오지 못했습니다.",
+        );
+    } finally {
+      moreInFlight.current = false;
+      setLoadingMore(false);
+    }
+  }
+
+  function changeSort(value: string) {
+    setSort(value as DatasetSort);
+    try {
+      localStorage.setItem("datasetui.library.sort.v1", value);
+    } catch {
+      /* Optional preference. */
+    }
+  }
 
   useEffect(() => {
     if (!refreshJobId) return;
@@ -151,23 +249,6 @@ function NasLibrary() {
     }
   }
 
-  const filtered = useMemo(() => {
-    const normalizedQuery = query.trim().toLocaleLowerCase("ko-KR");
-    return datasets.filter((dataset) => {
-      if (area !== "all" && dataset.storage_area !== area) return false;
-      if (readiness !== "all" && dataset.readiness !== readiness) return false;
-      if (
-        normalizedQuery &&
-        !`${dataset.name} ${dataset.relative_path} ${dataset.robot_type ?? ""}`
-          .toLocaleLowerCase("ko-KR")
-          .includes(normalizedQuery)
-      ) {
-        return false;
-      }
-      return true;
-    });
-  }, [datasets, query, area, readiness]);
-
   const readyCount = datasets.filter(
     (dataset) => dataset.readiness === "ready",
   ).length;
@@ -187,21 +268,19 @@ function NasLibrary() {
           type="button"
           className="workbench-button workbench-button--primary"
           onClick={handleRefresh}
-          disabled={submittingRefresh || Boolean(refreshJobId)}
+          disabled={submittingRefresh}
         >
           <LuRefreshCw
             className={refreshJobId || submittingRefresh ? "animate-spin" : ""}
             aria-hidden
           />
-          {refreshJobId || submittingRefresh
-            ? "확인 중…"
-            : "라이브러리 새로 확인"}
+          {submittingRefresh ? "접수 중…" : "라이브러리 새로 확인"}
         </button>
       </section>
 
       <div className="library-summary" aria-label="라이브러리 요약">
         <div>
-          <small>전체</small>
+          <small>현재 불러온 목록</small>
           <strong>{datasets.length.toLocaleString("ko-KR")}</strong>
           <span>datasets</span>
         </div>
@@ -217,7 +296,7 @@ function NasLibrary() {
         </div>
         <div className="library-summary__note">
           <LuDatabase aria-hidden />
-          <span>원본 영역은 읽기 전용으로 연결됩니다.</span>
+          <span>원본 내용은 보존하며, 삭제 시 휴지통으로 이동합니다.</span>
         </div>
       </div>
 
@@ -227,10 +306,22 @@ function NasLibrary() {
           <span className="sr-only">데이터셋 검색</span>
           <input
             value={query}
+            maxLength={160}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="이름, 경로, 로봇으로 검색"
           />
         </label>
+        <FilterGroup
+          label="정렬"
+          value={sort}
+          onChange={changeSort}
+          options={[
+            ["newest", "최근 등록순"],
+            ["oldest", "오래된 등록순"],
+            ["name_asc", "이름 오름차순"],
+            ["name_desc", "이름 내림차순"],
+          ]}
+        />
         <FilterGroup
           label="위치"
           value={area}
@@ -259,6 +350,19 @@ function NasLibrary() {
         {refreshMessage}
       </p>
 
+      <DatasetTrashPanel
+        entries={trashEntries}
+        currentProfileId={currentProfile?.id}
+        error={trashError}
+        onRefresh={load}
+        onRestored={(_restored, trashId) => {
+          setTrashEntries((current) =>
+            current.filter((entry) => entry.dataset.id !== trashId),
+          );
+          void load();
+        }}
+      />
+
       {loading ? (
         <div className="library-skeleton" aria-label="라이브러리 불러오는 중">
           {[0, 1, 2].map((item) => (
@@ -276,13 +380,13 @@ function NasLibrary() {
             </button>
           }
         />
-      ) : filtered.length === 0 ? (
+      ) : datasets.length === 0 ? (
         <EmptyState
           icon={<LuFolderSearch />}
           title={
-            datasets.length === 0
-              ? "아직 데이터셋이 없습니다"
-              : "검색 결과가 없습니다"
+            search || area !== "all" || readiness !== "all"
+              ? "검색 결과가 없습니다"
+              : "아직 데이터셋이 없습니다"
           }
           description={
             datasets.length === 0
@@ -295,7 +399,7 @@ function NasLibrary() {
                 type="button"
                 className="workbench-button workbench-button--primary"
                 onClick={handleRefresh}
-                disabled={Boolean(refreshJobId)}
+                disabled={submittingRefresh}
               >
                 <LuRefreshCw aria-hidden /> 새로 확인
               </button>
@@ -313,10 +417,38 @@ function NasLibrary() {
             <span>상태</span>
             <span />
           </div>
-          {filtered.map((dataset) => (
-            <DatasetRow key={dataset.id} dataset={dataset} />
+          {datasets.map((dataset) => (
+            <DatasetRow
+              key={dataset.id}
+              dataset={dataset}
+              currentProfileId={currentProfile?.id}
+              onRequireProfile={openProfileDialog}
+              onRenamed={() => void load()}
+              onDeleted={(entry) => {
+                setDatasets((current) =>
+                  current.filter((item) => item.id !== dataset.id),
+                );
+                setTrashEntries((current) => [
+                  entry,
+                  ...current.filter(
+                    (item) => item.dataset.id !== entry.dataset.id,
+                  ),
+                ]);
+              }}
+              onRefresh={load}
+            />
           ))}
         </section>
+      )}
+      {hasMore && !error && (
+        <button
+          type="button"
+          className="workbench-button"
+          disabled={loadingMore}
+          onClick={() => void loadMore()}
+        >
+          {loadingMore ? "불러오는 중…" : "데이터셋 더 보기"}
+        </button>
       )}
     </>
   );
@@ -336,7 +468,11 @@ function FilterGroup({
   return (
     <label className="library-select">
       <span>{label}</span>
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
+      <select
+        aria-label={label}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+      >
         {options.map(([optionValue, optionLabel]) => (
           <option key={optionValue} value={optionValue}>
             {optionLabel}

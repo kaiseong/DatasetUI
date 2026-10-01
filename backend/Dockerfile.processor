@@ -1,0 +1,23 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    HF_HUB_OFFLINE=1 \
+    HF_DATASETS_OFFLINE=1 \
+    HF_HOME=/tmp/datasetui-hf \
+    HF_DATASETS_CACHE=/tmp/datasetui-hf/datasets \
+    DATASETUI_PROCESSOR_ENGINE=lerobot-v3
+
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+COPY requirements.txt requirements-worker.txt requirements-processor.txt ./
+# Explicit CPU wheels: the processing worker does not require CUDA or SAM.
+RUN pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu \
+      torch==2.10.0 torchvision==0.25.0
+RUN pip install --no-cache-dir -r requirements.txt -r requirements-processor.txt
+COPY app.py ./
+COPY datasetui ./datasetui
+RUN python -c "import torchcodec; from datasetui.lerobot_runtime import require_runtime; require_runtime()" \
+    && pip freeze > /app/processing-installed.txt
+CMD ["rq", "worker", "--url", "redis://redis:6379/0", "--serializer", "rq.serializers.JSONSerializer", "cpu"]

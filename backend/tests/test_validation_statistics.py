@@ -1,0 +1,280 @@
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from datasetui.validation_statistics import NumericStatisticsValidator
+
+
+def test_stats_writer_preserves_declared_tensor_shape(tmp_path: Path) -> None:
+    from datasetui.transforms import _write_stats
+
+    meta = tmp_path / "meta"
+    meta.mkdir()
+    (meta / "info.json").write_text(
+        json.dumps(
+            {
+                "total_frames": 2,
+                "total_episodes": 1, "codebase_version": "v2.1", "fps": 10,
+                "features": {"action": {"dtype": "float32", "shape": [2, 2]}},
+            }
+        )
+    )
+    frames = pd.DataFrame({"action": [np.zeros((2, 2)), np.ones((2, 2))]})
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    (tmp_path / "data").mkdir()
+    (meta / "episodes.jsonl").write_text(json.dumps({"episode_index": 0, "length": 2}) + "\n")
+    pq.write_table(
+        pa.table(
+            {
+                "episode_index": [0, 0],
+                "action": pa.array(
+                    [value.tolist() for value in frames.action],
+                    type=pa.list_(pa.list_(pa.float32(), 2), 2),
+                )
+            }
+        ),
+        tmp_path / "data/file.parquet",
+    )
+    _write_stats(meta / "stats.json", [frames])
+    actual = json.loads((meta / "stats.json").read_text())["action"]
+    assert actual["mean"] == [[0.5, 0.5], [0.5, 0.5]]
+    assert actual["count"] == [2]
+
+
+def _info(*, visual: bool = False) -> dict:
+    features = {
+        "action": {"dtype": "float32", "shape": [2]},
+        "timestamp": {"dtype": "float32", "shape": [1]},
+    }
+    if visual:
+        features["observation.images.top"] = {
+            "dtype": "video",
+            "shape": [24, 32, 3],
+        }
+    return {"features": features, "total_frames": 1}
+
+
+def _stats(values: np.ndarray) -> dict:
+    return {
+        "min": np.min(values, axis=0).tolist(),
+        "max": np.max(values, axis=0).tolist(),
+        "mean": np.mean(values, axis=0).tolist(),
+        "std": np.std(values, axis=0).tolist(),
+        "count": [len(values)],
+    }
+
+
+def _write_stats(root: Path, value: dict) -> None:
+    (root / "meta").mkdir(parents=True)
+    (root / "meta/stats.json").write_text(json.dumps(value), encoding="utf-8")
+
+
+def test_recomputes_numeric_stats_episode_wise_with_bounded_state(
+    tmp_path: Path,
+) -> None:
+    issues = []
+    validator = NumericStatisticsValidator(_info(), lambda *item: issues.append(item))
+    first = pd.DataFrame({"action": [[1.0, 2.0], [3.0, 4.0]], "timestamp": [0.0, 0.1]})
+    second = pd.DataFrame({"action": [[5.0, 6.0], [7.0, 8.0]], "timestamp": [0.0, 0.1]})
+    validator.add_episode(first, episode_index=0)
+    validator.add_episode(second, episode_index=1)
+    action = np.asarray([[1, 2], [3, 4], [5, 6], [7, 8]], dtype=np.float64)
+    timestamp = np.asarray([[0.0], [0.1], [0.0], [0.1]])
+    _write_stats(tmp_path, {"action": _stats(action), "timestamp": _stats(timestamp)})
+
+    summary = validator.validate(tmp_path, complete_dataset=True)
+
+    assert issues == []
+    assert summary.validated_features == ("action", "timestamp")
+    running = validator._running["action"]
+    assert not hasattr(running, "samples")
+    assert running.count == 4
+
+
+def test_std_is_stable_for_large_offsets_with_small_variance(tmp_path: Path) -> None:
+    issues = []
+    info = {"features": {"signal": {"dtype": "float64", "shape": [1]}}}
+    validator = NumericStatisticsValidator(info, lambda *item: issues.append(item))
+    values = np.asarray([[1e9], [1e9 + 1], [1e9 + 2]], dtype=np.float64)
+    validator.add_episode(pd.DataFrame({"signal": values[:, 0]}), episode_index=0)
+    _write_stats(tmp_path, {"signal": _stats(values)})
+
+    summary = validator.validate(tmp_path, complete_dataset=True)
+
+    assert issues == []
+    assert summary.validated_features == ("signal",)
+
+
+def test_numeric_stat_shape_must_match_declared_multidimensional_shape(
+    tmp_path: Path,
+) -> None:
+    info = {"features": {"matrix": {"dtype": "float32", "shape": [2, 2]}}}
+    values = np.asarray(
+        [[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]],
+        dtype=np.float32,
+    )
+    validator = NumericStatisticsValidator(info, lambda *_: None)
+    validator.add_episode(pd.DataFrame({"matrix": list(values)}), episode_index=0)
+    flattened = {
+        name: np.asarray(value).reshape(-1).tolist()
+        for name, value in _stats(values).items()
+    }
+    _write_stats(tmp_path, {"matrix": flattened})
+    issues = []
+    validator = NumericStatisticsValidator(info, lambda *item: issues.append(item))
+    validator.add_episode(pd.DataFrame({"matrix": list(values)}), episode_index=0)
+
+    validator.validate(tmp_path, complete_dataset=True)
+
+    assert any(item[1] == "stats_shape_mismatch" for item in issues)
+
+
+def test_stored_stat_strings_and_boole_are_not_coerced_to_numbers(
+    tmp_path: Path,
+) -> None:
+    info = {"features": {"signal": {"dtype": "float32", "shape": [1]}}}
+    validator = NumericStatisticsValidator(info, lambda *_: None)
+    validator.add_episode(pd.DataFrame({"signal": [1.0]}), episode_index=0)
+    _write_stats(
+        tmp_path,
+        {
+            "signal": {
+                "min": ["1"],
+                "max": [1.0],
+                "mean": [1.0],
+                "std": [False],
+                "count": [1],
+            }
+        },
+    )
+    issues = []
+    validator = NumericStatisticsValidator(info, lambda *item: issues.append(item))
+    validator.add_episode(pd.DataFrame({"signal": [1.0]}), episode_index=0)
+
+    validator.validate(tmp_path, complete_dataset=True)
+
+    assert [item[1] for item in issues].count("stats_value_invalid") == 2
+
+
+def test_rejects_wrong_values_missing_fields_and_non_finite_values(
+    tmp_path: Path,
+) -> None:
+    issues = []
+    validator = NumericStatisticsValidator(_info(), lambda *item: issues.append(item))
+    validator.add_episode(
+        pd.DataFrame({"action": [[1.0, 2.0]], "timestamp": [0.0]}),
+        episode_index=0,
+    )
+    _write_stats(
+        tmp_path,
+        {
+            "action": {
+                "min": [1.0, 2.0],
+                "max": [1.0, 2.0],
+                "mean": [999.0, 2.0],
+                "std": [0.0, 0.0],
+                "count": [1],
+            },
+            "timestamp": {"min": [float("nan")], "count": [1]},
+        },
+    )
+
+    validator.validate(tmp_path, complete_dataset=True)
+
+    codes = [item[1] for item in issues]
+    assert "stats_value_invalid" in codes
+    assert "stats_field_missing" in codes
+    assert "stats_value_mismatch" in codes
+
+
+def test_rejects_numeric_strings_instead_of_silently_coercing(tmp_path: Path) -> None:
+    issues = []
+    validator = NumericStatisticsValidator(_info(), lambda *item: issues.append(item))
+
+    validator.add_episode(
+        pd.DataFrame({"action": [["1", "2"]], "timestamp": [0.0]}),
+        episode_index=0,
+    )
+
+    assert any(item[1] == "stats_source_invalid" for item in issues)
+
+
+def test_visual_stats_are_required_but_reported_as_not_recomputed(
+    tmp_path: Path,
+) -> None:
+    issues = []
+    validator = NumericStatisticsValidator(
+        _info(visual=True), lambda *item: issues.append(item)
+    )
+    frame = pd.DataFrame({"action": [[1.0, 2.0]], "timestamp": [0.0]})
+    validator.add_episode(frame, episode_index=0)
+    _write_stats(
+        tmp_path,
+        {
+            "action": _stats(np.asarray([[1.0, 2.0]])),
+            "timestamp": _stats(np.asarray([[0.0]])),
+        },
+    )
+
+    summary = validator.validate(tmp_path, complete_dataset=True)
+
+    assert summary.unverified_visual_features == ("observation.images.top",)
+    assert any(item[1] == "stats_feature_missing" for item in issues)
+    assert any(item[1] == "visual_stats_not_recomputed" for item in issues)
+
+
+def test_incomplete_episode_scan_cannot_validate_statistics(tmp_path: Path) -> None:
+    issues = []
+    validator = NumericStatisticsValidator(_info(), lambda *item: issues.append(item))
+
+    summary = validator.validate(tmp_path, complete_dataset=False)
+
+    assert summary.validated_features == ()
+    assert any(item[1] == "stats_recompute_incomplete" for item in issues)
+
+
+def test_visual_stat_shape_and_count_are_validated(tmp_path: Path) -> None:
+    issues = []
+    validator = NumericStatisticsValidator(
+        _info(visual=True), lambda *item: issues.append(item)
+    )
+    frame = pd.DataFrame({"action": [[1.0, 2.0]], "timestamp": [0.0]})
+    validator.add_episode(frame, episode_index=0)
+    _write_stats(
+        tmp_path,
+        {
+            "action": _stats(np.asarray([[1.0, 2.0]])),
+            "timestamp": _stats(np.asarray([[0.0]])),
+            "observation.images.top": {
+                "min": [0.0],
+                "max": [1.0],
+                "mean": [0.5],
+                "std": [0.1],
+                "count": [999],
+            },
+        },
+    )
+
+    validator.validate(
+        tmp_path,
+        complete_dataset=True,
+        visual_statistics={
+            "observation.images.top": {
+                "min": np.zeros(3),
+                "max": np.ones(3),
+                "mean": np.full(3, 0.5),
+                "std": np.full(3, 0.1),
+                "count": np.asarray([100]),
+            }
+        },
+    )
+
+    codes = [item[1] for item in issues]
+    assert "stats_shape_mismatch" in codes
+    assert "stats_count_mismatch" in codes

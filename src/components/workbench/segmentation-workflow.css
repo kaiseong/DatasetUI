@@ -1,0 +1,258 @@
+.segmentation-workflow {
+  display: grid;
+  gap: 1.5rem;
+}
+.segmentation-workflow .curation-trim-fields select {
+  width: 100%;
+  min-width: 0;
+}
+.segmentation-workflow .curation-trim-fields label {
+  min-width: 0;
+}
+.segmentation-review-signals {
+  padding: 1rem;
+  border: 1px solid rgb(251 191 36 / 0.25);
+  border-radius: 6px;
+  color: #fde68a;
+  font-size: 0.8rem;
+}
+.segmentation-review-signals p {
+  color: #94a3b8;
+  margin: 0.5rem 0;
+}
+.segmentation-review-signals > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.segmentation-panel {
+  padding: 1.5rem;
+  border: 1px solid rgb(148 163 184 / 0.16);
+  border-radius: 12px;
+  background: rgb(9 18 28 / 0.5);
+  min-width: 0;
+}
+.segmentation-panel-heading {
+  margin-bottom: 1.25rem;
+  border-left: 2px solid #22d3ee;
+  padding-left: 1rem;
+}
+.segmentation-panel-heading > span {
+  font: 600 0.65rem/1.6 monospace;
+  color: #67e8f9;
+  letter-spacing: 0.18em;
+}
+.segmentation-panel-heading h2 {
+  font-size: 1.15rem;
+  color: #f1f5f9;
+  margin: 0.2rem 0 0.4rem;
+}
+.segmentation-panel-heading p,
+.segmentation-note {
+  font-size: 0.8rem;
+  line-height: 1.7;
+  color: #94a3b8;
+}
+.segmentation-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+.segmentation-fields > label:not(.segmentation-checkbox) {
+  flex: 1 1 190px;
+}
+.segmentation-fields label,
+.segmentation-batch-select {
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #cbd5e1;
+}
+.segmentation-fields select,
+.segmentation-fields input:not([type="checkbox"]),
+.segmentation-batch-select select {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid rgb(148 163 184 / 0.25);
+  border-radius: 5px;
+  background: #020617;
+  color: #e2e8f0;
+  padding: 0.65rem 0.75rem;
+  font-size: 0.8rem;
+}
+.segmentation-workflow input[type="checkbox"] {
+  accent-color: #22d3ee;
+  margin-right: 0.45rem;
+}
+.segmentation-workflow :is(input, select, button):focus-visible {
+  outline: 2px solid #22d3ee;
+  outline-offset: 3px;
+}
+.segmentation-template-save p {
+  width: 100%;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+.segmentation-selection {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+.segmentation-selection fieldset {
+  min-width: 0;
+  padding: 1rem;
+  border: 1px solid rgb(148 163 184 / 0.15);
+  border-radius: 8px;
+}
+.segmentation-selection legend {
+  padding: 0 0.4rem;
+  font-size: 0.8rem;
+  color: #e2e8f0;
+}
+.segmentation-selection-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.segmentation-episode-grid {
+  max-height: 200px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
+  gap: 0.5rem;
+}
+.segmentation-episode-grid label,
+.segmentation-camera-choice {
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  padding: 0.4rem 0;
+}
+.segmentation-episode-grid small {
+  color: #64748b;
+}
+.segmentation-camera-choice {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.segmentation-checkbox {
+  display: flex !important;
+  align-items: center;
+  gap: 0.3rem !important;
+  font-size: 0.8rem;
+  color: #cbd5e1;
+  margin: 1rem 0;
+}
+.segmentation-warning {
+  font-size: 0.8rem;
+  color: #fbbf24;
+  margin: 0.5rem 0;
+  overflow-wrap: anywhere;
+}
+.segmentation-batch-select {
+  max-width: 560px;
+}
+.segmentation-review-summary,
+.segmentation-review-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 1rem 0;
+  color: #67e8f9;
+  font-size: 0.85rem;
+}
+.segmentation-review-banner {
+  padding: 0.85rem;
+  background: rgb(34 211 238 / 0.07);
+  border: 1px solid rgb(34 211 238 / 0.25);
+  border-radius: 6px;
+}
+.segmentation-review-list {
+  max-height: 420px;
+  overflow: auto;
+  border-top: 1px solid rgb(148 163 184 / 0.2);
+  margin-bottom: 1.5rem;
+}
+.segmentation-review-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(100px, 0.5fr) auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.85rem 0.4rem;
+  border-bottom: 1px solid rgb(148 163 184 / 0.12);
+  font-size: 0.78rem;
+  color: #cbd5e1;
+}
+.segmentation-review-row > div {
+  display: grid;
+  gap: 0.25rem;
+  overflow-wrap: anywhere;
+}
+.segmentation-review-row > div > span {
+  color: #94a3b8;
+}
+.segmentation-review-row[data-review-status="approved"]
+  > div:nth-child(2)
+  > span {
+  color: #6ee7b7;
+}
+.segmentation-candidates {
+  border: 1px solid rgb(251 191 36 / 0.3);
+  padding: 1rem;
+  border-radius: 8px;
+}
+.segmentation-candidates h3 {
+  font-size: 0.9rem;
+  color: #fde68a;
+}
+.segmentation-candidates > p {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  margin: 0.5rem 0 1rem;
+}
+.segmentation-candidates > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 0.75rem;
+}
+.segmentation-candidate {
+  display: grid;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+.segmentation-candidate img {
+  width: 100%;
+  aspect-ratio: 16/9;
+  object-fit: contain;
+  background: #020617;
+  border: 1px solid rgb(148 163 184 / 0.2);
+  border-radius: 4px;
+}
+@media (max-width: 720px) {
+  .segmentation-panel {
+    padding: 0.9rem;
+  }
+  .segmentation-selection {
+    grid-template-columns: 1fr;
+  }
+  .segmentation-review-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.75rem;
+  }
+  .segmentation-review-row > div:nth-child(2) {
+    grid-column: 1;
+  }
+  .segmentation-review-row > button {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+}

@@ -12,6 +12,7 @@ from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import inspect_dataset
 from datasetui.transforms import materialize_curation_recipe
 from datasetui.transforms import (
+    _output_selections,
     _relative_action_profile,
     _replace_language_columns,
     _slice_video,
@@ -34,6 +35,28 @@ def _settings(tmp_path: Path) -> Settings:
         staging_root=tmp_path / "staging",
         jobs_root=tmp_path / "jobs",
     )
+
+
+@pytest.mark.parametrize(
+    ("evaluation", "expected_roles"),
+    [([], ["train"]), ([0, 1, 2], ["eval"]), ([1], ["train", "eval"])],
+)
+def test_output_selections_omits_empty_train_eval_dataset(
+    evaluation: list[int], expected_roles: list[str]
+) -> None:
+    outputs = _output_selections(
+        {
+            "operation": "train_eval_split",
+            "selected_episode_indices": [0, 1, 2],
+            "eval_episode_indices": evaluation,
+        },
+        "sample",
+        "12345678-rest",
+    )
+    assert [output["role"] for output in outputs] == expected_roles
+    flattened = [episode for output in outputs for episode in output["episodes"]]
+    assert sorted(flattened) == [0, 1, 2]
+    assert len(flattened) == len(set(flattened))
 
 
 def _write_v21(root: Path) -> None:
@@ -75,7 +98,7 @@ def _write_v21(root: Path) -> None:
             {
                 "action": [[value] for value in values],
                 "observation.state": [[value] for value in values],
-                "timestamp": np.arange(10) / 10,
+                "timestamp": (np.arange(10) / 10).astype(np.float32),
                 "frame_index": np.arange(10),
                 "episode_index": episode,
                 "index": np.arange(episode * 10, episode * 10 + 10),
@@ -309,9 +332,11 @@ def test_materialize_v3_rebuilds_shards_and_episode_offsets(tmp_path: Path) -> N
     ).to_parquet(source / "meta" / "episodes" / "chunk-000" / "file-000.parquet")
     pd.DataFrame(
         {
-            "action": [[value] for value in range(8)],
-            "observation.state": [[value] for value in range(8)],
-            "timestamp": [0, 0.1, 0.2, 0.3] * 2,
+            "action": [np.asarray([value], dtype=np.float32) for value in range(8)],
+            "observation.state": [
+                np.asarray([value], dtype=np.float32) for value in range(8)
+            ],
+            "timestamp": np.asarray([0, 0.1, 0.2, 0.3] * 2, dtype=np.float32),
             "frame_index": [0, 1, 2, 3] * 2,
             "episode_index": [0] * 4 + [1] * 4,
             "index": range(8),
@@ -558,7 +583,11 @@ def test_vqa_annotations_require_and_land_on_an_available_camera_frame() -> None
         )
 
 
-def test_relative_action_profile_keeps_stored_action_absolute() -> None:
+def test_relative_action_profile_delegates_to_official_chunk_adapter(
+    monkeypatch,
+) -> None:
+    import datasetui.relative_actions as relative_actions
+
     info = {
         "features": {
             "action": {"names": ["joint_0", "gripper"]},
@@ -571,34 +600,42 @@ def test_relative_action_profile_keeps_stored_action_absolute() -> None:
             "observation.state": [[1.0, 0.2], [1.0, 0.1]],
         }
     )
-    original = frame["action"].tolist()
+    config = {"enabled": True, "dimensions": ["joint_0"], "chunk_size": 2}
+    def progress(value):
+        return None
+    expected = {"enabled": True, "stored_action": "absolute"}
 
-    profile = _relative_action_profile(
-        info, [frame], {"enabled": True, "dimensions": ["joint_0"]}
+    def compute(actual_info, episodes, actual_config, *, on_progress):
+        assert actual_info is info
+        assert episodes[0] is frame
+        assert actual_config is config
+        assert on_progress is progress
+        return expected
+
+    monkeypatch.setattr(relative_actions, "compute_relative_action_profile", compute)
+    assert (
+        _relative_action_profile(info, [frame], config, on_progress=progress)
+        is expected
     )
-
-    assert frame["action"].tolist() == original
-    assert profile["stored_action"] == "absolute"
-    assert profile["absolute_dimensions"] == ["gripper"]
-    assert profile["statistics"]["joint_0"] == {
-        "min": 1.0,
-        "max": 3.0,
-        "mean": 2.0,
-        "std": 1.0,
-    }
 
 
 def test_relative_action_profile_rejects_mismatched_dimension_order() -> None:
     info = {
         "features": {
-            "action": {"names": ["joint_0", "joint_1"]},
-            "observation.state": {"names": ["joint_1", "joint_0"]},
+            "action": {
+                "dtype": "float32",
+                "shape": [2],
+                "names": ["joint_0", "joint_1"],
+            },
+            "observation.state": {
+                "dtype": "float32",
+                "shape": [2],
+                "names": ["joint_1", "joint_0"],
+            },
         }
     }
-    frame = pd.DataFrame(
-        {"action": [[1.0, 2.0]], "observation.state": [[1.0, 2.0]]}
-    )
-    with pytest.raises(CurationTransformError, match="dimension order"):
+    frame = pd.DataFrame({"action": [[1.0, 2.0]], "observation.state": [[1.0, 2.0]]})
+    with pytest.raises(CurationTransformError, match="same index"):
         _relative_action_profile(
             info, [frame], {"enabled": True, "dimensions": ["joint_0"]}
         )

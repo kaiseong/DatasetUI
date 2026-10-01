@@ -1,0 +1,39 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+ARG SAM3_COMMIT=660a5e9e1b8b4c02c0ad97229b88a09a6e4ff5b7
+ENV DATASETUI_SAM3_COMMIT=${SAM3_COMMIT}
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends ffmpeg git \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt requirements-worker.txt ./
+RUN pip install --no-cache-dir \
+      --index-url https://download.pytorch.org/whl/cu128 \
+      torch==2.10.0 torchvision==0.25.0 \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir opencv-python-headless==4.11.0.86 \
+    && pip install --no-cache-dir \
+      "git+https://github.com/facebookresearch/sam3.git@${SAM3_COMMIT}"
+
+COPY requirements-segmentation.txt ./
+RUN pip install --no-cache-dir -r requirements-segmentation.txt \
+    && python -c "from sam3.model_builder import build_sam3_multiplex_video_predictor"
+
+# Compose runs with a numeric NAS UID, which need not have a passwd entry.
+# Torch/Dynamo consult getpass at import; keep identity/cache paths explicit.
+ENV USER=datasetui \
+    LOGNAME=datasetui \
+    TORCHINDUCTOR_CACHE_DIR=/tmp/datasetui-torchinductor \
+    TRITON_CACHE_DIR=/tmp/datasetui-triton
+
+COPY app.py ./
+COPY datasetui ./datasetui
+
+ENV DATASETUI_SAM3_REUSE_PREDICTOR=1
+CMD ["rq", "worker", "--url", "redis://redis:6379/0", "--serializer", "rq.serializers.JSONSerializer", "--worker-class", "rq.worker.SimpleWorker", "gpu"]

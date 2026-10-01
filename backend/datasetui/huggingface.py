@@ -14,7 +14,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator
 
 from httpx import HTTPError
 from huggingface_hub import HfApi, snapshot_download
@@ -36,6 +36,7 @@ from datasetui.hf_errors import (
     HuggingFaceRevisionNotFoundError,
     HuggingFaceUnavailableError,
 )
+from datasetui.job_progress import JobProgressReporter
 
 
 HF_NAMESPACE = "rainbowrobotics"
@@ -221,6 +222,22 @@ def import_huggingface_dataset(
     worker_id: str,
     gateway: HuggingFaceGateway | None = None,
 ) -> dict[str, Any]:
+    progress = JobProgressReporter(
+        database,
+        job_id=job_id,
+        worker_id=worker_id,
+        output_name=str(payload.get("dataset_name", "")),
+    )
+    progress(
+        {
+            "stage": "preparing",
+            "completed": 0,
+            "total": 0,
+            "unit": "items",
+            "current_item": "Hugging Face 원본 확인",
+            "_force": True,
+        }
+    )
     dataset_name = validate_dataset_name(payload["dataset_name"])
     requested_revision = validate_revision(payload["requested_revision"])
     commit_sha = validate_commit_sha(payload["commit_sha"])
@@ -256,6 +273,7 @@ def import_huggingface_dataset(
             generation=generation,
             job_id=job_id,
             worker_id=worker_id,
+            on_progress=progress,
         )
 
 
@@ -271,6 +289,7 @@ def _import_locked(
     generation: int,
     job_id: str,
     worker_id: str,
+    on_progress: Callable[[dict[str, Any]], None],
 ) -> dict[str, Any]:
     raw_root = _require_real_directory(settings.nas_root / "raw", "raw storage")
     manifests_root = _require_real_directory(
@@ -291,6 +310,16 @@ def _import_locked(
     manifest_path = manifest_dir / f"{commit_sha}.json"
 
     if dataset_root.exists():
+        on_progress(
+            {
+                "stage": "verify",
+                "completed": 0,
+                "total": 0,
+                "unit": "files",
+                "current_item": "기존 불변 리비전 확인",
+                "_force": True,
+            }
+        )
         if dataset_root.is_symlink() or not dataset_root.is_dir():
             raise HuggingFaceImportConflictError(
                 "Immutable revision destination is not a directory"
@@ -306,7 +335,17 @@ def _import_locked(
             )
         manifest = _build_tree_manifest(dataset_root)
         database.assert_job_lease(job_id, worker_id=worker_id)
-        return _finish_import_record(
+        on_progress(
+            {
+                "stage": "register",
+                "completed": 0,
+                "total": 0,
+                "unit": "items",
+                "current_item": "라이브러리 리비전 등록",
+                "_force": True,
+            }
+        )
+        result = _finish_import_record(
             database=database,
             repo_id=repo_id,
             requested_revision=requested_revision,
@@ -320,6 +359,17 @@ def _import_locked(
             worker_id=worker_id,
             manifest_path=manifest_path,
         )
+        on_progress(
+            {
+                "stage": "complete",
+                "completed": 1,
+                "total": 1,
+                "unit": "items",
+                "current_item": "Hugging Face 원본 가져오기 완료",
+                "_force": True,
+            }
+        )
+        return result
 
     staging_parent = settings.staging_root / "hf-imports"
     staging_parent.mkdir(parents=True, exist_ok=True)
@@ -330,6 +380,16 @@ def _import_locked(
     )
     incoming_path = revision_root / f".incoming-{commit_sha}-{uuid.uuid4().hex}"
     try:
+        on_progress(
+            {
+                "stage": "download",
+                "completed": 0,
+                "total": 0,
+                "unit": "bytes",
+                "current_item": f"{repo_id}@{commit_sha[:12]} 다운로드",
+                "_force": True,
+            }
+        )
         gateway.download_snapshot(
             repo_id=repo_id,
             commit_sha=commit_sha,
@@ -339,6 +399,16 @@ def _import_locked(
         if metadata_cache.exists():
             shutil.rmtree(metadata_cache)
             _remove_empty_parent(metadata_cache.parent, staging_path)
+        on_progress(
+            {
+                "stage": "verify",
+                "completed": 0,
+                "total": 0,
+                "unit": "files",
+                "current_item": "다운로드한 데이터셋 구조 확인",
+                "_force": True,
+            }
+        )
         candidate = inspect_dataset(
             area_root=staging_parent,
             storage_area="raw",
@@ -353,13 +423,30 @@ def _import_locked(
             source_manifest["total_bytes"], settings.hf_import_max_bytes
         )
 
-        shutil.copytree(staging_path, incoming_path, symlinks=True)
+        _copytree_with_progress(
+            staging_path,
+            incoming_path,
+            total_files=source_manifest["file_count"],
+            on_progress=on_progress,
+            symlinks=True,
+        )
+        on_progress(
+            {
+                "stage": "verify",
+                "completed": 0,
+                "total": 0,
+                "unit": "files",
+                "current_item": "NAS 복사본 무결성 확인",
+                "_force": True,
+            }
+        )
         copied_manifest = _build_tree_manifest(incoming_path)
         if copied_manifest != source_manifest:
             raise HuggingFaceImportValidationError(
                 "Copied dataset does not match the downloaded snapshot"
             )
         database.assert_job_lease(job_id, worker_id=worker_id)
+        database.begin_job_finalization(job_id, worker_id=worker_id)
         try:
             incoming_path.rename(dataset_root)
         except OSError as exc:
@@ -370,7 +457,17 @@ def _import_locked(
                 raise HuggingFaceImportConflictError(
                     "Immutable revision already exists with different content"
                 )
-        return _finish_import_record(
+        on_progress(
+            {
+                "stage": "register",
+                "completed": 0,
+                "total": 0,
+                "unit": "items",
+                "current_item": "라이브러리 리비전 등록",
+                "_force": True,
+            }
+        )
+        result = _finish_import_record(
             database=database,
             repo_id=repo_id,
             requested_revision=requested_revision,
@@ -384,6 +481,17 @@ def _import_locked(
             worker_id=worker_id,
             manifest_path=manifest_path,
         )
+        on_progress(
+            {
+                "stage": "complete",
+                "completed": 1,
+                "total": 1,
+                "unit": "items",
+                "current_item": "Hugging Face 원본 가져오기 완료",
+                "_force": True,
+            }
+        )
+        return result
     finally:
         shutil.rmtree(staging_path, ignore_errors=True)
         shutil.rmtree(incoming_path, ignore_errors=True)
@@ -414,6 +522,7 @@ def _finish_import_record(
         "total_bytes": manifest["total_bytes"],
         "generation": generation,
     }
+    database.begin_job_finalization(job_id, worker_id=worker_id)
     try:
         database.record_hf_revision(
             repo_id=repo_id,
@@ -518,6 +627,57 @@ def _build_tree_manifest(root: Path) -> dict[str, Any]:
         "file_count": file_count,
         "total_bytes": total_bytes,
     }
+
+
+def _copytree_with_progress(
+    source: Path,
+    destination: Path,
+    *,
+    total_files: int,
+    on_progress: Callable[[dict[str, Any]], None],
+    symlinks: bool = False,
+) -> None:
+    completed = 0
+    on_progress(
+        {
+            "stage": "copy",
+            "completed": 0,
+            "total": total_files,
+            "unit": "files",
+            "current_item": "파일 복사 시작",
+            "_force": True,
+        }
+    )
+
+    def copy_file(source_file: str, destination_file: str) -> str:
+        nonlocal completed
+        copied = shutil.copy2(source_file, destination_file)
+        completed += 1
+        try:
+            on_progress(
+                {
+                    "stage": "copy",
+                    "completed": completed,
+                    "total": total_files,
+                    "unit": "files",
+                    "current_item": Path(source_file).name,
+                    "_force": completed >= total_files if total_files > 0 else False,
+                }
+            )
+        except OSError as exc:
+            raise _ProgressCallbackFailure(exc) from exc
+        return copied
+
+    try:
+        shutil.copytree(source, destination, symlinks=symlinks, copy_function=copy_file)
+    except _ProgressCallbackFailure as exc:
+        raise exc.original from exc
+
+
+class _ProgressCallbackFailure(Exception):
+    def __init__(self, original: OSError):
+        super().__init__(str(original))
+        self.original = original
 
 
 def _manifest_document(

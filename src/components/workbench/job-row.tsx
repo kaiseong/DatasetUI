@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { JobProgress } from "./job-progress";
+import { jobLabel, jobDescription } from "@/lib/job-presentation";
 import {
   LuCheck,
   LuChevronDown,
@@ -34,9 +36,15 @@ const STATUS: Record<
 export default function JobRow({
   job,
   profile,
+  currentProfileId,
+  onJobUpdate,
+  stale = false,
 }: {
   job: Job;
   profile?: Profile;
+  currentProfileId?: string;
+  onJobUpdate?: (job: Job) => void;
+  stale?: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [events, setEvents] = useState<JobEvent[] | null>(null);
@@ -98,6 +106,13 @@ export default function JobRow({
         />
       </button>
 
+      <JobProgress
+        job={job}
+        stale={stale}
+        compact
+        currentProfileId={currentProfileId}
+        onJobUpdate={onJobUpdate}
+      />
       {expanded && (
         <div className="job-row__detail">
           {job.error_code && (
@@ -133,28 +148,6 @@ export default function JobRow({
   );
 }
 
-function jobLabel(job: Job) {
-  return (
-    {
-      "datasets.scan": "라이브러리 새로 확인",
-      "phase2.smoke": "시스템 확인",
-      "hf.import": "Hugging Face 원본 가져오기",
-    }[job.kind] ?? "지원되지 않는 작업"
-  );
-}
-
-function jobDescription(job: Job) {
-  if (job.kind === "datasets.scan") return "공유 저장소에서 데이터셋 찾기";
-  if (job.kind === "phase2.smoke") return "DatasetUI 작동 상태 확인";
-  if (job.kind === "hf.import") {
-    const datasetName = job.payload.dataset_name;
-    return typeof datasetName === "string"
-      ? `${datasetName} revision을 원본으로 보존`
-      : "선택한 revision을 원본으로 보존";
-  }
-  return "이 작업 유형은 현재 화면에서 지원되지 않습니다.";
-}
-
 function eventLabel(eventType: string) {
   return (
     {
@@ -164,6 +157,8 @@ function eventLabel(eventType: string) {
       succeeded: "작업 완료",
       failed: "작업 실패",
       interrupted: "작업 중단",
+      cancelled: "사용자 취소",
+      cancellation_requested: "사용자 취소 요청",
       requeued: "자동 재시도 대기",
       dispatch_uncertain: "전달 상태 확인 중",
       dispatch_recovered: "작업 전달 복구",

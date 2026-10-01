@@ -3,12 +3,14 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from datasetui.conversion import convert_dataset_to_v21
 from datasetui.database import Database
 from datasetui.datasets import inspect_dataset
 from datasetui.validation import validate_dataset_root
+import datasetui.transforms as transforms
 from test_transforms import _settings, _write_v21
 
 
@@ -51,7 +53,11 @@ def _write_v3(root: Path) -> None:
         "video_path": "videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
         "features": {
             "action": {"dtype": "float32", "shape": [1], "names": ["joint_0"]},
-            "observation.state": {"dtype": "float32", "shape": [1], "names": ["joint_0"]},
+            "observation.state": {
+                "dtype": "float32",
+                "shape": [1],
+                "names": ["joint_0"],
+            },
             "timestamp": {"dtype": "float32", "shape": [1], "names": None},
             "frame_index": {"dtype": "int64", "shape": [1], "names": None},
             "episode_index": {"dtype": "int64", "shape": [1], "names": None},
@@ -60,8 +66,9 @@ def _write_v3(root: Path) -> None:
         },
     }
     (root / "meta/info.json").write_text(json.dumps(info), encoding="utf-8")
-    (root / "meta/stats.json").write_text(json.dumps({"action": {"count": [8]}}), encoding="utf-8")
-    pd.DataFrame([{"task_index": 0, "task": "pick"}]).to_parquet(root / "meta/tasks.parquet", index=False)
+    pd.DataFrame([{"task_index": 0, "task": "pick"}]).to_parquet(
+        root / "meta/tasks.parquet", index=False
+    )
     pd.DataFrame(
         [
             {
@@ -76,17 +83,145 @@ def _write_v3(root: Path) -> None:
             for index in range(2)
         ]
     ).to_parquet(root / "meta/episodes/chunk-000/file-000.parquet", index=False)
-    pd.DataFrame(
+    data = pd.DataFrame(
         {
-            "action": [[float(value)] for value in range(8)],
-            "observation.state": [[float(value)] for value in range(8)],
-            "timestamp": [0.0, 0.1, 0.2, 0.3] * 2,
+            "action": [np.asarray([value], dtype=np.float32) for value in range(8)],
+            "observation.state": [
+                np.asarray([value], dtype=np.float32) for value in range(8)
+            ],
+            "timestamp": np.tile(np.asarray([0.0, 0.1, 0.2, 0.3], dtype=np.float32), 2),
             "frame_index": [0, 1, 2, 3] * 2,
             "episode_index": [0] * 4 + [1] * 4,
             "index": list(range(8)),
             "task_index": [0] * 8,
         }
-    ).to_parquet(root / "data/chunk-000/file-000.parquet", index=False)
+    )
+    data.to_parquet(root / "data/chunk-000/file-000.parquet", index=False)
+    stats = {
+        name: _exact_stats(
+            np.stack(
+                [
+                    np.asarray(value, dtype=np.float64).reshape(-1)
+                    for value in data[name]
+                ]
+            )
+        )
+        for name in data.columns
+    }
+    (root / "meta/stats.json").write_text(json.dumps(stats), encoding="utf-8")
+
+
+def _exact_stats(values: np.ndarray, *, count: int | None = None) -> dict:
+    return {
+        "min": np.min(values, axis=0).tolist(),
+        "max": np.max(values, axis=0).tolist(),
+        "mean": np.mean(values, axis=0).tolist(),
+        "std": np.std(values, axis=0).tolist(),
+        "count": [len(values) if count is None else count],
+    }
+
+
+def _add_shared_v3_video(root: Path) -> Path:
+    import av
+
+    info_path = root / "meta/info.json"
+    info = json.loads(info_path.read_text(encoding="utf-8"))
+    video_key = "observation.images.top"
+    info["features"][video_key] = {
+        "dtype": "video",
+        "shape": [24, 32, 3],
+        "names": ["height", "width", "channels"],
+    }
+    info_path.write_text(json.dumps(info), encoding="utf-8")
+
+    metadata_path = root / "meta/episodes/chunk-000/file-000.parquet"
+    metadata = pd.read_parquet(metadata_path)
+    metadata[f"videos/{video_key}/chunk_index"] = 0
+    metadata[f"videos/{video_key}/file_index"] = 0
+    metadata[f"videos/{video_key}/from_timestamp"] = [0.0, 0.4]
+    metadata[f"videos/{video_key}/to_timestamp"] = [0.4, 0.8]
+    metadata.to_parquet(metadata_path, index=False)
+
+    video_path = root / f"videos/{video_key}/chunk-000/file-000.mp4"
+    video_path.parent.mkdir(parents=True)
+    container = av.open(str(video_path), mode="w")
+    stream = container.add_stream("libx264", rate=10)
+    stream.width = 32
+    stream.height = 24
+    stream.pix_fmt = "yuv420p"
+    for value in range(8):
+        frame = av.VideoFrame.from_ndarray(
+            np.full((24, 32, 3), value * 10, dtype=np.uint8), format="rgb24"
+        )
+        for packet in stream.encode(frame):
+            container.mux(packet)
+    for packet in stream.encode():
+        container.mux(packet)
+    container.close()
+
+    decoded_container = av.open(str(video_path))
+    decoded_pixels = np.concatenate(
+        [
+            frame.to_ndarray(format="rgb24").reshape(-1, 3)
+            for frame in decoded_container.decode(video=0)
+        ]
+    ).astype(np.float64)
+    decoded_container.close()
+    stats_path = root / "meta/stats.json"
+    stats = json.loads(stats_path.read_text(encoding="utf-8"))
+    visual_stats = _exact_stats(decoded_pixels / 255.0, count=8)
+    stats[video_key] = {
+        name: (
+            value if name == "count" else np.asarray(value).reshape(3, 1, 1).tolist()
+        )
+        for name, value in visual_stats.items()
+    }
+    stats_path.write_text(json.dumps(stats), encoding="utf-8")
+    return video_path
+
+
+def test_v3_full_validation_decodes_a_shared_video_shard_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import av
+
+    root = tmp_path / "dataset"
+    _write_v3(root)
+    video_path = _add_shared_v3_video(root)
+    original_open = av.open
+    video_opens = 0
+
+    def tracked_open(file, *args, **kwargs):
+        nonlocal video_opens
+        if Path(file) == video_path:
+            video_opens += 1
+        return original_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(av, "open", tracked_open)
+    result = validate_dataset_root(root, mode="full")
+
+    assert result["passed"] is True
+    assert video_opens == 1
+
+
+def test_v3_validation_reads_a_shared_data_shard_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "dataset"
+    _write_v3(root)
+    original = transforms._read_parquet
+    data_reads = 0
+
+    def tracked(path: Path):
+        nonlocal data_reads
+        if path == root / "data/chunk-000/file-000.parquet":
+            data_reads += 1
+        return original(path)
+
+    monkeypatch.setattr(transforms, "_read_parquet", tracked)
+    validate_dataset_root(root, mode="full")
+
+    assert data_reads == 1
 
 
 def test_v3_to_v21_conversion_rebuilds_layout_and_passes_export_gate(

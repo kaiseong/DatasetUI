@@ -52,6 +52,98 @@ def test_job_idempotency_does_not_dispatch_twice(
     assert len(dispatcher.enqueued) == 1
 
 
+def test_queued_job_can_be_cancelled_by_its_profile(
+    client: TestClient, dispatcher: RecordingDispatcher
+) -> None:
+    profile_id = _profile_id(client)
+    created = client.post(
+        "/api/v1/jobs",
+        json={
+            "kind": "phase2.smoke",
+            "profile_id": profile_id,
+            "payload": {},
+            "idempotency_key": "cancel-via-api",
+        },
+    ).json()
+
+    cancelled = client.post(
+        f"/api/v1/jobs/{created['id']}/cancel",
+        json={"profile_id": profile_id},
+    )
+    repeated = client.post(
+        f"/api/v1/jobs/{created['id']}/cancel",
+        json={"profile_id": profile_id},
+    )
+
+    assert cancelled.status_code == repeated.status_code == 200
+    assert cancelled.json()["status"] == repeated.json()["status"] == "cancelled"
+    assert dispatcher.removed == [
+        (created["rq_job_id"], "cpu"),
+        (created["rq_job_id"], "cpu"),
+    ]
+    events = client.get(f"/api/v1/jobs/{created['id']}/events").json()
+    assert [event["event_type"] for event in events] == [
+        "queued",
+        "dispatched",
+        "cancelled",
+    ]
+
+
+def test_job_cancellation_enforces_owner_and_requests_running_cancellation(
+    client: TestClient, database: Database, dispatcher: RecordingDispatcher
+) -> None:
+    owner_id = _profile_id(client)
+    other_id = client.post("/api/v1/profiles", json={"name": "Other"}).json()["id"]
+    job, _ = database.create_job(
+        kind="phase2.smoke",
+        queue_name="cpu",
+        profile_id=owner_id,
+        payload={},
+        idempotency_key="cancel-guard",
+    )
+    database.mark_enqueued(job["id"], f"datasetui-{job['id']}")
+
+    wrong_owner = client.post(
+        f"/api/v1/jobs/{job['id']}/cancel", json={"profile_id": other_id}
+    )
+    assert wrong_owner.status_code == 403
+    assert database.get_job(job["id"])["status"] == "queued"
+
+    database.claim_job(job["id"], worker_id="active")
+    running = client.post(
+        f"/api/v1/jobs/{job['id']}/cancel", json={"profile_id": owner_id}
+    )
+    assert running.status_code == 200
+    assert running.json()["status"] == "running"
+    assert running.json()["cancellation_requested"] is True
+    assert running.json()["cancellation_requested_at"] is not None
+    assert database.get_job(job["id"])["status"] == "running"
+    assert dispatcher.removed == []
+
+
+def test_queue_cleanup_failure_does_not_undo_database_cancellation(
+    client: TestClient, database: Database, dispatcher: RecordingDispatcher
+) -> None:
+    profile_id = _profile_id(client)
+    job, _ = database.create_job(
+        kind="phase2.smoke",
+        queue_name="cpu",
+        profile_id=profile_id,
+        payload={},
+        idempotency_key="cancel-queue-unavailable",
+    )
+    database.mark_enqueued(job["id"], f"datasetui-{job['id']}")
+    dispatcher.available = False
+
+    response = client.post(
+        f"/api/v1/jobs/{job['id']}/cancel", json={"profile_id": profile_id}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "cancelled"
+    assert database.get_job(job["id"])["status"] == "cancelled"
+
+
 def test_idempotent_retry_recovers_a_job_not_written_to_redis(
     client: TestClient, database: Database, dispatcher: RecordingDispatcher
 ) -> None:
@@ -219,7 +311,7 @@ def test_system_health_reports_both_dependencies(
         "service": "datasetui-workbench",
         "database": "ok",
         "queue": "ok",
-        "schema_versions": [1, 2, 3, 4, 5, 6, 7, 8],
+        "schema_versions": list(range(1, 17)),
     }
 
     dispatcher.available = False
