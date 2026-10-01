@@ -202,3 +202,13 @@ docker compose stop worker-gpu
 - 의존성은 그대로라 기존 이미지에서 코드 폴더만 삭제 후 교체(`/app/datasetui`, `/app/src`)해 옛 모듈이 남지 않게 빌드. 이미지 내 옛 모듈(`segmentation_api` 등) 없음 확인.
 - 운영 소스(`~/kgs/DatasetUI`)는 이 브랜치를 체크아웃한 상태. 백업 `~/kgs/datasetui-backup-20261002-refactor-074630`(이전 HEAD `3b9f601`), 이전 이미지 태그 `~/kgs/DatasetUI-release-20261002-refactor/compose.override.before.yaml`.
 - 실 GPU 검증(개편 전과 동일): 샘플 10.0초 → 재사용 1.0초 → 프레임 90 추적 샘플 3.0초(13,819 px), JIMTOF 1,198프레임 미리보기 140초, 객체 감지 1198/1198.
+
+### 2026-10-02 local-dev 선별 반영 (`release-20261002-port-v1`)
+
+- 브랜치 `port/local-dev-20261002`: 배포되지 않았던 local-dev 작업 중 아직 유효한 것만 선별 반영.
+  - curation·merge·v2.1 변환이 작업 시작 시 원본 트리의 파일 크기·수정 시각(stat만, 내용 해시 없음)을 기록하고 공개 직전에 다시 비교해 작업 중 원본이 바뀌면 중단. 목록 지문은 `meta/info.json` 해시 그대로 유지해 플래그·레시피 키와 스캔 속도에 영향 없음(NAS 2,152개 파일 기준 0.5초).
+  - 라이브러리 스캔에서 심볼릭 링크·특수 파일이 있는 데이터셋은 invalid 처리.
+  - HF 이름 검사를 가져오기·업로드 공통 규칙으로 통일(끝 `_` 허용).
+  - 주석 임시저장을 프로필·데이터셋 버전별로 분리하고 로드·저장 중 수정 유실 방지.
+- 반영하지 않은 것(운영에 이미 더 새로운 방식이 있음): HF 저장소 자동 삭제, 끊긴 외부 전송 자동 재시도 금지, 작업 행 결과 링크, 전체 파일 해시 지문.
+- 백업 `~/kgs/datasetui-backup-20261002-port-081204`(이전 HEAD `fd0b492`), 이전 이미지 태그 `~/kgs/DatasetUI-release-20261002-port/compose.override.before.yaml`.
