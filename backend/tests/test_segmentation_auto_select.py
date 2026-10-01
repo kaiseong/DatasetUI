@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
-from datasetui.segmentation_masks import apply_selection, selection_review_signals
+from datasetui.segmentation.selection import apply_selection, selection_review_signals
 
 W = H = 4
 
@@ -86,7 +86,7 @@ def test_coexisting_candidates_still_require_a_choice(tmp_path):
 
 
 def test_object_coverage_reports_frames_where_an_object_is_missing():
-    from datasetui.segmentation_masks import coverage_signals, object_coverage
+    from datasetui.segmentation.selection import coverage_signals, object_coverage
 
     provenance = {
         "candidates": [

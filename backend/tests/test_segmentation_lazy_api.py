@@ -1,11 +1,11 @@
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from datasetui.queueing import RecordingDispatcher
-from datasetui.segmentation_api import create_segmentation_router
-from datasetui.segmentation_workflow_api import create_segmentation_workflow_router
-from datasetui.segmentation_catalog import dataset_catalog, selected_scope
-from datasetui.segmentation_workflows import _instantiate_camera
-from datasetui.segmentation_workflow_contract import BatchCreate
+from datasetui.segmentation.api import create_segmentation_router
+from datasetui.segmentation.workflow_api import create_segmentation_workflow_router
+from datasetui.segmentation.catalog import dataset_catalog, selected_scope
+from datasetui.segmentation.workflows import _instantiate_camera
+from datasetui.segmentation.workflow_contract import BatchCreate
 from test_segmentation import _registered
 
 
@@ -26,7 +26,7 @@ def test_lazy_save_preview_and_batch_enqueue_do_not_full_scan(tmp_path, monkeypa
     def forbidden(*args, **kwargs):
         raise AssertionError("full scan on HTTP request")
 
-    monkeypatch.setattr("datasetui.segmentation.load_source", forbidden)
+    monkeypatch.setattr("datasetui.segmentation.source.load_source", forbidden)
     with TestClient(app) as client:
         camera = {
             "video_key": "observation.images.top",
@@ -116,8 +116,8 @@ def test_new_templates_redetect_without_spatial_hints(tmp_path):
 
 
 def test_pending_execution_exposes_real_fingerprint_without_mutating_request(tmp_path):
-    from datasetui.segmentation import create_preview
-    from datasetui.segmentation_api import verified_preview
+    from datasetui.segmentation.preview import create_preview
+    from datasetui.segmentation.preview import verified_preview
     from test_segmentation import DeterministicEngine
 
     settings, database, _, dataset = _registered(tmp_path)

@@ -13,8 +13,8 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-from datasetui.segmentation import _iter_video_arrays
-from datasetui.segmentation_export import write_segmented_videos
+from datasetui.segmentation.media import _iter_video_arrays
+from datasetui.segmentation.export import write_segmented_videos
 from datasetui.validation import validate_dataset_root
 from test_trim_source_codec import _source
 

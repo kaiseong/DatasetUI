@@ -14,13 +14,10 @@ from PIL import Image
 from datasetui.database import Database
 from datasetui.content_integrity import dataset_content_fingerprint
 from datasetui.datasets import inspect_dataset
-from datasetui.segmentation import (
-    SegmentationError,
-    create_preview,
-    dataset_scope,
-    export_preview,
-    source_frame,
-)
+from datasetui.segmentation.errors import SegmentationError
+from datasetui.segmentation.preview import create_preview
+from datasetui.segmentation.source import dataset_scope, source_frame
+from datasetui.segmentation.export import export_preview
 from test_transforms import _settings
 from test_validation_conversion import _write_v3
 

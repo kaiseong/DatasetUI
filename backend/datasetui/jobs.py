@@ -338,19 +338,19 @@ def queue_for_kind(kind: str) -> str | None:
 
 def validate_job_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     if kind == "segmentation.batch_prepare":
-        from datasetui.segmentation_workflow_contract import BatchPrepare
+        from datasetui.segmentation.workflow_contract import BatchPrepare
         return BatchPrepare.model_validate(payload).model_dump(mode="json")
     if kind == "segmentation.batch_export":
-        from datasetui.segmentation_workflow_contract import BatchExportPayload
+        from datasetui.segmentation.workflow_contract import BatchExportPayload
 
         return BatchExportPayload.model_validate(payload).model_dump(mode="json")
     if kind == "segmentation.sample":
-        from datasetui.segmentation_sample import SampleSpec
+        from datasetui.segmentation.sample import SampleSpec
         if set(payload) != {"spec"}:
             raise ValueError("invalid sample payload")
         return {"spec": SampleSpec.model_validate(payload["spec"]).model_dump(mode="json")}
     if kind == "segmentation.preview":
-        from datasetui.segmentation_contract import SegmentationSpec, PendingPreviewSpec
+        from datasetui.segmentation.contract import SegmentationSpec, PendingPreviewSpec
 
         if set(payload) != {"spec"}:
             raise ValueError("invalid segmentation preview payload")
@@ -360,7 +360,7 @@ def validate_job_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
             )
         }
     if kind == "segmentation.export":
-        from datasetui.segmentation_contract import SegmentationExport
+        from datasetui.segmentation.contract import SegmentationExport
 
         return SegmentationExport.model_validate(
             {**payload, "idempotency_key": "internal"}
@@ -462,10 +462,10 @@ def run_registered_job(
             kind, database, settings, validated, job_id, worker_id
         )
     if kind == "segmentation.batch_prepare":
-        from datasetui.segmentation_workflow_contract import BatchPrepare, BatchCreate
-        from datasetui.segmentation_catalog import dataset_catalog
-        from datasetui.segmentation_workflows import create_batch
-        from datasetui.segmentation import load_source
+        from datasetui.segmentation.workflow_contract import BatchPrepare, BatchCreate
+        from datasetui.segmentation.catalog import dataset_catalog
+        from datasetui.segmentation.workflows import create_batch
+        from datasetui.segmentation.source import load_source
         from datasetui.queueing import RQDispatcher
         if job_id is None or worker_id is None:
             raise ValueError("batch preparation requires a worker lease")
@@ -485,7 +485,7 @@ def run_registered_job(
         batch = create_batch(database, dispatcher, settings, BatchCreate.model_validate(request))
         return {"batch_id": batch["id"]}
     if kind == "segmentation.sample":
-        from datasetui.segmentation_sample import create_sample
+        from datasetui.segmentation.sample import create_sample
         if job_id is None or worker_id is None:
             raise ValueError("sample jobs require a worker lease")
         settings = Settings.from_env()
@@ -495,8 +495,9 @@ def run_registered_job(
         return create_sample(database, settings, job_id=job_id, worker_id=worker_id,
                              spec=validated["spec"])
     if kind in {"segmentation.preview", "segmentation.export"}:
-        from datasetui.segmentation import create_preview, export_preview
-        from datasetui.segmentation_api import verify_approval
+        from datasetui.segmentation.preview import create_preview
+        from datasetui.segmentation.export import export_preview
+        from datasetui.segmentation.preview import verify_approval
 
         if job_id is None or worker_id is None:
             raise ValueError("segmentation jobs require a worker lease")
@@ -529,8 +530,8 @@ def run_registered_job(
             recompute_statistics=payload.get("recompute_statistics", False),
         )
     if kind == "segmentation.batch_export":
-        from datasetui.segmentation import export_preview
-        from datasetui.segmentation_workflows import verify_batch_export
+        from datasetui.segmentation.export import export_preview
+        from datasetui.segmentation.workflows import verify_batch_export
 
         if job_id is None or worker_id is None:
             raise ValueError("segmentation jobs require a worker lease")

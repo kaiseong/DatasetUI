@@ -1,4 +1,4 @@
-"""Bounded camera templates and immutable segmentation batch requests."""
+"""Request models for camera templates and episode x camera batches."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from uuid import UUID
 
 from pydantic import Field, model_validator
 
-from datasetui.segmentation_contract import (
+from datasetui.segmentation.contract import (
     Correction,
     FrameIndex,
     ManualRegion,
@@ -16,10 +16,16 @@ from datasetui.segmentation_contract import (
 )
 
 Fingerprint = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
+
+
 VideoKey = Annotated[
     str, Field(min_length=1, max_length=240, pattern=r"^[A-Za-z0-9_.-]+$")
 ]
+
+
 MAX_BATCH_ITEMS = 256
+
+
 MAX_TEMPLATE_BYTES = 1024 * 1024
 
 
@@ -42,7 +48,7 @@ class CameraTemplate(StrictModel):
     @model_validator(mode="after")
     def reusable_prompts(self):
         if self.mode == "object_selection":
-            from datasetui.segmentation_selection import (
+            from datasetui.segmentation.contract import (
                 seed_brush_objects,
                 validate_initial_guidance,
             )

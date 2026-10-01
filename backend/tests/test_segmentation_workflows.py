@@ -12,13 +12,9 @@ from pydantic import ValidationError
 from datasetui.content_integrity import dataset_content_fingerprint
 from datasetui.database import IdempotencyConflictError, RecipeRevisionMismatchError
 from datasetui.queueing import RecordingDispatcher
-from datasetui.segmentation_workflow_api import create_segmentation_workflow_router
-from datasetui.segmentation_workflow_contract import (
-    BatchCreate,
-    CameraTemplate,
-    TemplateSave,
-)
-from datasetui import segmentation_workflows as workflow
+from datasetui.segmentation.workflow_api import create_segmentation_workflow_router
+from datasetui.segmentation.workflow_contract import BatchCreate, CameraTemplate, TemplateSave
+from datasetui.segmentation import workflows as workflow
 from test_segmentation import _registered
 
 
@@ -639,7 +635,7 @@ def test_rebind_and_reapproval_invalidate_queued_export_snapshot(context):
 
 
 def test_template_and_expanded_batch_byte_budgets(context, monkeypatch):
-    from datasetui import segmentation_workflow_contract
+    from datasetui.segmentation import workflow_contract as segmentation_workflow_contract
 
     settings, database, _, _, _, dispatcher = context
     template = _template(context)
@@ -735,7 +731,7 @@ def test_independent_batches_can_review_same_preview_without_revoking_each_other
 
 
 def test_invalidation_during_expensive_verification_fails_closed(context, monkeypatch):
-    from datasetui import segmentation_api
+    from datasetui.segmentation import preview as segmentation_api
 
     settings, database, _, _, profile, _ = context
     batch = _approve_all(context, _batch(context))

@@ -9,12 +9,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-import datasetui.sam3_engine as sam3_engine
-from datasetui.sam3_engine import (
-    Sam3Engine,
-    Sam3InferenceError,
-    Sam3UnavailableError,
-)
+import datasetui.segmentation.engine as sam3_engine
+from datasetui.segmentation.engine import Sam3Engine, Sam3InferenceError, Sam3UnavailableError
 
 
 def _settings(checkpoint: Path, *, expected_sha: str | None = None):
@@ -651,7 +647,7 @@ def test_mixed_spatial_hints_use_one_track_and_accumulate_brush(tmp_path, monkey
 
 
 def test_mixed_box_only_is_instance_geometry_not_semantic_detection():
-    from datasetui.segmentation_contract import RegionPrompt
+    from datasetui.segmentation.contract import RegionPrompt
 
     predictor = FakePredictor([])
     prompt = RegionPrompt(frame_index=0, target="protect", box=(0, 0, 1, 0.2))
@@ -665,7 +661,7 @@ def test_mixed_box_only_is_instance_geometry_not_semantic_detection():
 
 @pytest.mark.parametrize("matches", [0, 2])
 def test_semantic_hint_conflict_reports_object_and_action(matches):
-    from datasetui.segmentation_contract import RegionPrompt
+    from datasetui.segmentation.contract import RegionPrompt
     from datasetui.tasks import _public_failure
 
     mask = np.ones((2, 2), dtype=bool) if matches else np.zeros((2, 2), dtype=bool)
@@ -703,7 +699,7 @@ def test_detection_score_alignment_and_invalid_values():
 
 @pytest.mark.parametrize("singleton", [False, True])
 def test_selected_group_matches_masks_not_ephemeral_ids_and_refines_one_member(singleton):
-    from datasetui.segmentation_contract import RegionPrompt
+    from datasetui.segmentation.contract import RegionPrompt
     left = np.array([[1,0],[1,0]], dtype=bool)
     right = ~left
     response = {'frame_index':0, 'outputs':{'out_obj_ids':np.array([70,91]),
@@ -741,7 +737,7 @@ def test_detector_pruning_gates_follow_requested_threshold():
 
 
 def test_redetected_group_correction_does_not_drop_other_members(tmp_path, monkeypatch):
-    from datasetui.segmentation_contract import RegionPrompt
+    from datasetui.segmentation.contract import RegionPrompt
     left=np.array([[1,0],[1,0]],dtype=bool)
     right=~left
     response={'frame_index':0,'outputs':{'out_obj_ids':np.array([1,2]),'out_probs':np.array([.8,.9]),'out_binary_masks':np.array([left,right])}}
@@ -762,7 +758,7 @@ def test_redetected_group_correction_does_not_drop_other_members(tmp_path, monke
 
 
 def test_unassigned_member_only_resolves_singleton():
-    from datasetui.segmentation_selection import SegmentationGuidanceError
+    from datasetui.segmentation.errors import SegmentationGuidanceError
     assert sam3_engine._selected_member({'4-0': 91}, None) == 91
     assert sam3_engine._selected_member({'4-0': 91, '4-1': 70}, '4-1') == 70
     for members, candidate in [({}, None), ({'4-0': 91, '4-1': 70}, None), ({'4-0': 91}, '4-2')]:
@@ -771,7 +767,7 @@ def test_unassigned_member_only_resolves_singleton():
 
 
 def test_grounding_identity_survives_corrected_display_mask(tmp_path):
-    from datasetui.segmentation_contract import RegionPrompt
+    from datasetui.segmentation.contract import RegionPrompt
     from PIL import Image
     sample = '00000000-0000-0000-0000-000000000001'
     root = tmp_path / 'segmentation-samples' / sample

@@ -11,11 +11,11 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-import datasetui.segmentation_frames as segmentation_frames
+import datasetui.segmentation.frames as segmentation_frames
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import inspect_dataset
-from datasetui.segmentation import dataset_scope
-from datasetui.segmentation_frames import create_frame_snapshot, read_snapshot_frame
+from datasetui.segmentation.source import dataset_scope
+from datasetui.segmentation.frames import create_frame_snapshot, read_snapshot_frame
 from test_segmentation import _registered, _write_video
 from test_transforms import _settings
 from test_validation_conversion import _write_v3

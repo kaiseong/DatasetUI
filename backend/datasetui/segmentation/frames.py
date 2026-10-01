@@ -1,3 +1,5 @@
+"""Immutable frame snapshots: content-verified single-frame reads."""
+
 from __future__ import annotations
 
 import hashlib
@@ -15,11 +17,13 @@ from PIL import Image
 
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError, utc_now
-from datasetui.segmentation import MAX_IMAGE_PIXELS, _decode_one, load_source
+from datasetui.segmentation.media import MAX_IMAGE_PIXELS, _decode_one
+from datasetui.segmentation.source import load_source
 from datasetui.transforms import _safe_dataset_root
 
-
 _DIGEST_CACHE_LIMIT = 32
+
+
 _SNAPSHOT_TABLE = """
 CREATE TABLE IF NOT EXISTS segmentation_frame_snapshots (
     token TEXT PRIMARY KEY,
@@ -41,6 +45,8 @@ class _FileIdentity(NamedTuple):
 
 
 _digest_cache: OrderedDict[_FileIdentity, str] = OrderedDict()
+
+
 _digest_cache_lock = threading.Lock()
 
 

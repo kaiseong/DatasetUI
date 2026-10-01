@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from datasetui.segmentation_selection import retained_mask, brush_hints
-from datasetui.segmentation_contract import Correction
+from datasetui.segmentation.selection import retained_mask, brush_hints
+from datasetui.segmentation.contract import Correction
 
 
 @pytest.mark.parametrize(
@@ -55,14 +55,11 @@ def test_brush_hints_are_bounded_radius_aware_and_have_correct_polarity():
 def test_sample_video_and_export_use_identical_selection(tmp_path, keep, remove):
     import shutil
     from PIL import Image
-    from datasetui.segmentation import (
-        create_preview,
-        _read_manifest,
-        _iter_video_arrays,
-    )
-    from datasetui.segmentation_sample import create_sample
-    from datasetui.segmentation_catalog import selected_scope
-    from datasetui.segmentation_export import write_segmented_videos
+    from datasetui.segmentation.preview import create_preview, _read_manifest
+    from datasetui.segmentation.media import _iter_video_arrays
+    from datasetui.segmentation.sample import create_sample
+    from datasetui.segmentation.catalog import selected_scope
+    from datasetui.segmentation.export import write_segmented_videos
     from test_segmentation import _registered
 
     settings, database, root, dataset = _registered(tmp_path)
@@ -192,8 +189,8 @@ def test_sample_video_and_export_use_identical_selection(tmp_path, keep, remove)
 
 def test_new_mode_rejects_manual_and_missing_detections():
     from uuid import uuid4
-    from datasetui.segmentation_contract import SegmentationSpec
-    from datasetui.segmentation_selection import validate_detections
+    from datasetui.segmentation.contract import SegmentationSpec
+    from datasetui.segmentation.selection import validate_detections
 
     base = {
         "dataset_id": str(uuid4()),
@@ -217,9 +214,9 @@ def test_new_mode_rejects_manual_and_missing_detections():
 def test_new_brush_does_not_rasterize_masks(tmp_path):
     from PIL import Image
     from uuid import uuid4
-    from datasetui.segmentation_contract import SegmentationSpec
-    from datasetui.segmentation import _apply_corrections
-    from datasetui.segmentation_masks import apply_object_corrections
+    from datasetui.segmentation.contract import SegmentationSpec
+    from datasetui.segmentation.selection import _apply_corrections
+    from datasetui.segmentation.selection import apply_object_corrections
 
     parsed = SegmentationSpec.model_validate(
         {
@@ -251,9 +248,9 @@ def test_new_brush_does_not_rasterize_masks(tmp_path):
 
 def test_negative_only_object_is_rejected_before_inference():
     from uuid import uuid4
-    from datasetui.segmentation_contract import SegmentationSpec
-    from datasetui.segmentation_workflow_contract import CameraTemplate
-    from datasetui.segmentation_sample import SampleSpec, frame_guidance
+    from datasetui.segmentation.contract import SegmentationSpec
+    from datasetui.segmentation.workflow_contract import CameraTemplate
+    from datasetui.segmentation.sample import SampleSpec, frame_guidance
 
     prompts = [
         {
@@ -300,7 +297,7 @@ def test_negative_only_object_is_rejected_before_inference():
 
 def test_detection_error_is_safe_and_user_visible():
     from types import SimpleNamespace
-    from datasetui.segmentation_selection import validate_detections
+    from datasetui.segmentation.selection import validate_detections
     from datasetui.tasks import _public_failure
 
     parsed = SimpleNamespace(

@@ -1,9 +1,10 @@
+"""HTTP routes for capabilities, catalog, frames, samples, previews, exports."""
+
 from __future__ import annotations
 
 import hashlib
-import secrets
 import re
-from pathlib import Path
+import secrets
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
@@ -11,110 +12,32 @@ from fastapi.responses import FileResponse, Response
 
 from datasetui.config import Settings
 from datasetui.content_integrity import (
-    dataset_content_fingerprint,
     ContentIntegrityError,
 )
 from datasetui.database import (
     Database,
     DatasetNotFoundError,
     DatasetNotReadyError,
+    IdempotencyConflictError,
     JobNotFoundError,
     ProfileNotFoundError,
-    IdempotencyConflictError,
     RecipeRevisionMismatchError,
 )
-from datasetui.queueing import QueueDispatcher
 from datasetui.models import Job
-from datasetui.segmentation_contract import (
+from datasetui.queueing import QueueDispatcher
+from datasetui.segmentation.contract import (
     PreviewApprove,
     PreviewCreate,
     SegmentationExport,
     decode_background,
 )
+from datasetui.segmentation.preview import (
+    preview_directory,
+    verified_preview,
+    verify_approval,
+)
+from datasetui.segmentation.sample import SampleCreate
 from datasetui.transform_errors import CurationTransformError
-from datasetui.segmentation_sample import SampleCreate
-
-
-def preview_directory(settings: Settings, preview_id: str) -> Path:
-    preview_id = str(UUID(preview_id))
-    root = settings.jobs_root / "segmentation"
-    path = root / preview_id
-    if root.is_symlink() or path.is_symlink():
-        raise ValueError("미리보기 경로가 올바르지 않습니다.")
-    return path
-
-
-def verified_preview(
-    database: Database,
-    settings: Settings,
-    preview_id: str,
-    *,
-    verify_source: bool = True,
-):
-    job = database.get_job(preview_id)
-    if job["kind"] != "segmentation.preview" or job["status"] != "succeeded":
-        raise ValueError("완료된 미리보기가 필요합니다.")
-    result = job["result"]
-    path = preview_directory(settings, preview_id)
-    if not result or result.get("artifact_fingerprint") != dataset_content_fingerprint(
-        path, reuse_file_digests=True
-    ):
-        raise ValueError("미리보기 파일이 변경되었습니다. 다시 생성하세요.")
-    provenance = result.get("model_provenance") or {}
-    if (
-        provenance.get("engine") == "sam3.1-multiplex"
-        and "candidates" not in provenance
-    ):
-        raise ValueError(
-            "객체 선택 이전 버전의 미리보기입니다. 새 미리보기를 생성하세요."
-        )
-    from datasetui.segmentation import load_source
-
-    if verify_source:
-        load_source(
-            database,
-            settings,
-            job["payload"]["spec"]["dataset_id"],
-            result["fingerprint"],
-        )
-    from datasetui.segmentation_pending import effective_preview_job
-    return effective_preview_job(job), result
-
-
-def verify_approval(
-    database: Database,
-    settings: Settings,
-    *,
-    preview_id: str,
-    profile_id: str,
-    approval_token: str,
-    verify_source: bool = True,
-):
-    job, result = verified_preview(
-        database, settings, preview_id, verify_source=verify_source
-    )
-    if result.get("selection_required"):
-        raise ValueError("객체 후보 선택이 완료되지 않았습니다.")
-    if result.get("review_blocked"):
-        raise ValueError(
-            "영상 전체에서 대상 영역이 비어 있습니다. 프롬프트를 보정하세요."
-        )
-    if job["profile_id"] != profile_id:
-        raise ValueError("미리보기를 만든 프로필로 승인하세요.")
-    with database.connect() as connection:
-        approval = connection.execute(
-            "SELECT * FROM segmentation_approvals WHERE preview_id = ? AND profile_id = ?",
-            (preview_id, profile_id),
-        ).fetchone()
-    token_hash = hashlib.sha256(approval_token.encode()).hexdigest()
-    if (
-        approval is None
-        or not secrets.compare_digest(approval["token_hash"], token_hash)
-        or approval["artifact_fingerprint"] != result["artifact_fingerprint"]
-        or approval["recipe_hash"] != result["recipe_hash"]
-    ):
-        raise ValueError("현재 미리보기를 승인한 뒤 다시 시도하세요.")
-    return job, result
 
 
 def create_segmentation_router(
@@ -201,7 +124,7 @@ def create_segmentation_router(
 
     @router.get("/datasets/{dataset_id}/catalog")
     def catalog(dataset_id: UUID):
-        from datasetui.segmentation_catalog import dataset_catalog
+        from datasetui.segmentation.catalog import dataset_catalog
         try:
             return dataset_catalog(database, settings, str(dataset_id))
         except Exception as exc:
@@ -210,7 +133,7 @@ def create_segmentation_router(
     @router.get("/datasets/{dataset_id}/selection")
     def selection(dataset_id: UUID, episode_index: int = Query(ge=0),
                   video_key: str = Query(min_length=1, max_length=240)):
-        from datasetui.segmentation_catalog import selected_scope
+        from datasetui.segmentation.catalog import selected_scope
         try:
             return selected_scope(database, settings, str(dataset_id), episode_index, video_key)
         except Exception as exc:
@@ -218,8 +141,8 @@ def create_segmentation_router(
 
     @router.get("/datasets/{dataset_id}/scope")
     def scope(dataset_id: UUID):
-        from datasetui.segmentation import dataset_scope
-        from datasetui.segmentation_frames import create_frame_snapshot
+        from datasetui.segmentation.frames import create_frame_snapshot
+        from datasetui.segmentation.source import dataset_scope
 
         try:
             result = dataset_scope(database, settings, str(dataset_id))
@@ -238,7 +161,7 @@ def create_segmentation_router(
         video_key: str = Query(min_length=1, max_length=240),
         frame_index: int = Query(ge=0, le=999_999),
     ):
-        from datasetui.segmentation_frames import read_snapshot_frame
+        from datasetui.segmentation.frames import read_snapshot_frame
 
         try:
             content = read_snapshot_frame(
@@ -273,7 +196,7 @@ def create_segmentation_router(
 
     @router.get("/samples/{sample_id}/artifacts/{name}")
     def sample_artifact(sample_id: UUID, name: str, profile_id: UUID):
-        from datasetui.segmentation_frames import verified_file_sha256
+        from datasetui.segmentation.frames import verified_file_sha256
         try:
             job = database.get_job(str(sample_id))
             if (job["kind"] != "segmentation.sample" or job["status"] != "succeeded"
@@ -292,7 +215,7 @@ def create_segmentation_router(
 
     @router.post("/previews", status_code=202, response_model=Job)
     def preview(payload: PreviewCreate):
-        from datasetui.segmentation import load_source
+        from datasetui.segmentation.source import load_source
 
         queue = (
             "io"
@@ -358,7 +281,7 @@ def create_segmentation_router(
 
     @router.get("/previews/{preview_id}/artifacts/{name}")
     def artifact(preview_id: UUID, name: str):
-        from datasetui.segmentation_frames import verified_file_sha256
+        from datasetui.segmentation.frames import verified_file_sha256
 
         if name not in {
             "original.mp4",
@@ -459,7 +382,7 @@ def create_segmentation_router(
                 )
             if len(identities) != 1:
                 raise ValueError("같은 원본 데이터셋의 미리보기만 함께 출력하세요.")
-            from datasetui.segmentation import load_source
+            from datasetui.segmentation.source import load_source
 
             # One source verification for the whole export, not one per preview.
             load_source(database, settings, *next(iter(identities)))

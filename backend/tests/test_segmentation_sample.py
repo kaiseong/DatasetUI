@@ -1,9 +1,9 @@
 import av
 import pytest
 
-from datasetui.segmentation_catalog import selected_scope
-from datasetui.segmentation_sample import SampleSpec, create_sample, frame_guidance
-from datasetui.segmentation_api import verified_preview
+from datasetui.segmentation.catalog import selected_scope
+from datasetui.segmentation.sample import SampleSpec, create_sample, frame_guidance
+from datasetui.segmentation.preview import verified_preview
 from test_segmentation import _registered, DeterministicEngine
 
 
@@ -97,7 +97,7 @@ def test_selected_candidate_on_another_frame_is_tracked_through_a_short_clip(tmp
     import numpy as np
     from PIL import Image
 
-    from datasetui.segmentation_sample import _keep_single_frame, tracking_frames
+    from datasetui.segmentation.sample import _keep_single_frame, tracking_frames
 
     settings, database, _, dataset = _registered(tmp_path)
     scope = selected_scope(
@@ -135,7 +135,7 @@ def test_selected_candidate_on_another_frame_is_tracked_through_a_short_clip(tmp
     assert frames[0] == 10 and frames[-1] == 300 and len(frames) <= 25
     index = {frame: position for position, frame in enumerate(frames)}
     guidance = parsed.model_copy()
-    from datasetui.segmentation_sample import frame_guidance as rebase
+    from datasetui.segmentation.sample import frame_guidance as rebase
 
     rebased = rebase(guidance, index)
     by_text = {bool(p.text): p.frame_index for p in rebased.prompts}

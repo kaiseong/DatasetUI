@@ -1,7 +1,7 @@
 # ruff: noqa: F811
 import pytest
 from pydantic import ValidationError
-from datasetui import segmentation_workspace as workspace
+from datasetui.segmentation import workspace as workspace
 from test_segmentation_workflows import context  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("context")
@@ -57,8 +57,8 @@ def test_invalid_object_and_source(context):
 def test_api_revision_and_approval_invalidation(context):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
-    from datasetui.segmentation_api import create_segmentation_router
-    from datasetui.segmentation_workflow_api import create_segmentation_workflow_router
+    from datasetui.segmentation.api import create_segmentation_router
+    from datasetui.segmentation.workflow_api import create_segmentation_workflow_router
     settings, db, _, _, _, dispatcher = context
     app=FastAPI()
     app.include_router(create_segmentation_router(db, dispatcher, settings))

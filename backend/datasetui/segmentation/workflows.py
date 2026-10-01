@@ -1,8 +1,4 @@
-"""Durable, fail-closed segmentation selection, review, and dispatch.
-
-Batch rows exist before queue dispatch. Every selected clip remains visible even
-after a dispatch failure or cancellation; retries never silently replace jobs.
-"""
+"""Camera templates and episode x camera batches with durable review."""
 
 from __future__ import annotations
 
@@ -16,14 +12,16 @@ from datasetui.config import Settings
 from datasetui.database import Database, IdempotencyConflictError, utc_now
 from datasetui.delivery_workflow import dispatch_registered_job
 from datasetui.queueing import QueueDispatcher
-from datasetui.segmentation_contract import SegmentationSpec
-from datasetui.segmentation_workflow_contract import (
+from datasetui.segmentation.contract import SegmentationSpec
+from datasetui.segmentation.workflow_contract import (
     BatchCreate,
     BatchExportPayload,
     TemplateSave,
 )
 
 LOG = logging.getLogger(__name__)
+
+
 MAX_BATCH_SPEC_BYTES = 8 * 1024 * 1024
 
 
@@ -106,7 +104,7 @@ def save_template(
     payload: TemplateSave,
     template_id: str | None = None,
 ) -> dict:
-    from datasetui.segmentation import load_source
+    from datasetui.segmentation.source import load_source
 
     profile_id = str(payload.profile_id)
     database.get_profile(profile_id)
@@ -116,7 +114,7 @@ def save_template(
         _, source = load_source(database, settings, str(payload.dataset_id), payload.fingerprint)
         keys = source.video_keys
     else:
-        from datasetui.segmentation_catalog import dataset_catalog
+        from datasetui.segmentation.catalog import dataset_catalog
         catalog = dataset_catalog(database, settings, str(payload.dataset_id))
         if catalog["metadata_revision"] != payload.metadata_revision:
             raise ValueError("데이터셋 메타정보가 변경되었습니다. 다시 선택하세요.")
@@ -350,7 +348,7 @@ def create_batch(
     settings: Settings,
     payload: BatchCreate,
 ) -> dict:
-    from datasetui.segmentation import load_source
+    from datasetui.segmentation.source import load_source
 
     profile_id = str(payload.profile_id)
     database.get_profile(profile_id)
@@ -454,7 +452,7 @@ def dispatch_batch(
     batch_id: str,
     profile_id: str,
 ) -> None:
-    from datasetui.segmentation import load_source
+    from datasetui.segmentation.source import load_source
 
     batch = _batch_row(database, batch_id, profile_id)
     try:
@@ -547,7 +545,7 @@ def _owned_item(database: Database, batch_id: str, item_id: str, profile_id: str
 def _matching_preview(
     database: Database, batch, item, preview_id: str, profile_id: str
 ):
-    from datasetui.segmentation_pending import effective_preview_job
+    from datasetui.segmentation.preview import effective_preview_job
 
     job = database.get_job(preview_id)
     # Selection-token previews resolve their full fingerprint in the worker;
@@ -574,7 +572,7 @@ def bind_preview(
     profile_id: str,
     preview_id: str,
 ) -> dict:
-    from datasetui.segmentation import load_source
+    from datasetui.segmentation.source import load_source
 
     batch, item = _owned_item(database, batch_id, item_id, profile_id)
     load_source(database, settings, batch["dataset_id"], batch["fingerprint"])
@@ -611,7 +609,7 @@ def approve_item(
     profile_id: str,
     recipe_hash: str,
 ) -> dict:
-    from datasetui.segmentation_api import verified_preview
+    from datasetui.segmentation.preview import verified_preview
 
     batch, item = _owned_item(database, batch_id, item_id, profile_id)
     if not item["preview_id"]:
@@ -655,8 +653,8 @@ def approve_item(
 def verify_batch_approvals(
     database: Database, settings: Settings, batch_id: str, profile_id: str
 ) -> tuple[list[str], list[str]]:
-    from datasetui.segmentation import load_source
-    from datasetui.segmentation_api import verified_preview
+    from datasetui.segmentation.preview import verified_preview
+    from datasetui.segmentation.source import load_source
 
     batch = _batch_row(database, batch_id, profile_id)
     load_source(database, settings, batch["dataset_id"], batch["fingerprint"])

@@ -1,3 +1,5 @@
+"""SAM 3.1 inference engine and its progress/engine factories."""
+
 from __future__ import annotations
 
 import hashlib
@@ -7,6 +9,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import stat
 import threading
 import time
@@ -19,19 +22,65 @@ import numpy as np
 from PIL import Image
 
 from datasetui.config import Settings
-from datasetui.segmentation_contract import RegionPrompt
+from datasetui.segmentation.contract import RegionPrompt, SegmentationSpec
+
+
+def _estimated_sam_passes(parsed: SegmentationSpec) -> int:
+
+    groups: dict[Any, list[Any]] = {}
+    for index, prompt in enumerate(parsed.prompts):
+        groups.setdefault(prompt.object_id or f"p{index}", []).append(prompt)
+    for correction in parsed.corrections:
+        if correction.object_id in groups:
+            groups[correction.object_id].append(groups[correction.object_id][0])
+    return _expected_passes(groups) if groups else 1
+
+
+def _engine_progress(engine: Any, progress: Any) -> dict[str, Any]:
+    """Forward SAM frame progress when the engine supports it (fixtures may not)."""
+    import inspect
+
+    try:
+        accepts = "on_progress" in inspect.signature(engine.propagate).parameters
+    except (TypeError, ValueError):
+        accepts = False
+    if not accepts or progress is None:
+        return {}
+
+    return {"on_progress": progress}
+
+
+def _default_engine(settings: Settings, *, mixed_spatial: bool = False) -> Any:
+
+    return Sam3Engine(settings, mixed_spatial=mixed_spatial)
 
 
 SAM3_UPSTREAM_COMMIT = "660a5e9e1b8b4c02c0ad97229b88a09a6e4ff5b7"
+
+
 MIXED_HINT_POLICY = "instance-box-points-grounding-identity-v3"
+
+
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+
+
 _TARGETS = ("replace", "protect")
+
+
 logger = logging.getLogger("datasetui.sam3")
+
+
 _BUILD_LOCK = threading.Lock()
+
+
 # A dedicated GPU worker (rq SimpleWorker, no per-job fork) may keep one loaded
 # predictor and the identity of the checkpoint it already verified.
 _CACHE_LOCK = threading.Lock()
+
+
 _CACHED_PREDICTOR: dict[str, Any] = {}
+
+
 _VERIFIED_CHECKPOINTS: dict[tuple, str] = {}
 
 
@@ -471,7 +520,7 @@ def _propagate_masks(
                 if not matching_object_ids and not (
                     prompt.text and not member_ids and len(keyframes) == 1
                 ):
-                    from datasetui.segmentation_selection import SegmentationGuidanceError
+                    from datasetui.segmentation.errors import SegmentationGuidanceError
                     raise SegmentationGuidanceError(
                         f"객체 {group_id}: 최소 SAM 탐지 점수 {threshold:.2f} 이상인 후보가 없습니다. 문구나 기준을 조정하세요.")
             # Corrections belong to the same predictor session/object. Apply every
@@ -785,7 +834,6 @@ def _resolve_late_tracks(
     text objects keep every late track as an ordinary selectable candidate.
     Accepted re-entries are flagged so review can show them explicitly.
     """
-    import shutil
 
     def frames(sam_id: int) -> set[int]:
         return {frame for (key, frame), area in areas.items() if key == sam_id and area > 0}
@@ -841,7 +889,7 @@ def _resolve_correction_object(
     """Resolve a geometric correction IN this session, never by stale cached IDs."""
     positive = [point for point in correction.points if point.label == 1]
     if not positive and correction.box is None:
-        from datasetui.segmentation_selection import SegmentationGuidanceError
+        from datasetui.segmentation.errors import SegmentationGuidanceError
 
         raise SegmentationGuidanceError(
             f"객체 {initial.object_id or '?'}: 제외 힌트만으로는 어느 후보를 보정할지 알 수 없습니다. "
@@ -989,7 +1037,7 @@ def _add_initial_prompt(
     if original_scores is not None:
         object_ids &= {key for key, value in original_scores.items() if value >= prompt.confidence_threshold}
         if not object_ids:
-            from datasetui.segmentation_selection import SegmentationGuidanceError
+            from datasetui.segmentation.errors import SegmentationGuidanceError
             raise SegmentationGuidanceError("최소 SAM 탐지 점수 이상인 후보가 없습니다.")
     _prime_semantic_track(
         predictor, session_id, prompt.frame_index, frame_count, check_lease
@@ -1031,7 +1079,7 @@ def _prime_semantic_track(predictor, session_id, frame_index, frame_count, check
 
 
 def _load_candidate_masks(settings, prompts):
-    from datasetui.segmentation_frames import _safe_regular_path
+    from datasetui.segmentation.frames import _safe_regular_path
     masks = {}
     for prompt in prompts:
         for ref in prompt.selected_candidates:
@@ -1138,7 +1186,7 @@ def _selected_member(members, candidate_id):
         return next(iter(members.values()))
     if candidate_id in members:
         return members[candidate_id]
-    from datasetui.segmentation_selection import SegmentationGuidanceError
+    from datasetui.segmentation.errors import SegmentationGuidanceError
     raise SegmentationGuidanceError("보정할 그룹 내 후보를 선택하세요.")
 
 

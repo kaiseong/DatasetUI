@@ -1,7 +1,4 @@
-"""Metadata-only discovery and immutable, selection-local frame references.
-
-metadata_revision is NOT a dataset content fingerprint and cannot approve exports.
-"""
+"""Metadata-only dataset catalog and per-selection frame references."""
 
 from __future__ import annotations
 
@@ -10,12 +7,12 @@ import json
 import uuid
 
 from datasetui.database import RecipeRevisionMismatchError, utc_now
-from datasetui.segmentation_frames import (
+from datasetui.segmentation.frames import (
     _SNAPSHOT_TABLE,
     _safe_regular_path,
     verified_file_sha256,
 )
-from datasetui.transforms import _read_regular_bytes, _safe_dataset_root, _DatasetSource
+from datasetui.transforms import _DatasetSource, _read_regular_bytes, _safe_dataset_root
 
 
 def _metadata(database, settings, dataset_id):

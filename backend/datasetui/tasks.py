@@ -257,11 +257,11 @@ def _public_failure(exc: Exception) -> tuple[str, str]:
     if isinstance(exc, JobTimeoutException):
         return "job_timeout", "The job exceeded its execution time limit"
 
-    from datasetui.sam3_engine import Sam3UnavailableError, Sam3InferenceError, Sam3PromptMatchError
+    from datasetui.segmentation.engine import Sam3UnavailableError, Sam3InferenceError, Sam3PromptMatchError
 
     if isinstance(exc, Sam3PromptMatchError):
         return "segmentation_guidance", str(exc)
-    from datasetui.segmentation_selection import SegmentationGuidanceError
+    from datasetui.segmentation.errors import SegmentationGuidanceError
 
     if isinstance(exc, SegmentationGuidanceError):
         return "segmentation_guidance", str(exc)

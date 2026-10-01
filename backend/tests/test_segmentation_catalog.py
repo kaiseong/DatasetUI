@@ -1,17 +1,17 @@
 import pytest
 
-from datasetui.segmentation_catalog import dataset_catalog, selected_scope
-from datasetui.segmentation_frames import read_snapshot_frame
+from datasetui.segmentation.catalog import dataset_catalog, selected_scope
+from datasetui.segmentation.frames import read_snapshot_frame
 from test_segmentation import _registered
 
 
 def test_catalog_does_not_load_source_or_video(tmp_path, monkeypatch):
     settings, database, _, dataset = _registered(tmp_path)
     monkeypatch.setattr(
-        "datasetui.segmentation.load_source", lambda *a, **k: pytest.fail("full source")
+        "datasetui.segmentation.source.load_source", lambda *a, **k: pytest.fail("full source")
     )
     monkeypatch.setattr(
-        "datasetui.segmentation_frames.verified_file_sha256",
+        "datasetui.segmentation.frames.verified_file_sha256",
         lambda *a: pytest.fail("video hash"),
     )
     result = dataset_catalog(database, settings, dataset["id"])
@@ -24,7 +24,7 @@ def test_catalog_does_not_load_source_or_video(tmp_path, monkeypatch):
 def test_selected_scope_reads_only_selected_video(tmp_path, monkeypatch):
     settings, database, _, dataset = _registered(tmp_path)
     monkeypatch.setattr(
-        "datasetui.segmentation.load_source", lambda *a, **k: pytest.fail("full source")
+        "datasetui.segmentation.source.load_source", lambda *a, **k: pytest.fail("full source")
     )
     result = selected_scope(
         database, settings, dataset["id"], 0, "observation.images.top"
@@ -86,7 +86,7 @@ def test_snapshot_rejects_metadata_mutation(tmp_path):
 
 def test_unselected_camera_is_not_opened(tmp_path, monkeypatch):
     settings, database, root, dataset = _registered(tmp_path)
-    import datasetui.segmentation_catalog as catalog
+    import datasetui.segmentation.catalog as catalog
 
     original = catalog.verified_file_sha256
     opened = []

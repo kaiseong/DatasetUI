@@ -13,8 +13,8 @@ from datasetui.api import create_router
 from datasetui.config import Settings
 from datasetui.database import Database
 from datasetui.queueing import QueueDispatcher
-from datasetui.segmentation_api import create_segmentation_router
-from datasetui.segmentation_workflow_api import create_segmentation_workflow_router
+from datasetui.segmentation.api import create_segmentation_router
+from datasetui.segmentation.workflow_api import create_segmentation_workflow_router
 
 
 def create_application(
@@ -30,7 +30,7 @@ def create_application(
     @asynccontextmanager
     async def lifespan(_application):
         from datasetui.delivery_workflow import recover_workflows
-        from datasetui.segmentation_workflows import recover_segmentation_batches
+        from datasetui.segmentation.workflows import recover_segmentation_batches
 
         async def reconcile():
             while True:

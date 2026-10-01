@@ -1,4 +1,4 @@
-"""Bounded, immutable inputs shared by the API and optional GPU worker."""
+"""Validated request models for samples, previews, approval and export."""
 
 from __future__ import annotations
 
@@ -11,7 +11,11 @@ from uuid import UUID
 from PIL import Image
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from datasetui.segmentation.errors import SegmentationGuidanceError
+
 Coordinate = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
+
+
 FrameIndex = Annotated[int, Field(ge=0, le=999_999, strict=True)]
 
 
@@ -143,10 +147,6 @@ class SegmentationSpec(StrictModel):
         ):
             raise ValueError("객체 후보 ID가 올바르지 않습니다.")
         if self.mode == "object_selection":
-            from datasetui.segmentation_selection import (
-                seed_brush_objects,
-                validate_initial_guidance,
-            )
 
             if self.manual_regions:
                 raise ValueError(
@@ -259,3 +259,50 @@ class ApprovedPreview(StrictModel):
 
 
 SegmentationExport.model_rebuild()
+
+
+OBJECT_SELECTION = "object_selection"
+
+
+def seed_brush_objects(prompts, corrections):
+
+    result = list(prompts)
+    objects = {p.object_id for p in result}
+    for correction in sorted(corrections, key=lambda c: c.frame_index):
+        if correction.object_id is None:
+            raise ValueError("브러시 힌트에 객체 번호가 필요합니다.")
+        if correction.object_id not in objects and correction.operation == "add":
+            point = correction.points[0]
+            result.append(
+                RegionPrompt(
+                    object_id=correction.object_id,
+                    frame_index=correction.frame_index,
+                    target=correction.target,
+                    points=[{"x": point.x, "y": point.y, "label": 1}],
+                )
+            )
+            objects.add(correction.object_id)
+    if len(result) > 32:
+        raise ValueError("객체 지시는 최대 32개까지 지원합니다.")
+    return result
+
+
+def validate_initial_guidance(parsed):
+    if parsed.mode != OBJECT_SELECTION:
+        return
+    seen = set()
+    for index, prompt in enumerate(parsed.prompts):
+        key = prompt.object_id if prompt.object_id is not None else -(index + 1)
+        if key in seen:
+            continue
+        seen.add(key)
+        if (
+            not prompt.text
+            and prompt.box is None
+            and not any(p.label == 1 for p in prompt.points)
+        ):
+            raise SegmentationGuidanceError(
+                f"객체 {prompt.object_id or index + 1}에 제외 힌트만 있습니다. "
+                "포함점·Box·텍스트로 먼저 객체를 지정하세요. "
+                "다른 객체의 경계를 보정하려면 해당 객체 번호에서 제외점을 찍으세요."
+            )

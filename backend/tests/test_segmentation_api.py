@@ -12,8 +12,8 @@ from PIL import Image
 
 from datasetui.content_integrity import dataset_content_fingerprint
 from datasetui.queueing import RecordingDispatcher
-from datasetui.segmentation_api import create_segmentation_router
-from datasetui.segmentation_contract import SegmentationSpec, decode_background
+from datasetui.segmentation.api import create_segmentation_router
+from datasetui.segmentation.contract import SegmentationSpec, decode_background
 from test_transforms import _settings
 
 
@@ -73,7 +73,7 @@ def segmentation_client(tmp_path, database, monkeypatch):
     app = FastAPI()
     app.include_router(create_segmentation_router(database, dispatcher, settings))
     monkeypatch.setattr(
-        "datasetui.segmentation.load_source", lambda *args, **kwargs: None
+        "datasetui.segmentation.source.load_source", lambda *args, **kwargs: None
     )
     return TestClient(app), settings, dispatcher
 

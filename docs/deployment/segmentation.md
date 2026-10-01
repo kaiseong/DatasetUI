@@ -51,7 +51,7 @@
 
 ### 고정된 SAM 소스의 호환성 보정
 
-`sam3_engine.py`의 제한된 어댑터가 위 고정 revision의 API 차이를 처리합니다. 공식 소스 파일이나 모델 가중치를 변경하지 않으며, 소스 pin을 갱신할 때 아래 회귀 테스트와 실제 GPU 검증을 다시 수행해야 합니다.
+`backend/datasetui/segmentation/engine.py`의 제한된 어댑터가 위 고정 revision의 API 차이를 처리합니다. 공식 소스 파일이나 모델 가중치를 변경하지 않으며, 소스 pin을 갱신할 때 아래 회귀 테스트와 실제 GPU 검증을 다시 수행해야 합니다.
 
 - 공식 builder가 결합 체크포인트를 개별 tracker에 먼저 읽는 경로를 피하고, 최종 detector+tracker 모델에는 검증된 로컬 체크포인트를 **`strict=True`**로 다시 읽습니다. 누락·예상 밖 키·형상 불일치를 정상 로드로 취급하지 않습니다.
 - multiplex `init_state`가 받지 않는 `offload_state_to_cpu` 인수를 전달하지 않고, 종료 시 autocast 상태를 복원합니다.

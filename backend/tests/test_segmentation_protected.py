@@ -8,13 +8,11 @@ from PIL import Image
 
 from datasetui.content_integrity import dataset_content_fingerprint
 from datasetui.deferred_statistics import read_deferred_statistics
-from datasetui.segmentation import (
-    SegmentationError,
-    _iter_video_arrays,
-    create_preview,
-    export_preview,
-)
-from datasetui.segmentation_contract import SegmentationSpec
+from datasetui.segmentation.errors import SegmentationError
+from datasetui.segmentation.media import _iter_video_arrays
+from datasetui.segmentation.preview import create_preview
+from datasetui.segmentation.export import export_preview
+from datasetui.segmentation.contract import SegmentationSpec
 from test_segmentation import DeterministicEngine, _registered, _spec, _write_video
 
 
@@ -181,7 +179,7 @@ def test_manual_protection_obeys_camera_coordinate_scope(tmp_path, camera_mode):
 
 def test_manual_only_preview_and_legacy_registry_identity(tmp_path):
     import hashlib
-    from datasetui.segmentation import dataset_scope, load_source
+    from datasetui.segmentation.source import dataset_scope, load_source
     from datasetui.database import RecipeRevisionMismatchError
 
     settings, database, source, dataset = _registered(tmp_path)
@@ -232,7 +230,7 @@ def test_multicamera_export_deferred_and_no_source_mutation(tmp_path, monkeypatc
         ]["id"]
         for key in ("observation.images.top", "observation.images.side")
     ]
-    import datasetui.segmentation as implementation
+    import datasetui.segmentation.export as implementation
 
     monkeypatch.setattr(
         implementation,
@@ -270,7 +268,7 @@ def test_api_requires_explicit_text_selection_and_serves_verified_candidates(tmp
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from datasetui.queueing import RecordingDispatcher
-    from datasetui.segmentation_api import create_segmentation_router
+    from datasetui.segmentation.api import create_segmentation_router
 
     settings, database, _, dataset = _registered(tmp_path)
     profile = database.create_profile("Reviewer")
@@ -322,7 +320,7 @@ def test_empty_track_cannot_be_approved_even_with_explicit_review(tmp_path):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from datasetui.queueing import RecordingDispatcher
-    from datasetui.segmentation_api import create_segmentation_router
+    from datasetui.segmentation.api import create_segmentation_router
 
     class EmptyEngine(DeterministicEngine):
         def propagate(self, **kwargs):
@@ -400,7 +398,7 @@ def test_real_api_accepts_editor_black_empty_background_without_checkpoint(tmp_p
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
     from datasetui.queueing import RecordingDispatcher
-    from datasetui.segmentation_api import create_segmentation_router
+    from datasetui.segmentation.api import create_segmentation_router
 
     settings, database, _, dataset = _registered(tmp_path)
     profile = database.create_profile("Black editor")
@@ -431,7 +429,7 @@ def test_real_api_accepts_editor_black_empty_background_without_checkpoint(tmp_p
 
 
 def test_object_erase_preserves_other_overlapping_protected_track(tmp_path):
-    from datasetui.segmentation_masks import apply_object_corrections, apply_selection
+    from datasetui.segmentation.selection import apply_object_corrections, apply_selection
 
     spec = SegmentationSpec.model_validate(
         {
@@ -488,7 +486,7 @@ def test_object_erase_preserves_other_overlapping_protected_track(tmp_path):
 
 @pytest.mark.parametrize("current_policy", [False, True])
 def test_new_mode_mask_reuse_requires_mixed_hint_policy(tmp_path, current_policy):
-    from datasetui.sam3_engine import MIXED_HINT_POLICY
+    from datasetui.segmentation.engine import MIXED_HINT_POLICY
 
     settings, database, _, dataset = _registered(tmp_path)
     profile = database.create_profile("Mixed hint cache")

@@ -1,15 +1,111 @@
-"""Background-independent mask identity, explicit selection and protected regions."""
+"""Pure mask rules: keep/remove composition, candidate selection, coverage."""
 
 from __future__ import annotations
 
-import shutil
 import math
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from PIL import Image, ImageDraw
 
-from datasetui.segmentation_contract import SegmentationSpec
+from datasetui.segmentation.contract import OBJECT_SELECTION, SegmentationSpec
+from datasetui.segmentation.errors import SegmentationError, SegmentationGuidanceError
+from datasetui.transforms import (
+    _report_progress,
+)
+
+MASK_TARGETS = ("replace", "protect")
+
+
+def _apply_corrections(
+    root: Path,
+    spec: SegmentationSpec,
+    count: int,
+    width: int,
+    height: int,
+    *,
+    include_object_corrections: bool = True,
+    on_progress: Callable[[dict[str, Any]], None] | None = None,
+) -> None:
+    if spec.mode == "object_selection":
+        return
+    by_frame: dict[tuple[str, int], list[Any]] = {}
+    for correction in spec.corrections:
+        if correction.object_id is not None and not include_object_corrections:
+            continue
+        by_frame.setdefault((correction.target, correction.frame_index), []).append(
+            correction
+        )
+    total = count * len(MASK_TARGETS)
+    completed = 0
+    _report_progress(
+        on_progress,
+        stage="write",
+        completed=0,
+        total=total,
+        unit="items",
+        current_item="마스크 보정 반영",
+        force=True,
+    )
+    for target in MASK_TARGETS:
+        directory = root / target
+        if directory.is_symlink() or not directory.is_dir():
+            raise SegmentationError("Segmentation engine omitted a mask directory")
+        for frame_index in range(count):
+            path = directory / f"{frame_index:06d}.png"
+            mask = _mask_image(path, width, height)
+            draw = ImageDraw.Draw(mask)
+            for correction in by_frame.get((target, frame_index), []):
+                radius = correction.radius * width
+                fill = 255 if correction.operation == "add" else 0
+                for point in correction.points:
+                    x = point.x * (width - 1)
+                    y = point.y * (height - 1)
+                    draw.ellipse(
+                        (x - radius, y - radius, x + radius, y + radius), fill=fill
+                    )
+            mask.save(path, format="PNG", compress_level=6)
+            completed += 1
+            _report_progress(
+                on_progress,
+                stage="write",
+                completed=completed,
+                total=total,
+                unit="items",
+                current_item=f"{target} 마스크 · 프레임 {frame_index}",
+            )
+
+
+def _read_mask(
+    root: Path, target: str, index: int, width: int, height: int
+) -> np.ndarray:
+    return (
+        np.asarray(
+            _mask_image(root / target / f"{index:06d}.png", width, height),
+            dtype=np.uint8,
+        )
+        >= 128
+    )
+
+
+def _mask_image(path: Path, width: int, height: int) -> Image.Image:
+    if path.is_symlink() or not path.is_file():
+        raise SegmentationError("Segmentation engine omitted a frame mask")
+    try:
+        with Image.open(path) as image:
+            image.load()
+            if image.size != (width, height):
+                raise SegmentationError(
+                    "Segmentation mask dimensions do not match video"
+                )
+            binary = np.where(np.asarray(image.convert("L")) >= 128, 255, 0).astype(
+                np.uint8
+            )
+            return Image.fromarray(binary, mode="L")
+    except OSError as exc:
+        raise SegmentationError("Segmentation mask could not be read") from exc
 
 
 def mask_inputs(spec: dict) -> dict:
@@ -27,52 +123,10 @@ def mask_inputs(spec: dict) -> dict:
     }
 
 
-def reuse_masks(
-    database, settings, parsed, staging: Path, *, owner_profile_id: str
-) -> dict:
-    from datasetui.segmentation import (
-        SegmentationError,
-        _read_manifest,
-        _safe_regular_path,
-    )
-    from datasetui.segmentation_api import verified_preview
-
-    job, result = verified_preview(database, settings, str(parsed.source_preview_id))
-    if job["profile_id"] != owner_profile_id:
-        raise SegmentationError("Mask reuse requires the original preview profile")
-    previous = SegmentationSpec.model_validate(job["payload"]["spec"])
-    if mask_inputs(previous.model_dump(mode="json")) != mask_inputs(
-        parsed.model_dump(mode="json")
-    ):
-        raise SegmentationError(
-            "Mask inputs changed; generate a new segmentation preview"
-        )
-    root = settings.jobs_root / "segmentation" / str(parsed.source_preview_id)
-    manifest = _read_manifest(root)
-    if parsed.mode == "object_selection":
-        from datasetui.sam3_engine import MIXED_HINT_POLICY
-
-        if manifest.get("model", {}).get("hint_policy") != MIXED_HINT_POLICY:
-            raise SegmentationError(
-                "혼합 힌트 처리 방식이 변경되었습니다. 기존 마스크 재사용 대신 새로 분할하세요."
-            )
-    for name in (
-        "original.mp4",
-        *[item["artifact_name"] for item in result.get("candidates", [])],
-    ):
-        shutil.copyfile(_safe_regular_path(root, root / name), staging / name)
-    for name in ("replace", "protect", "instances"):
-        source = root / name
-        if source.is_dir():
-            # verified_preview fingerprint rejects symlinks before this copy.
-            shutil.copytree(source, staging / name)
-    return {**manifest["model"], "mask_cache_source": str(parsed.source_preview_id)}
-
-
 def apply_selection(
     root: Path, parsed, provenance: dict, count: int, width: int, height: int
 ) -> bool:
-    from datasetui.segmentation import SegmentationError, _mask_image
+    from datasetui.segmentation.errors import SegmentationError
 
     candidates = provenance.get("candidates", [])
     known = {item["candidate_id"] for item in candidates}
@@ -248,7 +302,7 @@ def coverage_signals(coverage: list[dict]) -> list[dict]:
 
 def apply_object_corrections(root: Path, parsed, provenance, count, width, height):
     """Rasterize exact keyframes BEFORE union so erasure never cuts another track."""
-    from datasetui.segmentation import SegmentationError, _mask_image
+    from datasetui.segmentation.errors import SegmentationError
 
     if parsed.mode == "object_selection":
         return
@@ -317,7 +371,7 @@ def draw_correction(mask, correction, width, height):
 def apply_protected_regions(
     root: Path, parsed, count: int, width: int, height: int
 ) -> None:
-    from datasetui.segmentation import SegmentationError, _mask_image
+    from datasetui.segmentation.errors import SegmentationError
 
     for region in parsed.manual_regions:
         if region.frame_index is not None and region.frame_index >= count:
@@ -354,7 +408,6 @@ def apply_protected_regions(
 def review_signals(
     root: Path, parsed, count: int, width: int, height: int
 ) -> list[dict]:
-    from datasetui.segmentation import _read_mask
 
     signals = []
     previous = None
@@ -362,7 +415,6 @@ def review_signals(
         target = "protect" if parsed.mode == "protect_foreground" else "replace"
         mask = _read_mask(root, target, index, width, height)
         if parsed.mode == "object_selection":
-            from datasetui.segmentation_selection import retained_mask, has_keep_objects
 
             has_keep = has_keep_objects(parsed)
             mask = retained_mask(
@@ -383,3 +435,71 @@ def review_signals(
             signals.append({"frame_index": index, "reason": "abrupt_area_change"})
         previous = area
     return signals
+
+
+
+
+def retained_mask(mode, protect, remove, *, has_keep=True):
+    if mode == OBJECT_SELECTION:
+        return (protect if has_keep else np.ones_like(protect, dtype=bool)) & ~remove
+    if mode == "protect_foreground":
+        return protect
+    if mode == "replace_background":
+        return protect | ~remove
+    raise ValueError("Unknown segmentation mode")
+
+
+def has_keep_objects(spec):
+    prompts = spec.get("prompts", []) if isinstance(spec, dict) else spec.prompts
+    return any(
+        (p.get("target") if isinstance(p, dict) else p.target) == "protect"
+        for p in prompts
+    )
+
+
+def brush_hints(correction, width, height):
+    """Bounded deterministic coverage of stroke centerline and radius in pixels."""
+    points = correction.points
+    centers = [
+        points[int(i)]
+        for i in np.linspace(0, len(points) - 1, min(7, len(points)), dtype=int)
+    ]
+    offsets = [(0.0, 0.0)] + [
+        (math.cos(i * math.pi / 4), math.sin(i * math.pi / 4)) for i in range(8)
+    ]
+    result = []
+    seen = set()
+    for center in centers:
+        for dx, dy in offsets:
+            x = round(min(1.0, max(0.0, center.x + dx * correction.radius)), 6)
+            y = round(
+                min(1.0, max(0.0, center.y + dy * correction.radius * width / height)),
+                6,
+            )
+            if (x, y) not in seen:
+                result.append(
+                    {"x": x, "y": y, "label": int(correction.operation == "add")}
+                )
+                seen.add((x, y))
+    return result
+
+
+
+
+
+
+def validate_detections(parsed, provenance):
+    if parsed.mode != OBJECT_SELECTION:
+        return
+    candidates = provenance.get("candidates", [])
+    for prompt in parsed.prompts:
+        if not any(
+            c.get("target") == prompt.target
+            and (prompt.object_id is None or c.get("object_id") == prompt.object_id)
+            and c.get("area_pixels", 0) > 0
+            for c in candidates
+        ):
+            label = "남길" if prompt.target == "protect" else "제거할"
+            raise SegmentationGuidanceError(
+                f'SAM이 {label} 객체 {prompt.object_id or ""}를 찾지 못했습니다. 포함 힌트·Box·프롬프트를 보정하세요.'
+            )

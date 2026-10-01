@@ -1,7 +1,9 @@
+"""HTTP routes for templates, batches and the object workspace."""
+
 from __future__ import annotations
 
-from uuid import UUID
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -19,18 +21,18 @@ from datasetui.database import (
 from datasetui.delivery_workflow import dispatch_registered_job
 from datasetui.models import Job
 from datasetui.queueing import QueueDispatcher
-from datasetui.segmentation_workflow_contract import (
-    BatchPrepare,
+from datasetui.segmentation import workflows as workflow
+from datasetui.segmentation import workspace as workspace
+from datasetui.segmentation.workflow_contract import (
     BatchApprove,
     BatchCreate,
     BatchExportCreate,
+    BatchPrepare,
     BatchPreviewBind,
     ProfileRequest,
     TemplateSave,
 )
-from datasetui import segmentation_workflows as workflow
-from datasetui import segmentation_workspace as workspace
-from datasetui.segmentation_workspace import WorkspaceSave, WorkspaceScope
+from datasetui.segmentation.workspace import WorkspaceSave, WorkspaceScope
 from datasetui.transform_errors import CurationTransformError
 
 

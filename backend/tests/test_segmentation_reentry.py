@@ -6,8 +6,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from datasetui.sam3_engine import _propagate_masks, _resolve_late_tracks
-from datasetui.segmentation_contract import RegionPrompt
+from datasetui.segmentation.engine import _propagate_masks, _resolve_late_tracks
+from datasetui.segmentation.contract import RegionPrompt
 
 H, W = 8, 8
 

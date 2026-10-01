@@ -1,4 +1,4 @@
-"""Single-frame experiments, deliberately separate from exportable previews."""
+"""Single-frame samples (optionally tracked from a detection frame)."""
 
 from __future__ import annotations
 
@@ -14,19 +14,18 @@ import numpy as np
 from PIL import Image
 from pydantic import Field
 
-from datasetui.segmentation_selection import (
-    SegmentationGuidanceError,
+from datasetui.segmentation.contract import (
+    SegmentationSpec,
+    StrictModel,
+    decode_background,
+    validate_initial_guidance,
+)
+from datasetui.segmentation.errors import SegmentationGuidanceError
+from datasetui.segmentation.selection import (
     brush_hints,
     has_keep_objects,
     retained_mask,
     validate_detections,
-    validate_initial_guidance,
-)
-
-from datasetui.segmentation_contract import (
-    SegmentationSpec,
-    StrictModel,
-    decode_background,
 )
 
 
@@ -119,8 +118,7 @@ def frame_guidance(parsed: SampleSpec, clip_index: dict[int, int] | None = None)
         for item in parsed.manual_regions
         if item.frame_index is None or item.frame_index == parsed.frame_index
     ]
-    from datasetui.segmentation_contract import RegionPrompt
-    from datasetui.segmentation_selection import seed_brush_objects
+    from datasetui.segmentation.contract import RegionPrompt, seed_brush_objects
 
     parsed_prompts = [RegionPrompt.model_validate(item) for item in prompts]
     if parsed.mode == "object_selection":
@@ -138,15 +136,16 @@ def frame_guidance(parsed: SampleSpec, clip_index: dict[int, int] | None = None)
 
 
 def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
-    from datasetui.segmentation_frames import read_snapshot_frame
-    from datasetui.segmentation import _default_engine, _apply_corrections, _read_mask
-    from datasetui.segmentation_masks import (
+    from datasetui.job_progress import JobProgressReporter
+    from datasetui.segmentation.engine import _default_engine
+    from datasetui.segmentation.frames import read_snapshot_frame
+    from datasetui.segmentation.selection import (
+        _apply_corrections,
+        _read_mask,
         apply_object_corrections,
         apply_protected_regions,
         apply_selection,
     )
-
-    from datasetui.job_progress import JobProgressReporter
 
     progress = JobProgressReporter(database, job_id=job_id, worker_id=worker_id)
 
@@ -163,7 +162,7 @@ def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
 
     report("preparing", 0, 0, "선택한 프레임 원본 확인")
     parsed = SampleSpec.model_validate(spec)
-    from datasetui.segmentation_candidates import validate_candidate_references
+    from datasetui.segmentation.candidates import validate_candidate_references
     if any(p.selected_candidates for p in parsed.prompts):
         validate_candidate_references(database, settings, parsed, database.get_job(job_id)["profile_id"])
     clip_frames = tracking_frames(parsed)
@@ -173,7 +172,7 @@ def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
     if not guidance.prompts and not guidance.manual_regions:
         raise SegmentationGuidanceError("현재 프레임에 적용할 텍스트 또는 라벨이 필요합니다.")
     from datasetui.job_progress import WeightedProgress
-    from datasetui.segmentation import _engine_progress, _estimated_sam_passes
+    from datasetui.segmentation.engine import _engine_progress, _estimated_sam_passes
 
     count = len(clip_frames)
     progress = WeightedProgress(
@@ -355,7 +354,7 @@ def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
 
 def _keep_single_frame(staging: Path, index: int, count: int, provenance: dict, source_frame: int) -> None:
     """Reduce a tracking clip's masks to the viewed frame (stored as frame 0)."""
-    from datasetui.sam3_engine import _write_mask
+    from datasetui.segmentation.engine import _write_mask
 
     directories = [staging / "protect", staging / "replace"]
     instances = staging / "instances"

@@ -1,7 +1,9 @@
-"""Validate persisted candidate identities against immutable sample jobs."""
+"""Validation of Instruction candidates chosen from earlier samples."""
+
 import hashlib
-from datasetui.segmentation_frames import read_snapshot_frame, _safe_regular_path
-from datasetui.segmentation_selection import SegmentationGuidanceError
+
+from datasetui.segmentation.errors import SegmentationGuidanceError
+from datasetui.segmentation.frames import _safe_regular_path, read_snapshot_frame
 
 
 def validate_candidate_references(database, settings, spec, profile_id):
@@ -28,7 +30,7 @@ def validate_candidate_references(database, settings, spec, profile_id):
             if candidate['detection_score'] < (prompt.confidence_threshold or 0):
                 raise SegmentationGuidanceError('선택한 후보가 최소 탐지 점수보다 낮습니다. 기준을 낮추거나 후보를 다시 고르세요.')
             provenance = job['result'].get('model_provenance', {})
-            from datasetui.sam3_engine import MIXED_HINT_POLICY
+            from datasetui.segmentation.engine import MIXED_HINT_POLICY
             if provenance.get('checkpoint_sha256') != settings.sam3_checkpoint_sha256 or provenance.get('hint_policy') not in {MIXED_HINT_POLICY, 'instance-box-points-detection-score-v2', 'instance-box-points-grounding-identity-v3'}:
                 raise SegmentationGuidanceError('모델이 변경되었습니다. 후보를 다시 탐지하세요.')
             read_snapshot_frame(database, settings, str(spec.dataset_id), source['frame_token'],

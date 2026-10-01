@@ -1,13 +1,20 @@
-"""Confirmed editing state; never an approval or a content fingerprint."""
+"""Per-video confirmed objects (editing state, never an approval)."""
+
 from __future__ import annotations
 
 import json
 from uuid import UUID
 
 from pydantic import Field, model_validator
+
 from datasetui.database import utc_now
-from datasetui.segmentation_catalog import dataset_catalog
-from datasetui.segmentation_contract import StrictModel, RegionPrompt, Correction, FrameIndex
+from datasetui.segmentation.catalog import dataset_catalog
+from datasetui.segmentation.contract import (
+    Correction,
+    FrameIndex,
+    RegionPrompt,
+    StrictModel,
+)
 
 
 class WorkspaceScope(StrictModel):
@@ -27,7 +34,11 @@ class ConfirmedObject(StrictModel):
     @model_validator(mode="after")
     def valid_object(self):
         from types import SimpleNamespace
-        from datasetui.segmentation_selection import seed_brush_objects, validate_initial_guidance
+
+        from datasetui.segmentation.contract import (
+            seed_brush_objects,
+            validate_initial_guidance,
+        )
         self.name = self.name.strip()
         if not self.name or not (self.prompts or self.corrections):
             raise ValueError("객체 이름과 지시가 필요합니다.")
@@ -109,7 +120,8 @@ def save_workspace(database, settings, payload):
     if catalog["metadata_revision"] != payload.metadata_revision:
         raise ValueError("원본 메타정보가 변경되었습니다. 다시 불러오세요.")
     from types import SimpleNamespace
-    from datasetui.segmentation_candidates import validate_candidate_references
+
+    from datasetui.segmentation.candidates import validate_candidate_references
     validate_candidate_references(database, settings, SimpleNamespace(
         dataset_id=payload.dataset_id, episode_index=payload.episode_index,
         video_key=payload.video_key, prompts=[p for o in payload.objects for p in o.prompts]), str(payload.profile_id))
