@@ -9,7 +9,7 @@ from PIL import Image
 from datasetui.content_integrity import dataset_content_fingerprint
 from datasetui.deferred_statistics import read_deferred_statistics
 from datasetui.segmentation.errors import SegmentationError
-from datasetui.segmentation.media import _iter_video_arrays
+from datasetui.segmentation.media import iter_video_arrays
 from datasetui.segmentation.preview import create_preview
 from datasetui.segmentation.export import export_preview
 from datasetui.segmentation.contract import SegmentationSpec
@@ -208,7 +208,7 @@ def test_manual_only_preview_and_legacy_registry_identity(tmp_path):
     assert (
         len(
             list(
-                _iter_video_arrays(
+                iter_video_arrays(
                     settings.jobs_root / "segmentation" / job["id"] / "composite.mp4"
                 )
             )
@@ -257,7 +257,7 @@ def test_multicamera_export_deferred_and_no_source_mutation(tmp_path, monkeypatc
     assert read_deferred_statistics(output)
     assert dataset_content_fingerprint(source) == fingerprint
     for video in source.rglob("*.mp4"):
-        assert len(list(_iter_video_arrays(output / video.relative_to(source)))) == 4
+        assert len(list(iter_video_arrays(output / video.relative_to(source)))) == 4
         assert video.read_bytes() != (output / video.relative_to(source)).read_bytes()
     assert (source / "data/chunk-000/episode_000000.parquet").read_bytes() == (
         output / "data/chunk-000/episode_000000.parquet"

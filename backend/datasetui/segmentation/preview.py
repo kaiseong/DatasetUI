@@ -28,34 +28,34 @@ from datasetui.segmentation.contract import (
     SegmentationSpec,
     decode_background,
 )
-from datasetui.segmentation.engine import _engine_progress, _estimated_sam_passes
+from datasetui.segmentation.engine import engine_progress, estimated_sam_passes
 from datasetui.segmentation.errors import SegmentationError
 from datasetui.segmentation.media import (
     MAX_IMAGE_PIXELS,
-    _close_video_writer,
-    _decode_one,
-    _encode_array,
-    _iter_video_arrays,
-    _open_video_writer,
-    _png_bytes,
-    _video_frame_count,
-    _write_episode_clip,
+    close_video_writer,
+    decode_frame,
+    encode_frame,
+    iter_video_arrays,
+    open_video_writer,
+    png_bytes,
+    video_frame_count,
+    write_episode_clip,
 )
-from datasetui.segmentation.paths import _output_lock, _safe_regular_path
+from datasetui.segmentation.paths import output_lock, safe_regular_path
 from datasetui.segmentation.selection import (
     MASK_TARGETS,
-    _apply_corrections,
-    _read_mask,
+    apply_legacy_corrections,
     brush_hints,
     has_keep_objects,
     mask_inputs,
+    read_mask,
     retained_mask,
     validate_detections,
 )
 from datasetui.segmentation.source import (
     _episode,
-    _validate_video_selection,
     load_source,
+    validate_video_selection,
 )
 from datasetui.transforms import (
     _read_regular_bytes,
@@ -103,7 +103,7 @@ def create_preview(
     maximum = int(getattr(settings, "segmentation_max_frames", 3600))
     if frame_count < 1 or frame_count > maximum:
         raise SegmentationError("Episode exceeds the segmentation frame limit")
-    _validate_video_selection(source, parsed.video_key, 0, frame_count)
+    validate_video_selection(source, parsed.video_key, 0, frame_count)
     for prompt in parsed.prompts:
         if prompt.frame_index >= frame_count:
             raise SegmentationError("Prompt frame is outside the episode")
@@ -120,7 +120,7 @@ def create_preview(
             "read": 0 if parsed.source_preview_id else frame_count,
             "segment": 0
             if parsed.source_preview_id or not parsed.prompts
-            else frame_count * 4 * _estimated_sam_passes(parsed),
+            else frame_count * 4 * estimated_sam_passes(parsed),
             "write": frame_count * 1.5,
             "validate": frame_count * 0.3,
             "publish": frame_count * 0.1,
@@ -130,8 +130,8 @@ def create_preview(
     source_path, source_start = source.video_source(
         parsed.episode_index, parsed.video_key, metadata
     )
-    source_path = _safe_regular_path(root, source_path)
-    probe = _decode_one(source_path, source_start)
+    source_path = safe_regular_path(root, source_path)
+    probe = decode_frame(source_path, source_start)
     height, width = probe.shape[:2]
     if width * height > MAX_IMAGE_PIXELS:
         raise SegmentationError("Video frame exceeds the image pixel limit")
@@ -142,11 +142,11 @@ def create_preview(
         if parsed.render_mode == "image"
         else Image.new("RGB", (width, height), "black")
     )
-    background_bytes = _png_bytes(background)
+    background_bytes = png_bytes(background)
     background_sha256 = hashlib.sha256(background_bytes).hexdigest()
     stored_spec = {**normalized, "background_sha256": background_sha256}
     stored_spec.pop("background_base64", None)
-    recipe_hash = _canonical_hash(stored_spec)
+    recipe_hash = canonical_hash(stored_spec)
     _report_progress(
         progress,
         stage="preparing",
@@ -198,7 +198,7 @@ def create_preview(
             )
             clip_width, clip_height = width, height
         else:
-            clip_width, clip_height = _write_episode_clip(
+            clip_width, clip_height = write_episode_clip(
                 source_path,
                 source_start,
                 frame_count,
@@ -264,7 +264,7 @@ def create_preview(
             current_item="SAM 3.1 마스크 생성",
             force=True,
         )
-        segmenter = engine or engine_module._default_engine(
+        segmenter = engine or engine_module.default_engine(
             settings, mixed_spatial=parsed.mode == "object_selection"
         )
         provenance = cached_provenance or segmenter.propagate(
@@ -273,7 +273,7 @@ def create_preview(
             frame_count=frame_count,
             output_dir=staging,
             check_lease=lease,
-            **_engine_progress(segmenter, progress),
+            **engine_progress(segmenter, progress),
         )
         if not isinstance(provenance, dict):
             raise SegmentationError("Segmentation engine returned invalid provenance")
@@ -298,7 +298,7 @@ def create_preview(
             current_item="SAM 3.1 마스크 생성",
             force=True,
         )
-        _apply_corrections(
+        apply_legacy_corrections(
             staging,
             parsed,
             frame_count,
@@ -364,10 +364,10 @@ def create_preview(
                 "dataset_id": dataset_id,
                 "video_path": source_path.relative_to(root).as_posix(),
                 "start_frame": source_start,
-                "total_frames": _video_frame_count(source_path),
+                "total_frames": video_frame_count(source_path),
             },
             "model": provenance,
-            "mask_input_hash": _canonical_hash(mask_inputs(normalized)),
+            "mask_input_hash": canonical_hash(mask_inputs(normalized)),
             "selection_required": selection_required,
             "review_signals": signals,
             "review_blocked": review_blocked,
@@ -393,7 +393,7 @@ def create_preview(
             current_item="미리보기 게시",
             force=True,
         )
-        with _output_lock(settings, f"preview-{job_id}"):
+        with output_lock(settings, f"preview-{job_id}"):
             if final.exists() or final.is_symlink():
                 result = _reuse_preview(final, recipe_hash, parsed.fingerprint, job_id)
                 _report_progress(
@@ -446,10 +446,10 @@ def _render_preview(
     on_progress: Callable[[dict[str, Any]], None] | None = None,
     has_keep: bool = True,
 ) -> None:
-    composite, composite_stream = _open_video_writer(
+    composite, composite_stream = open_video_writer(
         root / "composite.mp4", fps, width, height
     )
-    mask_video, mask_stream = _open_video_writer(root / "mask.mp4", fps, width, height)
+    mask_video, mask_stream = open_video_writer(root / "mask.mp4", fps, width, height)
     background_array = np.asarray(background, dtype=np.uint8)
     seen = 0
     _report_progress(
@@ -463,19 +463,19 @@ def _render_preview(
     )
     try:
         for frame_index, original in enumerate(
-            _iter_video_arrays(root / "original.mp4")
+            iter_video_arrays(root / "original.mp4")
         ):
             if frame_index >= frame_count:
                 break
-            replace = _read_mask(root, "replace", frame_index, width, height)
-            protect = _read_mask(root, "protect", frame_index, width, height)
+            replace = read_mask(root, "replace", frame_index, width, height)
+            protect = read_mask(root, "protect", frame_index, width, height)
             selected = ~retained_mask(mode, protect, replace, has_keep=has_keep)
             output = np.where(selected[:, :, None], background_array, original)
             mask_rgb = np.repeat(
                 (selected.astype(np.uint8) * 255)[:, :, None], 3, axis=2
             )
-            _encode_array(composite, composite_stream, output)
-            _encode_array(mask_video, mask_stream, mask_rgb)
+            encode_frame(composite, composite_stream, output)
+            encode_frame(mask_video, mask_stream, mask_rgb)
             seen += 1
             _report_progress(
                 on_progress,
@@ -488,20 +488,20 @@ def _render_preview(
             if seen % 32 == 0:
                 check_lease()
     finally:
-        _close_video_writer(composite, composite_stream)
-        _close_video_writer(mask_video, mask_stream)
+        close_video_writer(composite, composite_stream)
+        close_video_writer(mask_video, mask_stream)
     if seen != frame_count:
         raise SegmentationError("Preview rendering lost source frames")
 
 
-def _canonical_hash(value: Any) -> str:
+def canonical_hash(value: Any) -> str:
     encoded = json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode()
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _read_manifest(root: Path) -> dict[str, Any]:
+def read_manifest(root: Path) -> dict[str, Any]:
     try:
         value = json.loads(
             _read_regular_bytes(root / "manifest.json", max_bytes=MAX_MANIFEST_BYTES)
@@ -549,7 +549,7 @@ def _preview_artifact_manifest(root: Path) -> dict[str, Any]:
 def _reuse_preview(
     root: Path, recipe_hash: str, fingerprint: str, preview_id: str
 ) -> dict[str, Any]:
-    manifest = _read_manifest(root)
+    manifest = read_manifest(root)
     if (
         manifest.get("preview_id") != preview_id
         or manifest.get("recipe_hash") != recipe_hash
@@ -677,7 +677,7 @@ def reuse_masks(
     database, settings, parsed, staging: Path, *, owner_profile_id: str
 ) -> dict:
     from datasetui.segmentation.errors import SegmentationError
-    from datasetui.segmentation.paths import _safe_regular_path
+    from datasetui.segmentation.paths import safe_regular_path
 
     job, result = verified_preview(database, settings, str(parsed.source_preview_id))
     if job["profile_id"] != owner_profile_id:
@@ -690,7 +690,7 @@ def reuse_masks(
             "Mask inputs changed; generate a new segmentation preview"
         )
     root = settings.jobs_root / "segmentation" / str(parsed.source_preview_id)
-    manifest = _read_manifest(root)
+    manifest = read_manifest(root)
     if parsed.mode == "object_selection":
         from datasetui.segmentation.engine import MIXED_HINT_POLICY
 
@@ -702,7 +702,7 @@ def reuse_masks(
         "original.mp4",
         *[item["artifact_name"] for item in result.get("candidates", [])],
     ):
-        shutil.copyfile(_safe_regular_path(root, root / name), staging / name)
+        shutil.copyfile(safe_regular_path(root, root / name), staging / name)
     for name in ("replace", "protect", "instances"):
         source = root / name
         if source.is_dir():

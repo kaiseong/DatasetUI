@@ -3,7 +3,7 @@
 import hashlib
 
 from datasetui.segmentation.errors import SegmentationGuidanceError
-from datasetui.segmentation.frames import _safe_regular_path, read_snapshot_frame
+from datasetui.segmentation.frames import read_snapshot_frame, safe_snapshot_path
 
 
 def validate_candidate_references(database, settings, spec, profile_id):
@@ -37,12 +37,12 @@ def validate_candidate_references(database, settings, spec, profile_id):
                                 spec.episode_index, spec.video_key, source['frame_index'], verify_only=True)
             root = settings.jobs_root / 'segmentation-samples' / str(ref.sample_id)
             artifact = candidate['artifact_name']
-            path = _safe_regular_path(root, root / artifact)
+            path = safe_snapshot_path(root, root / artifact)
             if hashlib.sha256(path.read_bytes()).hexdigest() != job['result']['artifacts'].get(artifact):
                 raise SegmentationGuidanceError('탐지 후보 파일이 변경되었습니다. 후보를 다시 찾으세요.')
 
             grounding = root / f"grounding-{ref.candidate_id}.png"
             if grounding.exists() or grounding.name in job['result']['artifacts']:
-                path = _safe_regular_path(root, grounding)
+                path = safe_snapshot_path(root, grounding)
                 if hashlib.sha256(path.read_bytes()).hexdigest() != job['result']['artifacts'].get(grounding.name):
                     raise SegmentationGuidanceError('탐지 후보 원본 파일이 변경되었습니다. 후보를 다시 찾으세요.')

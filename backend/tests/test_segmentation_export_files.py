@@ -13,7 +13,7 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-from datasetui.segmentation.media import _iter_video_arrays
+from datasetui.segmentation.media import iter_video_arrays
 from datasetui.segmentation.export import write_segmented_videos
 from datasetui.validation import validate_dataset_root
 from test_trim_source_codec import _source
@@ -71,7 +71,7 @@ def test_only_selected_episode_is_rewritten_in_source_codec(tmp_path, version):
     else:
         shard = f"videos/chunk-000/{FRONT}/episode_000001.mp4"
         selection = _preview(tmp_path, 1, shard, 0)
-    original = list(_iter_video_arrays(source / shard))[(10 if version == "v3.0" else 0):][:10]
+    original = list(iter_video_arrays(source / shard))[(10 if version == "v3.0" else 0):][:10]
 
     [written] = write_segmented_videos(output, [selection], lambda: None)
 
@@ -95,7 +95,7 @@ def test_only_selected_episode_is_rewritten_in_source_codec(tmp_path, version):
         new_video = output / shard
         assert changed == {shard}
     assert _codec(new_video) in {"libdav1d", "av1", "libaom-av1"}
-    frames = list(_iter_video_arrays(new_video))
+    frames = list(iter_video_arrays(new_video))
     assert len(frames) == 10
     for frame, source_frame in zip(frames, original):
         assert np.abs(frame[:, 40:].astype(int)).mean() < 6

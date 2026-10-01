@@ -25,7 +25,7 @@ from datasetui.config import Settings
 from datasetui.segmentation.contract import RegionPrompt, SegmentationSpec
 
 
-def _estimated_sam_passes(parsed: SegmentationSpec) -> int:
+def estimated_sam_passes(parsed: SegmentationSpec) -> int:
 
     groups: dict[Any, list[Any]] = {}
     for index, prompt in enumerate(parsed.prompts):
@@ -36,7 +36,7 @@ def _estimated_sam_passes(parsed: SegmentationSpec) -> int:
     return _expected_passes(groups) if groups else 1
 
 
-def _engine_progress(engine: Any, progress: Any) -> dict[str, Any]:
+def engine_progress(engine: Any, progress: Any) -> dict[str, Any]:
     """Forward SAM frame progress when the engine supports it (fixtures may not)."""
     import inspect
 
@@ -50,7 +50,7 @@ def _engine_progress(engine: Any, progress: Any) -> dict[str, Any]:
     return {"on_progress": progress}
 
 
-def _default_engine(settings: Settings, *, mixed_spatial: bool = False) -> Any:
+def default_engine(settings: Settings, *, mixed_spatial: bool = False) -> Any:
 
     return Sam3Engine(settings, mixed_spatial=mixed_spatial)
 
@@ -1079,13 +1079,13 @@ def _prime_semantic_track(predictor, session_id, frame_index, frame_count, check
 
 
 def _load_candidate_masks(settings, prompts):
-    from datasetui.segmentation.frames import _safe_regular_path
+    from datasetui.segmentation.frames import safe_snapshot_path
     masks = {}
     for prompt in prompts:
         for ref in prompt.selected_candidates:
             root = settings.jobs_root / "segmentation-samples" / str(ref.sample_id)
             grounding = root / f"grounding-{ref.candidate_id}.png"
-            path = _safe_regular_path(root, grounding if grounding.exists() else root / f"candidate-{ref.candidate_id}.png")
+            path = safe_snapshot_path(root, grounding if grounding.exists() else root / f"candidate-{ref.candidate_id}.png")
             with Image.open(path) as image:
                 masks[(str(ref.sample_id), ref.candidate_id)] = np.asarray(image.convert("L")) > 0
     return masks

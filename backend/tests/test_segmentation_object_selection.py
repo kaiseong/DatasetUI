@@ -55,8 +55,8 @@ def test_brush_hints_are_bounded_radius_aware_and_have_correct_polarity():
 def test_sample_video_and_export_use_identical_selection(tmp_path, keep, remove):
     import shutil
     from PIL import Image
-    from datasetui.segmentation.preview import create_preview, _read_manifest
-    from datasetui.segmentation.media import _iter_video_arrays
+    from datasetui.segmentation.preview import create_preview, read_manifest
+    from datasetui.segmentation.media import iter_video_arrays
     from datasetui.segmentation.sample import create_sample
     from datasetui.segmentation.catalog import selected_scope
     from datasetui.segmentation.export import write_segmented_videos
@@ -173,16 +173,16 @@ def test_sample_video_and_export_use_identical_selection(tmp_path, keep, remove)
     exported = (
         exported_root / "videos/chunk-000/observation.images.top/episode_000000.mp4"
     )
-    before = list(_iter_video_arrays(exported))
+    before = list(iter_video_arrays(exported))
     write_segmented_videos(
-        exported_root, [(preview, _read_manifest(preview))], lambda: None
+        exported_root, [(preview, read_manifest(preview))], lambda: None
     )
-    after = list(_iter_video_arrays(exported))
+    after = list(iter_video_arrays(exported))
     assert len(after) == 4
     # Source-codec re-encode: visually identical, not bit-exact.
     target = np.where(expected[:, :, None], before[0], 0).astype(int)
     assert np.abs(after[0].astype(int) - target).mean() < 8
-    rendered = list(_iter_video_arrays(preview / "composite.mp4"))
+    rendered = list(iter_video_arrays(preview / "composite.mp4"))
     assert len(rendered) == 4
     assert np.abs(rendered[0].astype(int) - after[0].astype(int)).mean() < 8
 
@@ -215,7 +215,7 @@ def test_new_brush_does_not_rasterize_masks(tmp_path):
     from PIL import Image
     from uuid import uuid4
     from datasetui.segmentation.contract import SegmentationSpec
-    from datasetui.segmentation.selection import _apply_corrections
+    from datasetui.segmentation.selection import apply_legacy_corrections
     from datasetui.segmentation.selection import apply_object_corrections
 
     parsed = SegmentationSpec.model_validate(
@@ -242,7 +242,7 @@ def test_new_brush_does_not_rasterize_masks(tmp_path):
         (tmp_path / target).mkdir()
         Image.new("L", (16, 16)).save(tmp_path / target / "000000.png")
     apply_object_corrections(tmp_path, parsed, {"candidates": []}, 1, 16, 16)
-    _apply_corrections(tmp_path, parsed, 1, 16, 16)
+    apply_legacy_corrections(tmp_path, parsed, 1, 16, 16)
     assert not np.asarray(Image.open(tmp_path / "replace/000000.png")).any()
 
 

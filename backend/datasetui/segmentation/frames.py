@@ -17,7 +17,8 @@ from PIL import Image
 
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError, utc_now
-from datasetui.segmentation.media import MAX_IMAGE_PIXELS, _decode_one
+from datasetui.segmentation.media import MAX_IMAGE_PIXELS, decode_frame
+from datasetui.segmentation.paths import safe_regular_path
 from datasetui.segmentation.source import load_source
 from datasetui.transforms import _safe_dataset_root
 
@@ -86,7 +87,7 @@ def create_frame_snapshot(
             path, start = source.video_source(episode_index, video_key, metadata)
             if isinstance(start, bool) or not isinstance(start, int) or start < 0:
                 raise RecipeRevisionMismatchError(dataset_id)
-            path = _safe_regular_path(root, path)
+            path = safe_snapshot_path(root, path)
             relative_path = path.relative_to(root).as_posix()
             digest = video_digests.get(relative_path)
             if digest is None:
@@ -193,18 +194,20 @@ def read_snapshot_frame(
     except Exception as exc:
         raise ValueError("Dataset snapshot path is unavailable") from exc
     for dependency in reference.get("metadata_dependencies", []):
-        dependency_path = _safe_regular_path(root, root / _validate_relative_path(dependency["path"]))
+        dependency_path = safe_snapshot_path(
+            root, root / _validate_relative_path(dependency["path"])
+        )
         if verified_file_sha256(dependency_path) != dependency["sha256"]:
             raise RecipeRevisionMismatchError(dataset_id)
     relative_path = _validate_relative_path(reference["video_path"])
-    path = _safe_regular_path(root, root / relative_path)
+    path = safe_snapshot_path(root, root / relative_path)
 
     actual_digest, verified_identity = _verified_file(path)
     if actual_digest != reference["sha256"]:
         raise RecipeRevisionMismatchError(dataset_id)
     if verify_only:
         return b""
-    frame = _decode_one(path, reference["start"] + frame_index)
+    frame = decode_frame(path, reference["start"] + frame_index)
     if _file_identity(path) != verified_identity:
         raise RecipeRevisionMismatchError(dataset_id)
     if frame.shape[0] * frame.shape[1] > MAX_IMAGE_PIXELS:
@@ -369,25 +372,16 @@ def _validate_relative_path(value: str) -> Path:
     return path
 
 
-def _safe_regular_path(root: Path, path: Path) -> Path:
-    try:
-        relative = path.relative_to(root)
-    except ValueError as exc:
-        raise ValueError("Frame snapshot path is invalid") from exc
-    current = root
-    for index, component in enumerate(relative.parts):
-        if component in {"", ".", ".."}:
-            raise ValueError("Frame snapshot path is invalid")
-        current = current / component
-        try:
-            metadata = current.lstat()
-        except OSError as exc:
-            raise ValueError("Frame snapshot file is unavailable") from exc
-        final = index == len(relative.parts) - 1
-        if current.is_symlink():
-            raise ValueError("Frame snapshot path is unsafe")
-        if final and not stat.S_ISREG(metadata.st_mode):
-            raise ValueError("Frame snapshot file is unsafe")
-        if not final and not stat.S_ISDIR(metadata.st_mode):
-            raise ValueError("Frame snapshot path is unsafe")
-    return current
+SNAPSHOT_FILE_MESSAGES = {
+    "invalid": "Frame snapshot path is invalid",
+    "unavailable": "Frame snapshot file is unavailable",
+    "unsafe_path": "Frame snapshot path is unsafe",
+    "unsafe_file": "Frame snapshot file is unsafe",
+}
+
+
+def safe_snapshot_path(root: Path, path: Path) -> Path:
+    """Snapshot reads report problems as ValueError (HTTP 409, not job errors)."""
+    return safe_regular_path(
+        root, path, error=ValueError, messages=SNAPSHOT_FILE_MESSAGES
+    )

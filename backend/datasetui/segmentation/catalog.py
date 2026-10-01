@@ -9,7 +9,7 @@ import uuid
 from datasetui.database import RecipeRevisionMismatchError, utc_now
 from datasetui.segmentation.frames import (
     _SNAPSHOT_TABLE,
-    _safe_regular_path,
+    safe_snapshot_path,
     verified_file_sha256,
 )
 from datasetui.transforms import _DatasetSource, _read_regular_bytes, _safe_dataset_root
@@ -22,7 +22,7 @@ def _metadata(database, settings, dataset_id):
     root = _safe_dataset_root(
         settings.nas_root, record["storage_area"], record["relative_path"]
     )
-    path = _safe_regular_path(root, root / "meta/info.json")
+    path = safe_snapshot_path(root, root / "meta/info.json")
     raw = _read_regular_bytes(path, max_bytes=2 * 1024 * 1024)
     info = json.loads(raw)
     return record, root, info, hashlib.sha256(raw).hexdigest()
@@ -61,7 +61,7 @@ def selected_scope(database, settings, dataset_id, episode_index, video_key):
         directory = root / "meta/episodes"
         # Read only episode metadata columns, never action/state parquet.
         for candidate in sorted(directory.glob("chunk-*/*.parquet")):
-            path = _safe_regular_path(root, candidate)
+            path = safe_snapshot_path(root, candidate)
             columns = [
                 "episode_index",
                 "length",
@@ -82,7 +82,7 @@ def selected_scope(database, settings, dataset_id, episode_index, video_key):
                 )
                 break
     else:
-        path = _safe_regular_path(root, root / "meta/episodes.jsonl")
+        path = safe_snapshot_path(root, root / "meta/episodes.jsonl")
         digest = verified_file_sha256(path)
         with path.open() as stream:
             for line in stream:
@@ -98,7 +98,7 @@ def selected_scope(database, settings, dataset_id, episode_index, video_key):
     resolver.root, resolver.info = root, info
     resolver.version, resolver.fps = info["codebase_version"], float(info["fps"])
     path, start = resolver.video_source(episode_index, video_key, metadata)
-    path = _safe_regular_path(root, path)
+    path = safe_snapshot_path(root, path)
     reference = {
         "registry_fingerprint": record["fingerprint"],
         "episode_index": episode_index,
@@ -111,7 +111,7 @@ def selected_scope(database, settings, dataset_id, episode_index, video_key):
     }
     for dependency in dependencies:
         if (
-            verified_file_sha256(_safe_regular_path(root, root / dependency["path"]))
+            verified_file_sha256(safe_snapshot_path(root, root / dependency["path"]))
             != dependency["sha256"]
         ):
             raise RecipeRevisionMismatchError(dataset_id)

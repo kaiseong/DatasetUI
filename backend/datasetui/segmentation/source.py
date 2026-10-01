@@ -16,8 +16,8 @@ from datasetui.content_integrity import (
 )
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.segmentation.errors import SegmentationError
-from datasetui.segmentation.media import MAX_IMAGE_PIXELS, _decode_one
-from datasetui.segmentation.paths import _safe_directory_path, _safe_regular_path
+from datasetui.segmentation.media import MAX_IMAGE_PIXELS, decode_frame
+from datasetui.segmentation.paths import safe_directory_path, safe_regular_path
 from datasetui.transforms import (
     _DatasetSource,
     _read_regular_bytes,
@@ -50,8 +50,8 @@ def load_source(
         if expected is not None and actual != expected:
             raise RecipeRevisionMismatchError(str(dataset_id))
     try:
-        info_path = _safe_regular_path(root, root / "meta/info.json")
-        _safe_directory_path(root, root / "data")
+        info_path = safe_regular_path(root, root / "meta/info.json")
+        safe_directory_path(root, root / "data")
         info = json.loads(_read_regular_bytes(info_path, max_bytes=2 * 1024 * 1024))
         if not isinstance(info, dict):
             raise ValueError
@@ -88,10 +88,10 @@ def source_frame(
 ) -> bytes:
     root, source = load_source(database, settings, dataset_id, verify_content=False)
     data, metadata = _episode(source, episode_index)
-    _validate_video_selection(source, video_key, frame_index, len(data))
+    validate_video_selection(source, video_key, frame_index, len(data))
     path, start = source.video_source(episode_index, video_key, metadata)
-    path = _safe_regular_path(root, path)
-    frame = _decode_one(path, start + frame_index)
+    path = safe_regular_path(root, path)
+    frame = decode_frame(path, start + frame_index)
     if frame.shape[0] * frame.shape[1] > MAX_IMAGE_PIXELS:
         raise SegmentationError("Video frame exceeds the image pixel limit")
     image = Image.fromarray(frame, mode="RGB")
@@ -111,7 +111,7 @@ def _episode(
     return source.episode(episode_index)
 
 
-def _validate_video_selection(
+def validate_video_selection(
     source: _DatasetSource, video_key: str, frame_index: int, frame_count: int
 ) -> None:
     if video_key not in source.video_keys:

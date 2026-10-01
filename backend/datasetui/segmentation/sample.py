@@ -137,14 +137,14 @@ def frame_guidance(parsed: SampleSpec, clip_index: dict[int, int] | None = None)
 
 def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
     from datasetui.job_progress import JobProgressReporter
-    from datasetui.segmentation.engine import _default_engine
+    from datasetui.segmentation.engine import default_engine
     from datasetui.segmentation.frames import read_snapshot_frame
     from datasetui.segmentation.selection import (
-        _apply_corrections,
-        _read_mask,
+        apply_legacy_corrections,
         apply_object_corrections,
         apply_protected_regions,
         apply_selection,
+        read_mask,
     )
 
     progress = JobProgressReporter(database, job_id=job_id, worker_id=worker_id)
@@ -172,7 +172,7 @@ def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
     if not guidance.prompts and not guidance.manual_regions:
         raise SegmentationGuidanceError("현재 프레임에 적용할 텍스트 또는 라벨이 필요합니다.")
     from datasetui.job_progress import WeightedProgress
-    from datasetui.segmentation.engine import _engine_progress, _estimated_sam_passes
+    from datasetui.segmentation.engine import engine_progress, estimated_sam_passes
 
     count = len(clip_frames)
     progress = WeightedProgress(
@@ -180,7 +180,7 @@ def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
         {
             "preparing": 1,
             "read": count,
-            "segment": count * 4 * _estimated_sam_passes(guidance) if guidance.prompts else 0,
+            "segment": count * 4 * estimated_sam_passes(guidance) if guidance.prompts else 0,
             "write": 1,
         },
     )
@@ -267,7 +267,7 @@ def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
         report("read", count, count, "프레임 준비 완료")
         report("segment", 0, 0, "SAM3.1 현재 프레임 추론")
         if prompts:
-            segmenter = engine or _default_engine(
+            segmenter = engine or default_engine(
                 settings, mixed_spatial=parsed.mode == "object_selection"
             )
             provenance = segmenter.propagate(
@@ -276,7 +276,7 @@ def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
                 frame_count=len(clip),
                 output_dir=staging,
                 check_lease=lease,
-                **_engine_progress(segmenter, progress),
+                **engine_progress(segmenter, progress),
             )
         else:
             provenance = {"engine": "manual-protection", "candidates": []}
@@ -295,7 +295,7 @@ def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
         report("write", 0, 1, "샘플 이미지 합성")
         apply_object_corrections(staging, guidance, provenance, 1, width, height)
         apply_selection(staging, guidance, provenance, 1, width, height)
-        _apply_corrections(
+        apply_legacy_corrections(
             staging,
             guidance,
             1,
@@ -306,8 +306,8 @@ def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
         apply_protected_regions(staging, guidance, 1, width, height)
         mask = retained_mask(
             parsed.mode,
-            _read_mask(staging, "protect", 0, width, height),
-            _read_mask(staging, "replace", 0, width, height),
+            read_mask(staging, "protect", 0, width, height),
+            read_mask(staging, "replace", 0, width, height),
             has_keep=has_keep_objects(guidance),
         )
         mask_image = Image.fromarray(mask.astype("uint8") * 255)

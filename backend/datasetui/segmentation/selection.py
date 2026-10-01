@@ -19,7 +19,7 @@ from datasetui.transforms import (
 MASK_TARGETS = ("replace", "protect")
 
 
-def _apply_corrections(
+def apply_legacy_corrections(
     root: Path,
     spec: SegmentationSpec,
     count: int,
@@ -78,7 +78,7 @@ def _apply_corrections(
             )
 
 
-def _read_mask(
+def read_mask(
     root: Path, target: str, index: int, width: int, height: int
 ) -> np.ndarray:
     return (
@@ -413,14 +413,14 @@ def review_signals(
     previous = None
     for index in range(count):
         target = "protect" if parsed.mode == "protect_foreground" else "replace"
-        mask = _read_mask(root, target, index, width, height)
+        mask = read_mask(root, target, index, width, height)
         if parsed.mode == "object_selection":
 
             has_keep = has_keep_objects(parsed)
             mask = retained_mask(
                 parsed.mode,
-                _read_mask(root, "protect", index, width, height),
-                _read_mask(root, "replace", index, width, height),
+                read_mask(root, "protect", index, width, height),
+                read_mask(root, "replace", index, width, height),
                 has_keep=has_keep,
             )
             # Removal-only reviews measure the removed region, not retained background.

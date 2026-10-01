@@ -18,7 +18,7 @@ from datasetui.transforms import (
 MAX_IMAGE_PIXELS = 16_000_000
 
 
-def _write_episode_clip(
+def write_episode_clip(
     source_path: Path,
     start: int,
     count: int,
@@ -29,7 +29,7 @@ def _write_episode_clip(
     on_progress: Callable[[dict[str, Any]], None] | None = None,
     current_item: str | None = None,
 ) -> tuple[int, int]:
-    frames = _iter_video_arrays(source_path)
+    frames = iter_video_arrays(source_path)
     output = None
     stream = None
     written = 0
@@ -53,8 +53,8 @@ def _write_episode_clip(
                 height, width = array.shape[:2]
                 if width * height > MAX_IMAGE_PIXELS:
                     raise SegmentationError("Video frame exceeds the image pixel limit")
-                output, stream = _open_video_writer(output_path, fps, width, height)
-            _encode_array(output, stream, array)
+                output, stream = open_video_writer(output_path, fps, width, height)
+            encode_frame(output, stream, array)
             written += 1
             _report_progress(
                 on_progress,
@@ -68,13 +68,13 @@ def _write_episode_clip(
                 check_lease()
     finally:
         if output is not None and stream is not None:
-            _close_video_writer(output, stream)
+            close_video_writer(output, stream)
     if written != count:
         raise SegmentationError("Source video does not cover the full episode")
     return width, height
 
 
-def _iter_video_arrays(path: Path):
+def iter_video_arrays(path: Path):
     if path.is_symlink() or not path.is_file():
         raise SegmentationError("Video file is unavailable")
     import av
@@ -87,7 +87,7 @@ def _iter_video_arrays(path: Path):
         container.close()
 
 
-def _decode_one(path: Path, index: int) -> np.ndarray:
+def decode_frame(path: Path, index: int) -> np.ndarray:
     if path.is_symlink() or not path.is_file():
         raise SegmentationError("Video file is unavailable")
     import av
@@ -115,11 +115,11 @@ def _decode_one(path: Path, index: int) -> np.ndarray:
     raise SegmentationError("Video frame is unavailable")
 
 
-def _video_frame_count(path: Path) -> int:
-    return sum(1 for _ in _iter_video_arrays(path))
+def video_frame_count(path: Path) -> int:
+    return sum(1 for _ in iter_video_arrays(path))
 
 
-def _open_video_writer(path: Path, fps: float, width: int, height: int):
+def open_video_writer(path: Path, fps: float, width: int, height: int):
     import av
 
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -131,7 +131,7 @@ def _open_video_writer(path: Path, fps: float, width: int, height: int):
     return container, stream
 
 
-def _encode_array(container: Any, stream: Any, array: np.ndarray) -> None:
+def encode_frame(container: Any, stream: Any, array: np.ndarray) -> None:
     import av
 
     frame = av.VideoFrame.from_ndarray(
@@ -141,13 +141,13 @@ def _encode_array(container: Any, stream: Any, array: np.ndarray) -> None:
         container.mux(packet)
 
 
-def _close_video_writer(container: Any, stream: Any) -> None:
+def close_video_writer(container: Any, stream: Any) -> None:
     for packet in stream.encode():
         container.mux(packet)
     container.close()
 
 
-def _png_bytes(image: Image.Image) -> bytes:
+def png_bytes(image: Image.Image) -> bytes:
     from io import BytesIO
 
     output = BytesIO()

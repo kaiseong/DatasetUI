@@ -156,7 +156,7 @@ def test_snapshot_detects_video_mutation_during_decode(
         os.utime(video_path, ns=(before.st_atime_ns, before.st_mtime_ns))
         return np.zeros((16, 16, 3), dtype=np.uint8)
 
-    monkeypatch.setattr(segmentation_frames, "_decode_one", mutate_while_decoding)
+    monkeypatch.setattr(segmentation_frames, "decode_frame", mutate_while_decoding)
     with pytest.raises(RecipeRevisionMismatchError):
         read_snapshot_frame(
             database,

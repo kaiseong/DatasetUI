@@ -26,12 +26,12 @@ from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import inspect_dataset, scan_storage_area
 from datasetui.job_progress import JobProgressReporter
 from datasetui.segmentation.errors import SegmentationError
-from datasetui.segmentation.media import _iter_video_arrays
-from datasetui.segmentation.paths import _output_lock
+from datasetui.segmentation.media import iter_video_arrays
+from datasetui.segmentation.paths import output_lock
 from datasetui.segmentation.preview import (
     MAX_MANIFEST_BYTES,
-    _canonical_hash,
-    _read_manifest,
+    canonical_hash,
+    read_manifest,
 )
 from datasetui.segmentation.selection import has_keep_objects, retained_mask
 from datasetui.segmentation.source import load_source
@@ -90,7 +90,7 @@ def export_preview(
         except (ValueError, ContentIntegrityError) as exc:
             raise SegmentationError("Approved preview is stale") from exc
         preview_root = settings.jobs_root / "segmentation" / selected_id
-        manifest = _read_manifest(preview_root)
+        manifest = read_manifest(preview_root)
         for key in ("recipe_hash", "fingerprint"):
             if expected_result.get(key) != manifest.get(key):
                 raise SegmentationError("Approved preview metadata is stale")
@@ -126,8 +126,8 @@ def export_preview(
             "Only one approved preview is allowed for each episode and camera"
         )
     preview_id = selected_ids[0]
-    artifact_fingerprint = _canonical_hash([item[2] for item in selections])
-    export_recipe_hash = _canonical_hash(
+    artifact_fingerprint = canonical_hash([item[2] for item in selections])
+    export_recipe_hash = canonical_hash(
         {
             "previews": [item[1]["recipe_hash"] for item in selections],
             "recompute_statistics": recompute_statistics,
@@ -151,7 +151,7 @@ def export_preview(
         raise SegmentationError("Derived dataset storage is unavailable")
     final = derived / output_name
     provenance_path = settings.nas_root / "manifests/segmentation" / f"{job_id}.json"
-    with _output_lock(settings, output_name):
+    with output_lock(settings, output_name):
         database.assert_job_lease(job_id, worker_id=worker_id)
         if final.exists() or final.is_symlink():
             result = _reuse_export(
@@ -464,7 +464,7 @@ def _image_stats(
     pixel_count = 0
     frame_count = 0
     for path in paths:
-        for index, frame in enumerate(_iter_video_arrays(path)):
+        for index, frame in enumerate(iter_video_arrays(path)):
             selected_ranges = (ranges or {}).get(path)
             if selected_ranges is not None and not any(
                 start <= index < start + length for start, length in selected_ranges
@@ -755,9 +755,9 @@ def write_segmented_videos(
     on_progress=None,
 ) -> list[dict[str, Any]]:
     from datasetui.segmentation.errors import SegmentationError
-    from datasetui.segmentation.media import _iter_video_arrays, _video_frame_count
-    from datasetui.segmentation.paths import _safe_regular_path
-    from datasetui.segmentation.selection import _read_mask
+    from datasetui.segmentation.media import iter_video_arrays, video_frame_count
+    from datasetui.segmentation.paths import safe_regular_path
+    from datasetui.segmentation.selection import read_mask
     from datasetui.transforms import _report_progress
 
     info = json.loads((destination / "meta/info.json").read_text(encoding="utf-8"))
@@ -772,7 +772,7 @@ def write_segmented_videos(
         grouped.setdefault(item[1]["source"]["video_path"], []).append(item)
     written: list[dict[str, Any]] = []
     for relative_video, segments in grouped.items():
-        source_video = _safe_regular_path(destination, destination / relative_video)
+        source_video = safe_regular_path(destination, destination / relative_video)
         codec, pixel_format = _source_stream(source_video)
         ranges = []
         for preview_root, manifest in sorted(
@@ -819,7 +819,7 @@ def write_segmented_videos(
             raise SegmentationError("Approved episode ranges overlap in the shared video")
         last = max(item["end"] for item in ranges)
         try:
-            for index, array in enumerate(_iter_video_arrays(source_video)):
+            for index, array in enumerate(iter_video_arrays(source_video)):
                 if index >= last:
                     break
                 current = next(
@@ -834,8 +834,8 @@ def write_segmented_videos(
                 relative = index - current["start"]
                 keep = retained_mask(
                     manifest["spec"]["mode"],
-                    _read_mask(current["root"], "protect", relative, width, height),
-                    _read_mask(current["root"], "replace", relative, width, height),
+                    read_mask(current["root"], "protect", relative, width, height),
+                    read_mask(current["root"], "replace", relative, width, height),
                     has_keep=has_keep_objects(manifest["spec"]),
                 )
                 if current["writer"] is None:
@@ -863,7 +863,7 @@ def write_segmented_videos(
             expected = item["end"] - item["start"]
             if item["writer"] is None or item["writer"].count != expected:
                 raise SegmentationError("Selected video does not cover the episode")
-            if _video_frame_count(item["target"]) != expected:
+            if video_frame_count(item["target"]) != expected:
                 raise SegmentationError("Segmented video frame count changed")
             if item["location"] is None:
                 item["target"].replace(source_video)
