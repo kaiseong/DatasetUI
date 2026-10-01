@@ -981,12 +981,6 @@ export function publicJobError(errorCode: string | null): string {
   };
   if (errorCode && operationErrors[errorCode])
     return operationErrors[errorCode];
-  if (errorCode === "segmentation_unavailable") {
-    return "SAM GPU 작업자의 가중치·SHA256·CUDA 설정을 확인하세요. 임의의 마스크로 대체하지 않습니다.";
-  }
-  if (errorCode === "segmentation_failed") {
-    return "SAM 결과의 프레임 또는 마스크가 완전하지 않아 중단했습니다. 입력 범위와 GPU 작업자 기록을 확인하세요.";
-  }
   if (errorCode === "export_gate_required") {
     return "현재 파일 내용에 대한 내보내기 검사가 필요합니다. 검증 화면에서 내보내기 검사를 다시 실행하세요.";
   }
@@ -998,6 +992,18 @@ export function publicJobError(errorCode: string | null): string {
   }
   if (errorCode === "job_timeout") {
     return "검사 또는 작업이 제한 시간을 초과했습니다. 자동 재시도하지 않습니다.";
+  }
+  if (errorCode === "external_outcome_uncertain") {
+    return "전송 중 연결이 끊겨 외부 저장 결과를 확정할 수 없습니다. 대상 위치를 확인한 뒤 다시 시도하세요. 자동 재시도하지 않습니다.";
+  }
+  if (errorCode === "hf_cleanup_required") {
+    return "Hugging Face 임시 저장소를 정리하지 못했습니다. 대상 저장소를 확인한 뒤 정리하세요.";
+  }
+  if (errorCode === "segmentation_unavailable") {
+    return "SAM GPU 작업자의 가중치·SHA256·CUDA 설정을 확인하세요. 임의의 마스크로 대체하지 않습니다.";
+  }
+  if (errorCode === "segmentation_failed") {
+    return "SAM 결과의 프레임 또는 마스크가 완전하지 않아 중단했습니다. 입력 범위와 GPU 작업자 기록을 확인하세요.";
   }
   if (errorCode === "queue_unavailable") {
     return "작업 대기열에 연결할 수 없습니다. 잠시 후 다시 시도해 주세요.";

@@ -14,6 +14,19 @@ def _checks_by_id(result):
     return {check["id"]: check for check in result["checks"]}
 
 
+def test_official_aggregate_issues_belong_to_statistics_not_metadata():
+    from datasetui.validation_reporting import ValidationReporter
+
+    reporter = ValidationReporter(None)
+    reporter.issue("WARN", "official_visual_stats_difference", "sampled images")
+    reporter.issue("WARN", "official_bookkeeping_stats_difference", "reindexing")
+    reporter.issue("FAIL", "official_statistics_provenance_invalid", "changed file")
+    checks = _checks_by_id(reporter.snapshot())
+    assert checks["statistics"]["warnings"] == 2
+    assert checks["statistics"]["failures"] == 1
+    assert checks["metadata"]["warnings"] == checks["metadata"]["failures"] == 0
+
+
 def test_quick_validation_reports_sampled_checks_and_progress(tmp_path: Path) -> None:
     root = tmp_path / "dataset"
     _write_v21(root)

@@ -2,7 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { JobProgress } from "./job-progress";
-import { jobLabel, jobDescription } from "@/lib/job-presentation";
+import Link from "next/link";
+import {
+  jobDescription,
+  jobLabel,
+  jobResultLinks,
+} from "@/lib/job-presentation";
 import {
   LuCheck,
   LuChevronDown,
@@ -115,6 +120,25 @@ export default function JobRow({
       />
       {expanded && (
         <div className="job-row__detail">
+          {job.status === "succeeded" && job.result && (
+            <div>
+              {jobResultLinks(job).map((link) => (
+                <Link
+                  className="workbench-button"
+                  key={link.href}
+                  href={link.href}
+                >
+                  {link.label}
+                </Link>
+              ))}
+              <details>
+                <summary>작업 결과 상세</summary>
+                <pre className="overflow-auto text-xs">
+                  {JSON.stringify(job.result, null, 2)}
+                </pre>
+              </details>
+            </div>
+          )}
           {job.error_code && (
             <p className="job-row__error" role="alert">
               {publicJobError(job.error_code)}

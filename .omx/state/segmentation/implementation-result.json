@@ -1,0 +1,73 @@
+{
+  "status": "complete",
+  "target": "rtx6000@192.168.0.3",
+  "url": "https://192.168.0.3/augment",
+  "release": "release-20260930-segmentation-v1",
+  "backup": "/home/rtx6000/kgs/datasetui-backup-20260930-segmentation-235105",
+  "tests": {
+    "main_backend": {
+      "passed": 597,
+      "skipped": 1
+    },
+    "rtx_stage_backend": {
+      "passed": 425
+    },
+    "frontend_bun": {
+      "passed": 275
+    },
+    "ruff": "passed",
+    "typescript": "passed",
+    "production_build": "passed"
+  },
+  "gpu": {
+    "model": "SAM3.1 multiplex",
+    "device": "NVIDIA RTX PRO 6000 Blackwell Workstation Edition",
+    "runtime_uid": 1000,
+    "network": "none",
+    "frames_per_case": 12,
+    "resolution": [
+      640,
+      480
+    ],
+    "cases": [
+      "text_point_initial",
+      "point_only",
+      "text_keyframe_correction",
+      "box_keyframe_correction"
+    ],
+    "all_cases_passed": true,
+    "evidence": "/tmp/datasetui-sam3-final-image-result.json"
+  },
+  "live": {
+    "api_healthy": true,
+    "schema": 16,
+    "gpu_queue_worker": "idle",
+    "rq_suspended": false,
+    "active_jobs_after_deploy": 0,
+    "redis_caddy_credential_store_not_restarted": true,
+    "browser": {
+      "status": "passed",
+      "evidence": "/tmp/datasetui-segmentation-live-v2-browser/report.json",
+      "actual_frame_pixels": [
+        640,
+        480
+      ],
+      "desktop_overlay_matches_image": true,
+      "mobile_overlay_matches_image": true,
+      "js_console_http_errors": 0,
+      "mutation_attempts": 0
+    }
+  },
+  "limits": [
+    "Representative fixed/wrist occlusion pilot and training benefit remain unverified.",
+    "Real GPU proof uses a short front-camera clip; not a quality guarantee.",
+    "Existing interrupted host dpkg state intentionally not broadly repaired; CDI tools isolated."
+  ],
+  "web_release": "release-20260930-segmentation-v2",
+  "web_backup": "/home/rtx6000/kgs/datasetui-backup-segmentation-coordinate-20260930-235935",
+  "temporary_dev_server": "stopped",
+  "final_frontend_patch": [
+    "src/components/workbench/segmentation-editor.tsx",
+    "scripts/smoke_segmentation_workflow.py"
+  ]
+}

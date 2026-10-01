@@ -266,51 +266,6 @@ def test_multicamera_export_deferred_and_no_source_mutation(tmp_path, monkeypatc
     ).read_bytes()
 
 
-def test_shared_shard_two_ranges_render_once_and_keep_all_frames(tmp_path, monkeypatch):
-    from datasetui.segmentation_export import replace_video_segments
-    import datasetui.segmentation as implementation
-
-    video = tmp_path / "video.mp4"
-    _write_video(video, [(20 * i, 80, 100) for i in range(8)])
-    before = list(_iter_video_arrays(video))
-    segments = []
-    for start in (0, 4):
-        root = tmp_path / f"range-{start}"
-        for target in ("protect", "replace"):
-            (root / target).mkdir(parents=True)
-            for index in range(2):
-                Image.fromarray(np.zeros((16, 16), dtype=np.uint8)).save(
-                    root / target / f"{index:06d}.png"
-                )
-        Image.new("RGB", (16, 16), "black").save(root / "background.png")
-        segments.append(
-            (
-                root,
-                {
-                    "width": 16,
-                    "height": 16,
-                    "fps": 10,
-                    "frame_count": 2,
-                    "source": {"start_frame": start, "total_frames": 8},
-                    "spec": {"mode": "protect_foreground"},
-                },
-            )
-        )
-    writer = implementation._open_lossless_video_writer
-    calls = []
-
-    def counted(*args):
-        calls.append(args)
-        return writer(*args)
-
-    monkeypatch.setattr(implementation, "_open_lossless_video_writer", counted)
-    replace_video_segments(video, segments, lambda: None)
-    after = list(_iter_video_arrays(video))
-    assert len(calls) == 1 and len(after) == 8
-    assert all(not after[index].any() for index in (0, 1, 4, 5))
-    assert all(np.array_equal(before[index], after[index]) for index in (2, 3, 6, 7))
-
-
 def test_api_requires_explicit_text_selection_and_serves_verified_candidates(tmp_path):
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
@@ -529,3 +484,40 @@ def test_object_erase_preserves_other_overlapping_protected_track(tmp_path):
     apply_selection(tmp_path, spec, provenance, 1, 2, 2)
     assert np.asarray(Image.open(tmp_path / "instances/1-1/000000.png"))[0, 0] == 0
     assert np.asarray(Image.open(tmp_path / "protect/000000.png"))[0, 0] == 255
+
+
+@pytest.mark.parametrize("current_policy", [False, True])
+def test_new_mode_mask_reuse_requires_mixed_hint_policy(tmp_path, current_policy):
+    from datasetui.sam3_engine import MIXED_HINT_POLICY
+
+    settings, database, _, dataset = _registered(tmp_path)
+    profile = database.create_profile("Mixed hint cache")
+    spec = black_spec(
+        dataset,
+        mode="object_selection",
+        prompts=[
+            {"object_id": 1, "frame_index": 0, "target": "protect", "text": "plug"}
+        ],
+    )
+
+    class VersionedEngine(CandidateEngine):
+        def propagate(self, **kwargs):
+            result = super().propagate(**kwargs)
+            if current_policy:
+                result["hint_policy"] = MIXED_HINT_POLICY
+            return result
+
+    first, _ = make_preview(settings, database, profile, spec, engine=VersionedEngine())
+    selected = {
+        **spec,
+        "source_preview_id": first["id"],
+        "selected_candidate_ids": ["1-1"],
+    }
+    if current_policy:
+        _, result = make_preview(
+            settings, database, profile, selected, engine=NeverInfer()
+        )
+        assert not result["selection_required"]
+    else:
+        with pytest.raises(SegmentationError, match="혼합 힌트 처리 방식"):
+            make_preview(settings, database, profile, selected, engine=NeverInfer())

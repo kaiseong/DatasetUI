@@ -1,0 +1,12 @@
+{
+  "iteration": 4,
+  "verdict": "pass",
+  "evidence": "/tmp/datasetui-workflow-browser-final/report.json",
+  "visual_evidence": "/tmp/datasetui-workflow-browser-final/06-mobile-dock.png",
+  "observations": [
+    "drawer preserves user choice and does not auto-cover action buttons",
+    "mobile dock has safe clearance above navigation",
+    "deletion dialogs clearly identify immutable targets and irreversible effects"
+  ],
+  "skill_availability": "visual-verdict not installed; screenshot review and browser assertions used"
+}

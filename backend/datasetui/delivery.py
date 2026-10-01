@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import posixpath
 import shutil
@@ -11,14 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from datasetui.config import Settings
-from datasetui.database import Database, RecipeRevisionMismatchError
-from datasetui.huggingface import HF_NAMESPACE
-from datasetui.validation_integrity import (
+from datasetui.content_integrity import (
     ContentIntegrityError,
-    VALIDATOR_POLICY,
-    validation_content_manifest,
+    dataset_content_manifest,
 )
+from datasetui.database import Database, RecipeRevisionMismatchError
+from datasetui.validation_integrity import VALIDATOR_POLICY, validation_content_manifest
 from datasetui.job_progress import JobProgressReporter
+from datasetui.huggingface import HF_NAMESPACE, validate_dataset_name
 from datasetui.transform_errors import CurationTransformError
 from datasetui.transforms import (
     _real_directory,
@@ -29,15 +30,6 @@ from datasetui.transforms import (
 
 class ExportGateRequiredError(CurationTransformError):
     pass
-
-
-class HuggingFaceExternalOperationAmbiguousError(CurationTransformError):
-    def __init__(self, repo_id: str, phase: str):
-        self.repo_id = repo_id
-        self.phase = phase
-        super().__init__(
-            f"Hugging Face {phase} outcome is uncertain for repository {repo_id}"
-        )
 
 
 def _require_current_gate(database: Database, record: dict, manifest: dict) -> None:
@@ -52,6 +44,33 @@ def _require_current_gate(database: Database, record: dict, manifest: dict) -> N
         or gate.get("content_manifest") != manifest
     ):
         raise ExportGateRequiredError("A current content-bound export gate is required")
+
+
+class HuggingFaceExternalOperationAmbiguousError(CurationTransformError):
+    def __init__(self, repo_id: str, phase: str):
+        self.repo_id = repo_id
+        self.phase = phase
+        super().__init__(
+            f"Hugging Face {phase} outcome is uncertain for repository {repo_id}"
+        )
+
+
+class HuggingFaceCleanupRequiredError(CurationTransformError):
+    def __init__(self, repo_id: str):
+        self.repo_id = repo_id
+        super().__init__(
+            f"Manual cleanup is required for Hugging Face repository {repo_id}"
+        )
+
+
+logger = logging.getLogger("datasetui.delivery")
+
+
+def _content_manifest(root: Path) -> dict[str, Any]:
+    try:
+        return dataset_content_manifest(root)
+    except ContentIntegrityError as exc:
+        raise CurationTransformError("Dataset content could not be verified") from exc
 
 
 def _source(
@@ -79,10 +98,7 @@ def _source(
     source = _safe_dataset_root(
         settings.nas_root, record["storage_area"], record["relative_path"]
     )
-    try:
-        manifest = validation_content_manifest(source)
-    except ContentIntegrityError as exc:
-        raise CurationTransformError("Dataset content could not be verified") from exc
+    manifest = _content_manifest(source)
     gate = database.export_gate_result(
         dataset_id=record["id"],
         dataset_fingerprint=record["fingerprint"],
@@ -95,9 +111,7 @@ def _source(
         or gate.get("validator_policy") != VALIDATOR_POLICY
         or gate.get("content_manifest") != manifest
     ):
-        raise ExportGateRequiredError(
-            "Export gate does not match current dataset content"
-        )
+        raise RecipeRevisionMismatchError(payload["dataset_id"])
     return record, source, manifest
 
 
@@ -110,15 +124,20 @@ def export_to_nas(
     worker_id: str,
 ) -> dict[str, Any]:
     progress = JobProgressReporter(
-        database, job_id=job_id, worker_id=worker_id, output_name=payload["output_name"]
+        database,
+        job_id=job_id,
+        worker_id=worker_id,
+        output_name=payload["output_name"],
     )
-    _emit_progress(
-        progress,
-        stage="preparing",
-        completed=0,
-        total=0,
-        unit="items",
-        current_item="내보낼 데이터셋 확인",
+    progress(
+        {
+            "stage": "preparing",
+            "completed": 0,
+            "total": 0,
+            "unit": "items",
+            "current_item": "내보낼 데이터셋 확인",
+            "_force": True,
+        }
     )
     record, source, source_manifest = _source(database, settings, payload)
     exports = _real_directory(settings.nas_root / "exports")
@@ -127,16 +146,18 @@ def export_to_nas(
         if (
             final.is_symlink()
             or not final.is_dir()
-            or validation_content_manifest(final) != source_manifest
+            or _content_manifest(final) != source_manifest
         ):
             raise CurationTransformError("NAS export name already exists")
-        _emit_progress(
-            progress,
-            stage="complete",
-            completed=1,
-            total=1,
-            unit="items",
-            current_item="기존 NAS 내보내기 확인",
+        progress(
+            {
+                "stage": "complete",
+                "completed": 1,
+                "total": 1,
+                "unit": "items",
+                "current_item": "기존 NAS 내보내기 확인",
+                "_force": True,
+            }
         )
         return _delivery_result(
             "nas",
@@ -146,13 +167,15 @@ def export_to_nas(
             reused=True,
         )
     incoming = exports / f".incoming-{job_id}-{uuid.uuid4().hex}"
-    _emit_progress(
-        progress,
-        stage="copy",
-        completed=0,
-        total=source_manifest["file_count"],
-        unit="files",
-        current_item="NAS로 파일 복사",
+    progress(
+        {
+            "stage": "copy",
+            "completed": 0,
+            "total": source_manifest["file_count"],
+            "unit": "files",
+            "current_item": "NAS로 파일 복사",
+            "_force": True,
+        }
     )
     try:
         _copytree_with_progress(
@@ -161,35 +184,41 @@ def export_to_nas(
             total_files=source_manifest["file_count"],
             on_progress=progress,
         )
-        _emit_progress(
-            progress,
-            stage="verify",
-            completed=0,
-            total=0,
-            unit="files",
-            current_item="복사본 무결성 확인",
+        progress(
+            {
+                "stage": "verify",
+                "completed": 0,
+                "total": 0,
+                "unit": "files",
+                "current_item": "복사본 무결성 확인",
+                "_force": True,
+            }
         )
-        if validation_content_manifest(incoming) != source_manifest:
+        if _content_manifest(incoming) != source_manifest:
             raise CurationTransformError("NAS export copy verification failed")
         database.assert_job_lease(job_id, worker_id=worker_id)
         _require_current_gate(database, record, source_manifest)
-        _emit_progress(
-            progress,
-            stage="publish",
-            completed=0,
-            total=1,
-            unit="items",
-            current_item="NAS 내보내기 공개",
+        progress(
+            {
+                "stage": "publish",
+                "completed": 0,
+                "total": 1,
+                "unit": "items",
+                "current_item": "NAS 내보내기 공개",
+                "_force": True,
+            }
         )
         database.begin_job_finalization(job_id, worker_id=worker_id)
         incoming.rename(final)
-        _emit_progress(
-            progress,
-            stage="publish",
-            completed=1,
-            total=1,
-            unit="items",
-            current_item="NAS 내보내기 공개 완료",
+        progress(
+            {
+                "stage": "publish",
+                "completed": 1,
+                "total": 1,
+                "unit": "items",
+                "current_item": "NAS 내보내기 공개 완료",
+                "_force": True,
+            }
         )
     finally:
         shutil.rmtree(incoming, ignore_errors=True)
@@ -197,13 +226,15 @@ def export_to_nas(
         "nas", record, source_manifest, output_name=payload["output_name"], reused=False
     )
     _write_delivery_manifest(settings, job_id, result)
-    _emit_progress(
-        progress,
-        stage="complete",
-        completed=1,
-        total=1,
-        unit="items",
-        current_item="NAS 내보내기 완료",
+    progress(
+        {
+            "stage": "complete",
+            "completed": 1,
+            "total": 1,
+            "unit": "items",
+            "current_item": "NAS 내보내기 완료",
+            "_force": True,
+        }
     )
     return result
 
@@ -217,25 +248,31 @@ def upload_to_huggingface(
     worker_id: str,
 ) -> dict[str, Any]:
     progress = JobProgressReporter(
-        database, job_id=job_id, worker_id=worker_id, output_name=payload["repo_name"]
+        database,
+        job_id=job_id,
+        worker_id=worker_id,
+        output_name=payload["repo_name"],
     )
-    _emit_progress(
-        progress,
-        stage="preparing",
-        completed=0,
-        total=0,
-        unit="items",
-        current_item="업로드할 데이터셋 확인",
+    progress(
+        {
+            "stage": "preparing",
+            "completed": 0,
+            "total": 0,
+            "unit": "items",
+            "current_item": "업로드할 데이터셋 확인",
+            "_force": True,
+        }
     )
     record, source, source_manifest = _source(database, settings, payload)
     if not settings.hf_write_token:
         raise CurationTransformError("Hugging Face write access is not configured")
     from huggingface_hub import HfApi
 
-    repo_id = f"{HF_NAMESPACE}/{payload['repo_name']}"
+    repo_id = f"{HF_NAMESPACE}/{validate_dataset_name(payload['repo_name'])}"
     staging_parent = settings.staging_root / "hf-uploads"
     staging_parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f"{job_id}-", dir=staging_parent))
+    created = False
     external_phase: str | None = None
     try:
         upload_root = staging / payload["repo_name"]
@@ -245,15 +282,17 @@ def upload_to_huggingface(
             total_files=source_manifest["file_count"],
             on_progress=progress,
         )
-        _emit_progress(
-            progress,
-            stage="verify",
-            completed=0,
-            total=0,
-            unit="files",
-            current_item="업로드 준비본 무결성 확인",
+        progress(
+            {
+                "stage": "verify",
+                "completed": 0,
+                "total": 0,
+                "unit": "files",
+                "current_item": "업로드 준비본 무결성 확인",
+                "_force": True,
+            }
         )
-        if validation_content_manifest(upload_root) != source_manifest:
+        if _content_manifest(upload_root) != source_manifest:
             raise CurationTransformError(
                 "Hugging Face staging copy verification failed"
             )
@@ -266,17 +305,18 @@ def upload_to_huggingface(
             + "- Export gate: passed\n",
             encoding="utf-8",
         )
-        upload_manifest = validation_content_manifest(upload_root)
         database.assert_job_lease(job_id, worker_id=worker_id)
         api = HfApi(token=settings.hf_write_token)
         _require_current_gate(database, record, source_manifest)
-        _emit_progress(
-            progress,
-            stage="register",
-            completed=0,
-            total=0,
-            unit="items",
-            current_item=f"{repo_id} 저장소 생성",
+        progress(
+            {
+                "stage": "register",
+                "completed": 0,
+                "total": 0,
+                "unit": "items",
+                "current_item": f"{repo_id} 저장소 생성",
+                "_force": True,
+            }
         )
         # External publication cannot be rolled back safely after this point.
         database.begin_job_finalization(job_id, worker_id=worker_id)
@@ -288,14 +328,17 @@ def upload_to_huggingface(
             exist_ok=False,
             token=settings.hf_write_token,
         )
+        created = True
         external_phase = "upload"
-        _emit_progress(
-            progress,
-            stage="upload",
-            completed=0,
-            total=0,
-            unit="bytes",
-            current_item=f"{repo_id} 업로드",
+        progress(
+            {
+                "stage": "upload",
+                "completed": 0,
+                "total": 0,
+                "unit": "bytes",
+                "current_item": f"{repo_id} 업로드",
+                "_force": True,
+            }
         )
         commit = api.upload_folder(
             repo_id=repo_id,
@@ -306,13 +349,15 @@ def upload_to_huggingface(
         )
         external_phase = None
         database.assert_job_lease(job_id, worker_id=worker_id)
-        _emit_progress(
-            progress,
-            stage="verify",
-            completed=0,
-            total=0,
-            unit="items",
-            current_item="Hugging Face 업로드 결과 확인",
+        progress(
+            {
+                "stage": "verify",
+                "completed": 0,
+                "total": 0,
+                "unit": "items",
+                "current_item": "Hugging Face 업로드 결과 확인",
+                "_force": True,
+            }
         )
         result = {
             "kind": "huggingface",
@@ -321,21 +366,35 @@ def upload_to_huggingface(
             "repo_id": repo_id,
             "visibility": payload["visibility"],
             "commit_url": str(getattr(commit, "commit_url", "")),
-            "source_content_manifest": source_manifest,
-            "upload_content_manifest": upload_manifest,
         }
         _write_delivery_manifest(settings, job_id, result)
-        _emit_progress(
-            progress,
-            stage="complete",
-            completed=1,
-            total=1,
-            unit="items",
-            current_item="Hugging Face 업로드 완료",
+        progress(
+            {
+                "stage": "complete",
+                "completed": 1,
+                "total": 1,
+                "unit": "items",
+                "current_item": "Hugging Face 업로드 완료",
+                "_force": True,
+            }
         )
         return result
     except Exception:
-        if external_phase is not None:
+        if created:
+            try:
+                HfApi(token=settings.hf_write_token).delete_repo(
+                    repo_id=repo_id,
+                    repo_type="dataset",
+                    token=settings.hf_write_token,
+                )
+            except Exception:
+                logger.error("failed to clean up Hugging Face repository %s", repo_id)
+                raise HuggingFaceCleanupRequiredError(repo_id) from None
+            if external_phase is not None:
+                raise HuggingFaceExternalOperationAmbiguousError(
+                    repo_id, external_phase
+                ) from None
+        elif external_phase is not None:
             raise HuggingFaceExternalOperationAmbiguousError(
                 repo_id, external_phase
             ) from None
@@ -353,15 +412,20 @@ def copy_to_pc_with_key(
     worker_id: str,
 ) -> dict[str, Any]:
     progress = JobProgressReporter(
-        database, job_id=job_id, worker_id=worker_id, output_name=payload["destination"]
+        database,
+        job_id=job_id,
+        worker_id=worker_id,
+        output_name=payload["destination"],
     )
-    _emit_progress(
-        progress,
-        stage="preparing",
-        completed=0,
-        total=0,
-        unit="items",
-        current_item="전송할 데이터셋 확인",
+    progress(
+        {
+            "stage": "preparing",
+            "completed": 0,
+            "total": 0,
+            "unit": "items",
+            "current_item": "전송할 데이터셋 확인",
+            "_force": True,
+        }
     )
     record, source, source_manifest = _source(database, settings, payload)
     return _copy_verified_to_pc(
@@ -526,7 +590,7 @@ def _copy_to_pc(
             incoming,
             lease_check=lease_check,
             on_progress=on_progress,
-            total_bytes=validation_content_manifest(source)["total_bytes"],
+            total_bytes=_content_manifest(source)["total_bytes"],
         )
         _emit_progress(
             on_progress,
@@ -536,7 +600,7 @@ def _copy_to_pc(
             unit="files",
             current_item="전송 원본 무결성 재확인",
         )
-        if validation_content_manifest(source)["tree_sha256"] != expected_fingerprint:
+        if _content_manifest(source)["tree_sha256"] != expected_fingerprint:
             raise RecipeRevisionMismatchError(record["id"])
         if lease_check is not None:
             lease_check()
@@ -637,6 +701,8 @@ def _copytree_with_progress(
                 current_item=Path(source_file).name,
             )
         except OSError as exc:
+            # copytree collects OSError and continues. A progress/lease failure must
+            # stop before any later file is copied, so carry it past that handler.
             raise _ProgressCallbackFailure(exc) from exc
         return copied
 

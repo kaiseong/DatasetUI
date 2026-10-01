@@ -188,3 +188,10 @@ describe("segmentation API client", () => {
     ).toBe(false);
   });
 });
+
+test("validation errors show actionable messages without echoing payload", async () => {
+  globalThis.fetch = mock(async () => Response.json({detail: [
+    {msg: "Value error, 객체 2에 제외 힌트만 있습니다.", input: {secret: "do-not-display"}},
+  ]}, {status: 422})) as unknown as typeof fetch;
+  await expect(approveSegmentationPreview("preview", "owner", "hash")).rejects.toThrow("객체 2에 제외 힌트만 있습니다.");
+});

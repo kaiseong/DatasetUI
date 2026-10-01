@@ -5,7 +5,9 @@ from pathlib import Path
 from datasetui.conversion import convert_dataset_to_v21
 from datasetui.database import Database, JobLeaseLostError
 from datasetui.datasets import inspect_dataset
+from datasetui.segmentation import create_preview, export_preview
 from datasetui.transforms import materialize_curation_recipe
+from test_segmentation import DeterministicEngine, _registered, _spec
 from test_transforms import _settings, _write_v21
 from test_validation_conversion import _write_v3
 
@@ -176,3 +178,76 @@ def test_processing_progress_lease_failure_stops_before_output(
     else:
         raise AssertionError("progress lease failure must propagate")
     assert not (settings.nas_root / "derived/must-not-publish").exists()
+
+
+def test_segmentation_preview_and_export_report_real_frame_work(
+    tmp_path: Path, monkeypatch
+) -> None:
+    settings, database, _, dataset = _registered(tmp_path)
+    profile = database.create_profile("Segmentation progress")
+    preview_job, _ = database.create_job(
+        kind="segmentation.preview",
+        queue_name="gpu",
+        profile_id=profile["id"],
+        payload={"spec": _spec(dataset)},
+        idempotency_key="preview-progress",
+    )
+    database.claim_job(preview_job["id"], worker_id="gpu", lease_seconds=120)
+    preview_events = _capture_progress(database, monkeypatch)
+
+    preview = create_preview(
+        database,
+        settings,
+        job_id=preview_job["id"],
+        worker_id="gpu",
+        spec=preview_job["payload"]["spec"],
+        engine=DeterministicEngine(),
+    )
+
+    assert any(
+        event["stage"] == "segment" and event["total"] == 0 for event in preview_events
+    )
+    assert any(
+        event["stage"] == "read" and event["completed"] == event["total"] == 4
+        for event in preview_events
+    )
+    assert preview_events[-1]["stage"] == "complete"
+    database.succeed_job(preview_job["id"], preview, worker_id="gpu")
+
+    export_job, _ = database.create_job(
+        kind="segmentation.export",
+        queue_name="cpu",
+        profile_id=profile["id"],
+        payload={
+            "preview_id": preview_job["id"],
+            "output_name": "segmented-progress",
+        },
+        idempotency_key="export-progress",
+    )
+    database.claim_job(export_job["id"], worker_id="cpu", lease_seconds=120)
+    export_events: list[dict] = []
+    current_update = database.update_job_progress
+
+    def capture_export(job_id, *, worker_id, progress):
+        export_events.append(progress)
+        current_update(job_id, worker_id=worker_id, progress=progress)
+
+    monkeypatch.setattr(database, "update_job_progress", capture_export)
+
+    export_preview(
+        database,
+        settings,
+        job_id=export_job["id"],
+        worker_id="cpu",
+        preview_id=preview_job["id"],
+        output_name="segmented-progress",
+    )
+
+    assert any(
+        event["stage"] == "video" and event["completed"] == event["total"] == 4
+        for event in export_events
+    )
+    assert {"statistics", "validate", "publish", "register", "complete"} <= {
+        event["stage"] for event in export_events
+    }
+    assert export_events[-1]["stage"] == "complete"

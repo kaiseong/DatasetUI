@@ -24,7 +24,8 @@ def test_complete_approved_augmentation_flow(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(Settings, "from_env", classmethod(lambda cls: settings))
     monkeypatch.setattr(
-        "datasetui.segmentation._default_engine", lambda settings: DeterministicEngine()
+        "datasetui.segmentation._default_engine",
+        lambda settings, **kwargs: DeterministicEngine(),
     )
     app = create_application(
         database=database,

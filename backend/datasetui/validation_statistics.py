@@ -222,6 +222,7 @@ class NumericStatisticsValidator:
                 None,
             )
             return StatisticsValidationSummary((), self._visual_feature_names())
+
         official_operation = _official_policy(root, self._issue)
 
         validated: list[str] = []

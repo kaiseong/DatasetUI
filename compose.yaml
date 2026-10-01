@@ -12,17 +12,24 @@ x-backend-environment: &backend-environment
   DATASETUI_CACHE_ROOT: /data/cache
   DATASETUI_STAGING_ROOT: /data/staging
   DATASETUI_JOBS_ROOT: /data/jobs
-  DATASETUI_SAM3_CHECKPOINT: /data/models/sam3.1.pt
-  DATASETUI_SAM3_SHA256: ${DATASETUI_SAM3_SHA256:-}
-  DATASETUI_SEGMENTATION_MAX_FRAMES: ${DATASETUI_SEGMENTATION_MAX_FRAMES:-3600}
   DATASETUI_SCAN_MAX_DEPTH: ${DATASETUI_SCAN_MAX_DEPTH:-6}
   DATASETUI_JOB_TIMEOUT_SECONDS: ${DATASETUI_JOB_TIMEOUT_SECONDS:-900}
+  DATASETUI_QUEUE_SUFFIX: ${DATASETUI_QUEUE_SUFFIX:-}
+  DATASETUI_CPU_QUEUE: ${DATASETUI_CPU_QUEUE:-}
+  DATASETUI_ADAPTIVE_ENABLED: ${DATASETUI_ADAPTIVE_ENABLED:-0}
+  DATASETUI_PARALLEL_MAX_JOBS: ${DATASETUI_PARALLEL_MAX_JOBS:-3}
   DATASETUI_VALIDATION_TIMEOUT_SECONDS: ${DATASETUI_VALIDATION_TIMEOUT_SECONDS:-3600}
   DATASETUI_MERGE_TIMEOUT_SECONDS: ${DATASETUI_MERGE_TIMEOUT_SECONDS:-86400}
+  DATASETUI_RELATIVE_TIMEOUT_SECONDS: ${DATASETUI_RELATIVE_TIMEOUT_SECONDS:-86400}
+  DATASETUI_RELATIVE_MAX_SCRATCH_BYTES: ${DATASETUI_RELATIVE_MAX_SCRATCH_BYTES:-17179869184}
+  DATASETUI_RELATIVE_SCRATCH_DIR: /data/staging
   DATASETUI_IO_JOB_TIMEOUT_SECONDS: ${DATASETUI_IO_JOB_TIMEOUT_SECONDS:-86400}
   DATASETUI_JOB_LEASE_SECONDS: ${DATASETUI_JOB_LEASE_SECONDS:-120}
   DATASETUI_JOB_HEARTBEAT_SECONDS: ${DATASETUI_JOB_HEARTBEAT_SECONDS:-20}
   DATASETUI_HF_IMPORT_MAX_BYTES: ${DATASETUI_HF_IMPORT_MAX_BYTES:-2000000000000}
+  DATASETUI_SAM3_CHECKPOINT: /data/models/sam3.1.pt
+  DATASETUI_SAM3_SHA256: ${DATASETUI_SAM3_SHA256:-}
+  DATASETUI_SEGMENTATION_MAX_FRAMES: ${DATASETUI_SEGMENTATION_MAX_FRAMES:-3600}
   DATASETUI_SSH_PRIVATE_KEY: /data/ssh-private/id_ed25519
   DATASETUI_SSH_KNOWN_HOSTS: /data/ssh-known-hosts/known_hosts
   HF_HOME: /data/cache/huggingface
@@ -33,12 +40,12 @@ x-backend-environment: &backend-environment
 
 x-backend-read-volumes: &backend-read-volumes
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/cache:/data/cache
-  - ${DATASETUI_MODEL_ROOT:-./.runtime/models}:/data/models:ro
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/staging:/data/staging
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/jobs:/data/jobs
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/registry:/data/registry
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/logs:/data/logs
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/ssh-known-hosts:/data/ssh-known-hosts:ro
+  - ${DATASETUI_MODEL_ROOT:-./.runtime/models}:/data/models:ro
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/raw:/mnt/datasetui-nas/DatasetUI/raw:ro
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/derived:/mnt/datasetui-nas/DatasetUI/derived
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/exports:/mnt/datasetui-nas/DatasetUI/exports
@@ -46,13 +53,13 @@ x-backend-read-volumes: &backend-read-volumes
 
 x-backend-io-volumes: &backend-io-volumes
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/cache:/data/cache
-  - ${DATASETUI_MODEL_ROOT:-./.runtime/models}:/data/models:ro
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/staging:/data/staging
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/jobs:/data/jobs
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/registry:/data/registry
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/logs:/data/logs
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/ssh-known-hosts:/data/ssh-known-hosts:ro
   - ${DATASETUI_DATA_ROOT:-./.runtime/data}/ssh-private:/data/ssh-private:ro
+  - ${DATASETUI_MODEL_ROOT:-./.runtime/models}:/data/models:ro
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/raw:/mnt/datasetui-nas/DatasetUI/raw
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/derived:/mnt/datasetui-nas/DatasetUI/derived
   - ${DATASETUI_NAS_ROOT:-./.runtime/nas}/exports:/mnt/datasetui-nas/DatasetUI/exports
@@ -69,7 +76,7 @@ services:
       - "443:443"
     volumes:
       - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ${DATASETUI_DATA_ROOT:-./.runtime/data}:/data
+      - ${DATASETUI_DATA_ROOT:-./.runtime/data}/caddy:/data/caddy
       - ${DATASETUI_DATA_ROOT:-./.runtime/data}/caddy-config:/config
     depends_on:
       web:
@@ -115,7 +122,6 @@ services:
     # CPU/converter workers keep the read-only raw mount above.
     volumes:
       - ${DATASETUI_DATA_ROOT:-./.runtime/data}/cache:/data/cache
-      - ${DATASETUI_MODEL_ROOT:-./.runtime/models}:/data/models:ro
       - ${DATASETUI_DATA_ROOT:-./.runtime/data}/staging:/data/staging
       - ${DATASETUI_DATA_ROOT:-./.runtime/data}/jobs:/data/jobs
       - ${DATASETUI_DATA_ROOT:-./.runtime/data}/registry:/data/registry
@@ -235,13 +241,27 @@ services:
       redis:
         condition: service_healthy
 
-  worker-converter-v21:
+  worker-adaptive:
+    profiles: [adaptive]
     build:
       context: ./backend
-      dockerfile: Dockerfile.converter-v21
+      dockerfile: Dockerfile.processor
     restart: unless-stopped
     user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
-    environment: *backend-environment
+    command: [python, -m, datasetui.adaptive_pool]
+    cpus: ${DATASETUI_ADAPTIVE_CPU_LIMIT:-12.0}
+    mem_limit: 48g
+    stop_grace_period: 25h
+    environment:
+      <<: *backend-environment
+      DATASETUI_ADAPTIVE_QUEUES: ${DATASETUI_ADAPTIVE_QUEUES:-cpu,cpu-adaptive-v1}
+      DATASETUI_RESOURCE_RESERVE_PERCENT: ${DATASETUI_RESOURCE_RESERVE_PERCENT:-30}
+      DATASETUI_PARALLEL_JOB_CPUS: ${DATASETUI_PARALLEL_JOB_CPUS:-4}
+      DATASETUI_PARALLEL_JOB_MEMORY_GIB: ${DATASETUI_PARALLEL_JOB_MEMORY_GIB:-8}
+      TORCHINDUCTOR_CACHE_DIR: /data/cache/torchinductor
+      OMP_NUM_THREADS: "1"
+      OPENBLAS_NUM_THREADS: "1"
+      MKL_NUM_THREADS: "1"
     volumes: *backend-read-volumes
     depends_on:
       redis:
@@ -276,6 +296,18 @@ services:
     # Native Docker CDI; generate the NVIDIA CDI spec after driver installation.
     devices:
       - "${DATASETUI_GPU_DEVICE:-nvidia.com/gpu=0}"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  worker-converter-v21:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.converter-v21
+    restart: unless-stopped
+    user: "${DATASETUI_UID:-1000}:${DATASETUI_GID:-1000}"
+    environment: *backend-environment
+    volumes: *backend-read-volumes
     depends_on:
       redis:
         condition: service_healthy

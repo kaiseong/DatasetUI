@@ -218,7 +218,9 @@ def move_dataset_to_trash(
                         code="trash_path_conflict",
                     )
                     destination_fd = _open_leaf_directory(
-                        trash_fd, record["dataset_id"], code="trash_recovery_required"
+                        trash_fd,
+                        record["dataset_id"],
+                        code="trash_recovery_required",
                     )
                     try:
                         if _fd_identity(destination_fd) != source_identity:
@@ -279,11 +281,16 @@ def restore_dataset_from_trash(nas_root: Path, record: dict[str, Any]) -> None:
                         code="trash_recovery_required",
                     )
                     _rename_noreplace(
-                        trash_fd, record["dataset_id"], destination_parent_fd,
-                        destination_name, code="restore_path_occupied"
+                        trash_fd,
+                        record["dataset_id"],
+                        destination_parent_fd,
+                        destination_name,
+                        code="restore_path_occupied",
                     )
                     destination_fd = _open_leaf_directory(
-                        destination_parent_fd, destination_name, code="trash_recovery_required"
+                        destination_parent_fd,
+                        destination_name,
+                        code="trash_recovery_required",
                     )
                     try:
                         if _fd_identity(destination_fd) != source_identity:
@@ -383,7 +390,11 @@ def _location_identity(
     area_root: Path, relative: Path, *, code: str
 ) -> tuple[int, int]:
     with _open_area(area_root, code=code) as area_fd:
-        with _open_parent(area_root, area_fd, relative, code=code) as (parent_fd, _, name):
+        with _open_parent(area_root, area_fd, relative, code=code) as (
+            parent_fd,
+            _parent_path,
+            name,
+        ):
             leaf_fd = _open_leaf_directory(parent_fd, name, code=code)
             try:
                 return _fd_identity(leaf_fd)
@@ -426,7 +437,9 @@ def _assert_fd_path(path: Path, fd: int, *, code: str) -> None:
         raise DatasetTrashPathError(code)
 
 
-def _assert_leaf_identity(parent_fd: int, name: str, leaf_fd: int, *, code: str) -> None:
+def _assert_leaf_identity(
+    parent_fd: int, name: str, leaf_fd: int, *, code: str
+) -> None:
     try:
         info = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
     except OSError as exc:
@@ -438,18 +451,31 @@ def _assert_leaf_identity(parent_fd: int, name: str, leaf_fd: int, *, code: str)
 
 
 def _rename_noreplace(
-    source_parent_fd: int, source_name: str, destination_parent_fd: int,
-    destination_name: str, *, code: str
+    source_parent_fd: int,
+    source_name: str,
+    destination_parent_fd: int,
+    destination_name: str,
+    *,
+    code: str,
 ) -> None:
     libc = ctypes.CDLL(None, use_errno=True)
     renameat2 = getattr(libc, "renameat2", None)
     if renameat2 is None:
         raise DatasetTrashPathError(code)
-    renameat2.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+    renameat2.argtypes = [
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_int,
+        ctypes.c_char_p,
+        ctypes.c_uint,
+    ]
     renameat2.restype = ctypes.c_int
     result = renameat2(
-        source_parent_fd, os.fsencode(source_name), destination_parent_fd,
-        os.fsencode(destination_name), _RENAME_NOREPLACE
+        source_parent_fd,
+        os.fsencode(source_name),
+        destination_parent_fd,
+        os.fsencode(destination_name),
+        _RENAME_NOREPLACE,
     )
     if result == 0:
         return

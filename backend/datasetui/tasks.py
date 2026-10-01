@@ -26,6 +26,10 @@ from datasetui.job_cancellation import (
 )
 from datasetui.job_progress import JobProgressReporter
 from datasetui.transform_errors import CurationTransformError
+from datasetui.delivery import (
+    HuggingFaceCleanupRequiredError,
+    HuggingFaceExternalOperationAmbiguousError,
+)
 
 
 logger = logging.getLogger("datasetui.worker")
@@ -48,16 +52,19 @@ def run_job(job_id: str) -> dict[str, object]:
         return {"job_id": job_id, "status": current["status"], "claimed": False}
 
     try:
-        with _heartbeat_lease(
-            database,
-            job_id=job_id,
-            worker_id=worker_id,
-            lease_seconds=settings.job_lease_seconds,
-            heartbeat_seconds=settings.job_heartbeat_seconds,
-        ), cancellation_monitor(
-            database,
-            job_id=job_id,
-            worker_id=worker_id,
+        with (
+            _heartbeat_lease(
+                database,
+                job_id=job_id,
+                worker_id=worker_id,
+                lease_seconds=settings.job_lease_seconds,
+                heartbeat_seconds=settings.job_heartbeat_seconds,
+            ),
+            cancellation_monitor(
+                database,
+                job_id=job_id,
+                worker_id=worker_id,
+            ),
         ):
             progress = JobProgressReporter(
                 database,
@@ -240,24 +247,23 @@ def _public_failure(exc: Exception) -> tuple[str, str]:
             "credential_unavailable",
             "비밀번호가 만료되거나 임시 저장소에 연결할 수 없습니다. 다시 입력해 새 작업을 요청하세요.",
         )
-    from datasetui.delivery import ExportGateRequiredError, HuggingFaceExternalOperationAmbiguousError
+    from datasetui.delivery import ExportGateRequiredError
 
     if isinstance(exc, ExportGateRequiredError):
         return (
             "export_gate_required",
             "Run the current content-bound export gate before delivery",
         )
-    if isinstance(exc, HuggingFaceExternalOperationAmbiguousError):
-        return (
-            "external_outcome_uncertain",
-            "External delivery outcome needs manual verification",
-        )
     from rq.timeouts import JobTimeoutException
 
     if isinstance(exc, JobTimeoutException):
         return "job_timeout", "The job exceeded its execution time limit"
 
-    from datasetui.sam3_engine import Sam3UnavailableError, Sam3InferenceError, Sam3PromptMatchError
+    from datasetui.sam3_engine import (
+        Sam3UnavailableError,
+        Sam3InferenceError,
+        Sam3PromptMatchError,
+    )
 
     if isinstance(exc, Sam3PromptMatchError):
         return "segmentation_guidance", str(exc)
@@ -275,6 +281,10 @@ def _public_failure(exc: Exception) -> tuple[str, str]:
             "segmentation_failed",
             "SAM 3.1 did not produce a complete valid mask sequence",
         )
+    if isinstance(exc, HuggingFaceCleanupRequiredError):
+        return "hf_cleanup_required", str(exc)
+    if isinstance(exc, HuggingFaceExternalOperationAmbiguousError):
+        return "external_outcome_uncertain", str(exc)
     if isinstance(exc, DatasetRootUnavailableError):
         return "storage_unavailable", "Dataset storage is unavailable"
     if isinstance(exc, HuggingFaceImportTooLargeError):

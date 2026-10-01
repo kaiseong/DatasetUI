@@ -11,6 +11,7 @@ import {
   LuFileWarning,
   LuListChecks,
   LuPlay,
+  LuSparkles,
 } from "react-icons/lu";
 import type {
   DatasetReadiness,
@@ -127,8 +128,16 @@ export default function DatasetRow({
           )}
           {dataset.available && dataset.readiness === "ready" ? (
             <div className="dataset-row__actions">
-              <p>원본 파일을 변경하지 않고 Viewer에서 엽니다.</p>
+              <p>
+                원본 파일을 변경하지 않고 Viewer 또는 증강 작업에서 사용합니다.
+              </p>
               <div className="flex flex-wrap justify-end gap-2">
+                <Link
+                  href={`/augment?dataset=${encodeURIComponent(dataset.id)}`}
+                  className="workbench-button"
+                >
+                  <LuSparkles aria-hidden /> Augment
+                </Link>
                 <Link
                   href={`/datasets/${encodeURIComponent(dataset.id)}/curate`}
                   className="workbench-button"

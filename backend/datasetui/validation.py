@@ -26,7 +26,7 @@ from datasetui.validation_statistics import NumericStatisticsValidator
 from datasetui.validation_video import VideoValidator
 from datasetui.validation_integrity import VALIDATOR_POLICY, validation_content_manifest
 
-import hashlib
+from datasetui.content_integrity import dataset_content_fingerprint
 
 
 class DatasetValidationError(CurationTransformError):
@@ -109,7 +109,7 @@ def validate_dataset_root(
 
     try:
         raw = _read_regular_bytes(root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
-        actual_fingerprint = hashlib.sha256(raw).hexdigest()
+        actual_fingerprint = dataset_content_fingerprint(root)
     except (OSError, ValueError, CurationTransformError):
         issue(
             "FAIL",

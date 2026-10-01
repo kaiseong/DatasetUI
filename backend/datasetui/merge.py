@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import shutil
 import tempfile
@@ -27,6 +26,7 @@ from datasetui.transforms import (
     _safe_child,
     _tree_manifest,
     _write_json_atomic,
+    _assert_source_fingerprint,
 )
 
 
@@ -142,12 +142,11 @@ def merge_datasets(
         root = _safe_dataset_root(
             settings.nas_root, record["storage_area"], record["relative_path"]
         )
-        raw = _read_regular_bytes(root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
-        if hashlib.sha256(raw).hexdigest() != requested["fingerprint"]:
-            raise RecipeRevisionMismatchError(requested["id"])
+        _assert_source_fingerprint(root, requested["fingerprint"], requested["id"])
         from datasetui.relative_artifacts import reject_relative_profile
 
         reject_relative_profile(root, operation="Merge")
+        raw = _read_regular_bytes(root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
         info = json.loads(raw)
         records.append(record)
         infos.append(info)
@@ -269,6 +268,12 @@ def merge_datasets(
             }
         )
         database.assert_job_lease(job_id, worker_id=worker_id)
+        for source_root, requested in zip(
+            (source.root for source in sources), payload["sources"]
+        ):
+            _assert_source_fingerprint(
+                source_root, requested["fingerprint"], requested["id"]
+            )
         manifest = _publish_output(
             database=database,
             settings=settings,

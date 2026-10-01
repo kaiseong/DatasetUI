@@ -3088,73 +3088,6 @@ body {
   background: rgba(56, 189, 248, 0.15);
 }
 
-.workbench-job-panel {
-  display: grid;
-  gap: 14px;
-  padding-top: 24px;
-}
-.workbench-job-panel h2 {
-  font-size: 20px;
-  font-weight: 700;
-}
-.generic-job-progress {
-  min-width: 0;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  background: #0e141f;
-  padding: 16px;
-}
-.generic-job-progress h3 {
-  font-weight: 600;
-}
-.generic-job-progress p,
-.generic-job-progress small,
-.generic-job-progress footer,
-.workbench-job-panel > p {
-  color: #aebbd0;
-  font-size: 12px;
-  line-height: 1.7;
-}
-.generic-job-progress .validation-progress {
-  display: grid;
-}
-.job-recent summary {
-  cursor: pointer;
-  padding: 10px 0;
-  font-size: 13px;
-}
-.job-recent > details {
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.merge-job-list {
-  display: grid;
-  gap: 12px;
-  margin-top: 24px;
-}
-
-.merge-job-list > p,
-.merge-job-progress p,
-.merge-job-progress small,
-.merge-job-progress footer {
-  color: #aebbd0;
-  font-size: 12px;
-  line-height: 1.7;
-}
-
-.merge-job-progress {
-  min-width: 0;
-  padding: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  background: #0e141f;
-}
-
-.merge-job-progress .validation-progress {
-  display: grid;
-  justify-content: stretch;
-}
-
 .validation-progress__track > span {
   display: block;
   height: 100%;
@@ -3345,6 +3278,46 @@ body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+.workbench-job-panel {
+  display: grid;
+  gap: 14px;
+  padding-top: 24px;
+}
+.workbench-job-panel h2 {
+  font-size: 20px;
+  font-weight: 700;
+}
+.generic-job-progress {
+  min-width: 0;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: #0e141f;
+  padding: 16px;
+}
+.generic-job-progress h3 {
+  font-weight: 600;
+}
+.generic-job-progress p,
+.generic-job-progress small,
+.generic-job-progress footer,
+.workbench-job-panel > p {
+  color: #aebbd0;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.generic-job-progress .validation-progress {
+  display: grid;
+}
+.job-recent summary {
+  cursor: pointer;
+  padding: 10px 0;
+  font-size: 13px;
+}
+.job-recent > details {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 .job-cancel-control {
   display: grid;
   justify-items: start;

@@ -1,0 +1,33 @@
+{
+  "status": "passed",
+  "profile_id": "9b76f3cc-f84a-4227-8b07-2d08f6c5adf9",
+  "dataset_id": "af0cc616-086c-4144-a780-1de16154992d",
+  "candidate_job": "c163b2cc-8577-47c5-9f41-d7f159822650",
+  "sample_job": "4243b019-e063-4397-ba64-be925dd92a05",
+  "candidate_count": 4,
+  "selected_count": 2,
+  "restored_after_reload": true,
+  "errors": [],
+  "full_episode": {
+    "job_id": "88fcbcca-88e3-4519-8ec8-19c12a0a9d92",
+    "frame_count": 1198,
+    "selection_required": false,
+    "video": {
+      "duration": 39.933333,
+      "width": 640,
+      "height": 480,
+      "ready": 4,
+      "error": null
+    },
+    "confidence_threshold": 0.5,
+    "selected_candidates": 1
+  },
+  "video_page_errors": [],
+  "final_ui": {
+    "background_edit_after_confirm": true,
+    "no_duplicate_candidate_picker": true,
+    "approved_button_enabled": true,
+    "existing_real_video_replayed": true,
+    "errors": []
+  }
+}

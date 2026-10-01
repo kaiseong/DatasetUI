@@ -75,6 +75,195 @@ def _write_stats(root: Path, value: dict) -> None:
     (root / "meta/stats.json").write_text(json.dumps(value), encoding="utf-8")
 
 
+def _bind_official_policy(root: Path, info: dict, *, operation="split_dataset") -> None:
+    from datasetui.official_operations import _bind_official_statistics
+
+    (root / "meta/info.json").write_text(json.dumps(info), encoding="utf-8")
+    episodes = root / "meta/episodes/chunk-000"
+    episodes.mkdir(parents=True)
+    pd.DataFrame({"episode_index": [0], "length": [1]}).to_parquet(
+        episodes / "file-000.parquet", index=False
+    )
+    data = root / "data/chunk-000"
+    data.mkdir(parents=True)
+    pd.DataFrame({"index": [0]}).to_parquet(data / "file-000.parquet", index=False)
+    _bind_official_statistics(root, operation=operation)
+
+
+def test_official_policy_only_downgrades_known_bookkeeping_mismatches(
+    tmp_path: Path,
+) -> None:
+    info = {
+        "features": {
+            "action": {"dtype": "float32", "shape": [1]},
+            "index": {"dtype": "int64", "shape": [1]},
+        }
+    }
+    stored = {
+        "action": _stats(np.asarray([[999.0]])),
+        "index": _stats(np.asarray([[999.0]])),
+    }
+    _write_stats(tmp_path, stored)
+    _bind_official_policy(tmp_path, info)
+    issues = []
+    validator = NumericStatisticsValidator(info, lambda *item: issues.append(item))
+    validator.add_episode(
+        pd.DataFrame({"action": [1.0], "index": [0]}), episode_index=0
+    )
+
+    validator.validate(tmp_path, complete_dataset=True)
+
+    assert any(
+        item[0] == "FAIL" and item[1] == "stats_value_mismatch" for item in issues
+    )
+    assert any(
+        item[0] == "WARN"
+        and item[1] == "official_bookkeeping_stats_difference"
+        for item in issues
+    )
+
+
+def test_tampered_official_marker_fails_and_does_not_relax_validation(
+    tmp_path: Path,
+) -> None:
+    info = {"features": {"index": {"dtype": "int64", "shape": [1]}}}
+    _write_stats(tmp_path, {"index": _stats(np.asarray([[999.0]]))})
+    _bind_official_policy(tmp_path, info)
+    marker_path = tmp_path / "meta/datasetui_provenance.json"
+    marker = json.loads(marker_path.read_text(encoding="utf-8"))
+    marker["stats_sha256"] = "0" * 64
+    marker_path.write_text(json.dumps(marker), encoding="utf-8")
+    issues = []
+    validator = NumericStatisticsValidator(info, lambda *item: issues.append(item))
+    validator.add_episode(pd.DataFrame({"index": [0]}), episode_index=0)
+
+    validator.validate(tmp_path, complete_dataset=True)
+
+    assert any(
+        item[0] == "FAIL" and item[1] == "official_statistics_provenance_invalid"
+        for item in issues
+    )
+    assert any(
+        item[0] == "FAIL" and item[1] == "stats_value_mismatch" for item in issues
+    )
+
+
+def test_official_bookkeeping_count_mismatch_remains_a_failure(tmp_path: Path) -> None:
+    info = {"features": {"index": {"dtype": "int64", "shape": [1]}}}
+    stats = _stats(np.asarray([[0.0]]))
+    stats["count"] = [999]
+    _write_stats(tmp_path, {"index": stats})
+    _bind_official_policy(tmp_path, info)
+    issues = []
+    validator = NumericStatisticsValidator(info, lambda *item: issues.append(item))
+    validator.add_episode(pd.DataFrame({"index": [0]}), episode_index=0)
+
+    validator.validate(tmp_path, complete_dataset=True)
+
+    assert any(
+        item[0] == "FAIL" and item[1] == "stats_value_mismatch" for item in issues
+    )
+
+
+def test_official_policy_rejects_changed_video_content(tmp_path: Path) -> None:
+    info = {"features": {"index": {"dtype": "int64", "shape": [1]}}}
+    _write_stats(tmp_path, {"index": _stats(np.asarray([[0.0]]))})
+    video = tmp_path / "videos/camera/chunk-000/file-000.mp4"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"original-video")
+    _bind_official_policy(tmp_path, info)
+    video.write_bytes(b"changed-video")
+    issues = []
+    validator = NumericStatisticsValidator(info, lambda *item: issues.append(item))
+    validator.add_episode(pd.DataFrame({"index": [0]}), episode_index=0)
+
+    validator.validate(tmp_path, complete_dataset=True)
+
+    assert any(
+        item[0] == "FAIL" and item[1] == "official_statistics_provenance_invalid"
+        for item in issues
+    )
+
+
+def test_official_policy_rejects_changed_parquet_content(tmp_path: Path) -> None:
+    info = {"features": {"index": {"dtype": "int64", "shape": [1]}}}
+    _write_stats(tmp_path, {"index": _stats(np.asarray([[0.0]]))})
+    _bind_official_policy(tmp_path, info)
+    data = tmp_path / "data/chunk-000/file-000.parquet"
+    pd.DataFrame({"index": [1]}).to_parquet(data, index=False)
+    issues = []
+    validator = NumericStatisticsValidator(info, lambda *item: issues.append(item))
+    validator.add_episode(pd.DataFrame({"index": [0]}), episode_index=0)
+
+    validator.validate(tmp_path, complete_dataset=True)
+
+    assert any(
+        item[0] == "FAIL" and item[1] == "official_statistics_provenance_invalid"
+        for item in issues
+    )
+
+
+def test_official_policy_rejects_symlinked_episode_metadata(tmp_path: Path) -> None:
+    info = {"features": {"index": {"dtype": "int64", "shape": [1]}}}
+    _write_stats(tmp_path, {"index": _stats(np.asarray([[0.0]]))})
+    _bind_official_policy(tmp_path, info)
+    episode = tmp_path / "meta/episodes/chunk-000/file-000.parquet"
+    episode.unlink()
+    episode.symlink_to(tmp_path / "meta/stats.json")
+    issues = []
+    validator = NumericStatisticsValidator(info, lambda *item: issues.append(item))
+    validator.add_episode(pd.DataFrame({"index": [0]}), episode_index=0)
+
+    validator.validate(tmp_path, complete_dataset=True)
+
+    assert any(
+        item[0] == "FAIL" and item[1] == "official_statistics_provenance_invalid"
+        for item in issues
+    )
+
+
+def test_bound_official_visual_difference_is_verified_with_warning(
+    tmp_path: Path,
+) -> None:
+    feature = "observation.images.top"
+    info = {
+        "features": {
+            feature: {"dtype": "video", "shape": [24, 32, 3]},
+        }
+    }
+    stored = {
+        feature: {
+            "min": [[[0.0]], [[0.0]], [[0.0]]],
+            "max": [[[1.0]], [[1.0]], [[1.0]]],
+            "mean": [[[0.5]], [[0.5]], [[0.5]]],
+            "std": [[[0.1]], [[0.1]], [[0.1]]],
+            "count": [1],
+        }
+    }
+    actual = {
+        feature: {
+            "min": np.zeros((3, 1, 1)),
+            "max": np.zeros((3, 1, 1)),
+            "mean": np.zeros((3, 1, 1)),
+            "std": np.zeros((3, 1, 1)),
+            "count": np.asarray([2]),
+        }
+    }
+    _write_stats(tmp_path, stored)
+    _bind_official_policy(tmp_path, info)
+    issues = []
+    validator = NumericStatisticsValidator(info, lambda *item: issues.append(item))
+
+    summary = validator.validate(
+        tmp_path, complete_dataset=True, visual_statistics=actual
+    )
+
+    assert not any(item[0] == "FAIL" for item in issues)
+    assert any(item[1] == "official_visual_stats_difference" for item in issues)
+    assert summary.unverified_visual_features == ()
+    assert summary.validated_features == (feature,)
+
+
 def test_recomputes_numeric_stats_episode_wise_with_bounded_state(
     tmp_path: Path,
 ) -> None:

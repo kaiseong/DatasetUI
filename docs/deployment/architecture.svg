@@ -1,0 +1,200 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1480" height="1150" viewBox="0 0 1480 1150">
+<rect width="1480" height="1150" fill="#0a0e17"/>
+<defs><marker id="a-38bdf8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#38bdf8"/></marker><marker id="b-38bdf8" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M10,0 L0,5 L10,10 z" fill="#38bdf8"/></marker></defs>
+<defs><marker id="a-fbbf24" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#fbbf24"/></marker><marker id="b-fbbf24" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M10,0 L0,5 L10,10 z" fill="#fbbf24"/></marker></defs>
+<defs><marker id="a-34d399" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#34d399"/></marker><marker id="b-34d399" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M10,0 L0,5 L10,10 z" fill="#34d399"/></marker></defs>
+<defs><marker id="a-a78bfa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a78bfa"/></marker><marker id="b-a78bfa" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M10,0 L0,5 L10,10 z" fill="#a78bfa"/></marker></defs>
+<defs><marker id="a-f87171" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f87171"/></marker><marker id="b-f87171" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M10,0 L0,5 L10,10 z" fill="#f87171"/></marker></defs>
+<defs><marker id="a-64748b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker><marker id="b-64748b" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M10,0 L0,5 L10,10 z" fill="#64748b"/></marker></defs>
+<text x="40" y="42" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="25" font-weight="700" fill="#e7eef8">DatasetUI — NAS · Server · Client 구조</text>
+<text x="40" y="66" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12.5" font-weight="400" fill="#64748b">LeRobot 데이터셋 워크벤치 배포 구조 (docker compose project: datasetui) · 원본 불변(raw/) 경계와 납품 경로 중심</text>
+<rect x="40" y="82" width="1400" height="176" rx="14" fill="#0e1420" stroke="#1c2740" stroke-width="1"/>
+<text x="56" y="104" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12" font-weight="700" fill="#a78bfa" letter-spacing="2.4">CLIENT / EXTERNAL</text>
+<text x="1424" y="104" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="11.5" font-weight="400" fill="#64748b" text-anchor="end">사내 LAN + 인터넷 · 서버 밖</text>
+<rect x="60" y="116" width="800" height="130" rx="12" fill="#0c111c" stroke="#1f2b42" stroke-width="1" stroke-dasharray="4 4"/>
+<text x="76" y="136" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="11.5" font-weight="600" fill="#a78bfa">팀원 Ubuntu PC (사내 LAN)</text>
+<rect x="76" y="148" width="379" height="94" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="92" cy="168" r="4" fill="#a78bfa"/>
+<text x="104" y="172.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">브라우저</text>
+<text x="92" y="189" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#a78bfa">https://192.168.0.3  →  /library</text>
+<text x="92" y="206.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">Root CA 1회 설치 후에만 신뢰됨 (자동 설치 없음)</text>
+<text x="92" y="220.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">프로필 선택 · 라이브러리 · Jobs · Viewer</text>
+<text x="92" y="235.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">데이터셋 파일은 API 스트리밍으로만 열람</text>
+<rect x="470" y="148" width="375" height="94" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="486" cy="168" r="4" fill="#a78bfa"/>
+<text x="498" y="172.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">OpenSSH sshd :22 (SFTP)</text>
+<text x="486" y="189" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#a78bfa">PC 납품 대상 — 서버가 PC로 접속</text>
+<text x="486" y="206.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">known_hosts 검증 (RejectPolicy, 미등록 호스트 거부)</text>
+<text x="486" y="220.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">등록 키(worker-io) 또는 사용자 비밀번호 인증</text>
+<text x="486" y="235.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.8" font-weight="400" fill="#9db0c9">.datasetui-incoming-* → rename` 원자적 배치</text>
+<rect x="1040" y="116" width="384" height="130" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="1056" cy="136" r="4" fill="#a78bfa"/>
+<text x="1068" y="140.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">huggingface.co</text>
+<text x="1056" y="157" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#a78bfa">namespace: rainbowrobotics</text>
+<text x="1056" y="174.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">import: revision 지정 → raw/ 에 착지</text>
+<text x="1056" y="188.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">  HF_READ_TOKEN (서버 전용, 브라우저 노출 금지)</text>
+<text x="1056" y="203.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">publish: exports 스냅샷 → 신규 repo 생성만</text>
+<text x="1056" y="217.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">  HF_WRITE_TOKEN (worker-io 컨테이너 내부만)</text>
+<text x="1056" y="232.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#a78bfa">토큰은 NEXT_PUBLIC_* 로 절대 나가지 않음</text>
+<rect x="40" y="290" width="960" height="610" rx="14" fill="#0e1420" stroke="#1c2740" stroke-width="1"/>
+<text x="56" y="312" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12" font-weight="700" fill="#38bdf8" letter-spacing="2.4">SERVER</text>
+<text x="984" y="312" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="11.5" font-weight="400" fill="#64748b" text-anchor="end">RTX 6000 호스트 · 192.168.0.3</text>
+<rect x="76" y="326" width="888" height="94" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="92" cy="346" r="4" fill="#38bdf8"/>
+<text x="104" y="350.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">caddy 2.10 — HTTPS 리버스 프록시</text>
+<text x="92" y="367" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#38bdf8">tcp 80/443 · tls internal (자체 CA) · admin off</text>
+<text x="92" y="388" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#9db0c9">/  →  web:3000   (rewrite → /library)</text>
+<text x="92" y="404" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#9db0c9">/api/health, /api/v1/*  →  api:7861</text>
+<text x="520" y="388" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#f87171">/api/dataset/* /api/episodes/* /api/export /api/push_to_hub  →  404</text>
+<text x="520" y="404" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#64748b">HSTS · nosniff · SAMEORIGIN · Referrer same-origin</text>
+<rect x="76" y="448" width="320" height="112" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="92" cy="468" r="4" fill="#38bdf8"/>
+<text x="104" y="472.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">web</text>
+<text x="92" y="489" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#38bdf8">Next.js App Router · :3000 (내부 전용)</text>
+<text x="92" y="506.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">/library /jobs /profiles /merge /validate /deliver</text>
+<text x="92" y="520.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">/viewer — 기존 LeRobot 시각화 화면 재사용</text>
+<text x="92" y="535.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">/api/proxy/* 는 huggingface.co 전용 스트리밍 프록시</text>
+<rect x="426" y="448" width="320" height="112" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="442" cy="468" r="4" fill="#38bdf8"/>
+<text x="454" y="472.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">api</text>
+<text x="442" y="489" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#38bdf8">FastAPI · uvicorn · :7861 (내부 전용)</text>
+<text x="442" y="506.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">/api/v1 : profiles · datasets · jobs · recipes</text>
+<text x="442" y="520.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">  flags · annotations · hf · validations · deliveries</text>
+<text x="442" y="535.0" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.8" font-weight="400" fill="#9db0c9">/datasets/{id}/files/*` Range 스트리밍 → Viewer 소스</text>
+<text x="442" y="549.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#38bdf8">SQLite 레지스트리 소유 · 잡 생성/리스 관리</text>
+<rect x="776" y="448" width="188" height="112" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="792" cy="468" r="4" fill="#fbbf24"/>
+<text x="804" y="472.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">redis 7.4</text>
+<text x="792" y="489" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#fbbf24">appendonly yes</text>
+<text x="792" y="506.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">RQ 큐 브로커</text>
+<text x="792" y="520.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">io / cpu / v21</text>
+<text x="792" y="535.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">잡 진실은 SQLite</text>
+<text x="792" y="549.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">(큐는 디스패치용)</text>
+<rect x="76" y="592" width="280" height="118" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="92" cy="612" r="4" fill="#fbbf24"/>
+<text x="104" y="616.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">worker-cpu</text>
+<text x="92" y="633" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#fbbf24">queue: cpu</text>
+<text x="92" y="650.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">curation.materialize</text>
+<text x="92" y="664.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">datasets.merge / validate</text>
+<text x="92" y="679.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">트림 · 분할 · 상대액션</text>
+<text x="92" y="693.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#34d399">raw/ 읽기 전용</text>
+<rect x="386" y="592" width="280" height="118" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="402" cy="612" r="4" fill="#fbbf24"/>
+<text x="414" y="616.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">worker-converter-v21</text>
+<text x="402" y="633" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#fbbf24">queue: v21 · 격리 이미지</text>
+<text x="402" y="650.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">datasets.convert_v21</text>
+<text x="402" y="664.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">v3.0 → v2.1 변환 전용</text>
+<text x="402" y="679.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">Dockerfile.converter-v21</text>
+<text x="402" y="693.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#34d399">raw/ 읽기 전용</text>
+<rect x="696" y="592" width="268" height="118" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="712" cy="612" r="4" fill="#fbbf24"/>
+<text x="724" y="616.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">worker-io</text>
+<text x="712" y="633" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#fbbf24">queue: io · 외부 I/O 전담</text>
+<text x="712" y="650.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">datasets.scan · hf.import</text>
+<text x="712" y="664.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">export_nas · upload_hf</text>
+<text x="712" y="679.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">copy_pc_key (SFTP)</text>
+<text x="712" y="693.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#fbbf24">raw/ 쓰기 · HF 토큰 · SSH 키 보유</text>
+<rect x="76" y="740" width="888" height="144" rx="12" fill="#0c111c" stroke="#1f2b42" stroke-width="1" stroke-dasharray="4 4"/>
+<text x="92" y="762" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="11.5" font-weight="600" fill="#34d399">RTX 6000 호스트 파일시스템 (컨테이너에 bind mount)</text>
+<rect x="92" y="770" width="418" height="100" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="108" cy="790" r="4" fill="#34d399"/>
+<text x="120" y="794.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">NAS 마운트</text>
+<text x="108" y="811" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#34d399">/mnt/datasetui-nas/DatasetUI</text>
+<text x="108" y="828.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#34d399">raw/  — api · cpu · v21 은 ro, worker-io 만 rw</text>
+<text x="108" y="842.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">derived/ · exports/ · manifests/  — 워커 rw</text>
+<text x="108" y="857.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">호스트 OS가 마운트 (Compose는 NAS 자격증명 없음)</text>
+<rect x="530" y="770" width="418" height="100" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="546" cy="790" r="4" fill="#38bdf8"/>
+<text x="558" y="794.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13.5" font-weight="600" fill="#e7eef8">런타임 상태</text>
+<text x="546" y="811" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#38bdf8">/data/datasetui</text>
+<text x="546" y="828.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">registry/datasetui.sqlite3 · jobs/ · staging/ · logs/</text>
+<text x="546" y="842.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">cache/ (HF_HOME, XDG) · redis/ (AOF) · caddy CA</text>
+<text x="546" y="857.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#38bdf8">ssh-private/ ro (worker-io 전용) · ssh-known-hosts/ ro</text>
+<rect x="40" y="924" width="1400" height="176" rx="14" fill="#0e1420" stroke="#1c2740" stroke-width="1"/>
+<text x="56" y="946" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12" font-weight="700" fill="#34d399" letter-spacing="2.4">NAS</text>
+<text x="1424" y="946" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="11.5" font-weight="400" fill="#64748b" text-anchor="end">NFS / CIFS 공유 · 호스트 OS 마운트 · prepare-host.sh 가 파일시스템 종류 검증</text>
+<rect x="76" y="968" width="249" height="118" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="92" cy="988" r="4" fill="#34d399"/>
+<text x="104" y="992.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13" font-weight="600" fill="#e7eef8">raw/</text>
+<text x="92" y="1009" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#34d399">불변 원본 리비전</text>
+<text x="92" y="1026.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">HF import 결과 착지 지점</text>
+<text x="92" y="1040.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">등록 스캔 대상 (meta/info.json)</text>
+<text x="92" y="1055.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">worker-io 만 새 리비전 생성</text>
+<text x="92" y="1069.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#34d399">원본은 절대 덮어쓰지 않음</text>
+<rect x="345" y="968" width="249" height="118" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="361" cy="988" r="4" fill="#34d399"/>
+<text x="373" y="992.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13" font-weight="600" fill="#e7eef8">derived/</text>
+<text x="361" y="1009" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#34d399">가공 결과</text>
+<text x="361" y="1026.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">큐레이션 · 트림 · 분할</text>
+<text x="361" y="1040.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">머지 · 상대액션 파생</text>
+<text x="361" y="1055.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">v2.1 변환 산출물</text>
+<text x="361" y="1069.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">레시피 리비전에 고정</text>
+<rect x="614" y="968" width="249" height="118" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="630" cy="988" r="4" fill="#34d399"/>
+<text x="642" y="992.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13" font-weight="600" fill="#e7eef8">exports/</text>
+<text x="630" y="1009" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#34d399">납품 스냅샷</text>
+<text x="630" y="1026.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">datasets.export_nas 결과</text>
+<text x="630" y="1040.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">export gate 통과분만 허용</text>
+<text x="630" y="1055.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">이름 충돌 시 거부</text>
+<text x="630" y="1069.5" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.8" font-weight="400" fill="#9db0c9">.incoming-* → rename</text>
+<rect x="883" y="968" width="249" height="118" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="899" cy="988" r="4" fill="#34d399"/>
+<text x="911" y="992.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13" font-weight="600" fill="#e7eef8">manifests/</text>
+<text x="899" y="1009" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#34d399">검증 근거</text>
+<text x="899" y="1026.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">job · delivery 매니페스트</text>
+<text x="899" y="1040.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">tree_sha256 / file_count</text>
+<text x="899" y="1055.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">복사 무결성 비교 기준</text>
+<text x="899" y="1069.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">감사 추적</text>
+<rect x="1152" y="968" width="249" height="118" rx="10" fill="#131b2b" stroke="#26344c" stroke-width="1"/>
+<circle cx="1168" cy="988" r="4" fill="#34d399"/>
+<text x="1180" y="992.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13" font-weight="600" fill="#e7eef8">client-tools/</text>
+<text x="1168" y="1009" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10.5" font-weight="400" fill="#34d399">클라이언트 배포물</text>
+<text x="1168" y="1026.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">datasetui-root-ca.crt</text>
+<text x="1168" y="1040.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">install-datasetui-ca.sh</text>
+<text x="1168" y="1055.0" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">README.txt</text>
+<text x="1168" y="1069.5" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.8" font-weight="400" fill="#9db0c9">publish-client-tools.sh 로 게시</text>
+<path d="M250,246 L250,326" fill="none" stroke="#38bdf8" stroke-width="1.6" marker-end="url(#a-38bdf8)" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="262" y="272" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">HTTPS :443 (동일 출처)</text>
+<text x="262" y="285" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">self-signed CA · 사전 신뢰 필요</text>
+<path d="M236,420 L236,448" fill="none" stroke="#38bdf8" stroke-width="1.6" marker-end="url(#a-38bdf8)" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M586,420 L586,448" fill="none" stroke="#38bdf8" stroke-width="1.6" marker-end="url(#a-38bdf8)" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="244" y="440" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10" font-weight="400" fill="#64748b">/*</text>
+<text x="594" y="440" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Noto Sans Mono CJK KR', monospace" font-size="10" font-weight="400" fill="#64748b">/api/v1/*</text>
+<path d="M746,504 L776,504" fill="none" stroke="#fbbf24" stroke-width="1.6" marker-end="url(#a-fbbf24)" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="761" y="496" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="9.5" font-weight="400" fill="#64748b" text-anchor="middle">enqueue</text>
+<path d="M870,560 L870,576 L216,576" fill="none" stroke="#fbbf24" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M216,576 L216,592" fill="none" stroke="#fbbf24" stroke-width="1.6" marker-end="url(#a-fbbf24)" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M526,576 L526,592" fill="none" stroke="#fbbf24" stroke-width="1.6" marker-end="url(#a-fbbf24)" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M830,576 L830,592" fill="none" stroke="#fbbf24" stroke-width="1.6" marker-end="url(#a-fbbf24)" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="300" y="570" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">queues: io · cpu · v21 — 리스 + 하트비트, 재시도/재개는 SQLite 기준</text>
+<path d="M681,560 L681,740" fill="none" stroke="#38bdf8" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#a-38bdf8)" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="689" y="730" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="9.5" font-weight="400" fill="#64748b">SQLite 레지스트리</text>
+<path d="M216,710 L216,740" fill="none" stroke="#34d399" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#a-34d399)" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M526,710 L526,740" fill="none" stroke="#34d399" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#a-34d399)" stroke-linejoin="round" stroke-linecap="round"/>
+<path d="M830,710 L830,740" fill="none" stroke="#34d399" stroke-width="1.6" stroke-dasharray="5 3" marker-end="url(#a-34d399)" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="240" y="734" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="9.5" font-weight="400" fill="#64748b">bind mount</text>
+<path d="M301,884 L301,924" fill="none" stroke="#34d399" stroke-width="2.2" marker-end="url(#a-34d399)" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="313" y="908" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.5" font-weight="600" fill="#34d399">NFS / CIFS</text>
+<path d="M964,630 L1015,630 L1015,270 L660,270 L660,246" fill="none" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a-a78bfa)" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="1026" y="330" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">SFTP :22 (paramiko)</text>
+<text x="1026" y="343" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">서버 → PC 단방향 발신</text>
+<text x="1026" y="356" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">키 방식: worker-io 잡</text>
+<text x="1026" y="369" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">비밀번호 방식: api 즉시 실행</text>
+<path d="M964,672 L1240,672 L1240,246" fill="none" stroke="#a78bfa" stroke-width="1.6" marker-end="url(#a-a78bfa)" marker-start="url(#b-a78bfa)" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="1026" y="420" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">HTTPS — huggingface.co</text>
+<text x="1026" y="433" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">import ← revision 고정</text>
+<text x="1026" y="446" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">publish → 신규 repo 생성</text>
+<path d="M1276,968 L1276,282 L620,282 L620,246" fill="none" stroke="#64748b" stroke-width="1.6" stroke-dasharray="4 4" marker-end="url(#a-64748b)" stroke-linejoin="round" stroke-linecap="round"/>
+<text x="1288" y="700" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">① 최초 1회</text>
+<text x="1288" y="713" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10" font-weight="400" fill="#64748b">Root CA 수동 설치</text>
+<path d="M40,1122 L66,1122" stroke="#38bdf8" stroke-width="1.8" marker-end="url(#a-38bdf8)"/>
+<text x="74" y="1126" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.5" font-weight="400" fill="#64748b">HTTP 요청 경로 (caddy → web/api)</text>
+<path d="M287.20000000000005,1122 L313.20000000000005,1122" stroke="#fbbf24" stroke-width="1.8" marker-end="url(#a-fbbf24)"/>
+<text x="321.20000000000005" y="1126" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.5" font-weight="400" fill="#64748b">잡 큐 · 워커 디스패치</text>
+<path d="M438.40000000000003,1122 L464.40000000000003,1122" stroke="#34d399" stroke-width="1.8" stroke-dasharray="5 3" marker-end="url(#a-34d399)"/>
+<text x="472.40000000000003" y="1126" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.5" font-weight="400" fill="#64748b">파일 I/O (bind mount · NAS)</text>
+<path d="M666.4000000000001,1122 L692.4000000000001,1122" stroke="#a78bfa" stroke-width="1.8" marker-end="url(#a-a78bfa)"/>
+<text x="700.4000000000001" y="1126" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.5" font-weight="400" fill="#64748b">서버 밖 경계 (클라이언트 PC · HF)</text>
+<path d="M881.6000000000001,1122 L907.6000000000001,1122" stroke="#64748b" stroke-width="1.8" stroke-dasharray="4 4" marker-end="url(#a-64748b)"/>
+<text x="915.6000000000001" y="1126" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.5" font-weight="400" fill="#64748b">사람이 수행하는 1회성 수동 절차</text>
+</svg>

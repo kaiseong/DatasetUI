@@ -1,0 +1,12 @@
+{
+  "verdict": "pass",
+  "iteration": 2,
+  "evidence": "/tmp/datasetui-optional-stats-browser/final-preview/statistics-option.png",
+  "checks": [
+    "checkbox aligned",
+    "default off",
+    "recipe badges show skipped/recomputed",
+    "no page errors"
+  ],
+  "method": "Playwright assertions and direct screenshot review; visual-verdict skill unavailable"
+}

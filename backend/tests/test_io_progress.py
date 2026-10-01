@@ -235,7 +235,11 @@ def test_sftp_progress_counts_bytes_after_each_successful_put(tmp_path: Path) ->
             return None
 
     files, total = delivery._sftp_tree(
-        Sftp(), source, "/incoming", on_progress=events.append, total_bytes=8
+        Sftp(),
+        source,
+        "/incoming",
+        on_progress=events.append,
+        total_bytes=8,
     )
 
     assert (files, total) == (2, 8)

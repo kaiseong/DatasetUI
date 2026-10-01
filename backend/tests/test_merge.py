@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from datasetui.database import Database
+from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import inspect_dataset
 from datasetui.merge import MergeCompatibilityError, merge_datasets
 from test_transforms import _settings, _write_v21
@@ -25,7 +25,9 @@ def _register(database: Database, settings, relative: str) -> dict:
         records=existing + [candidate.as_record()],
         scan_generation=generation,
     )
-    return next(item for item in database.list_datasets() if item["relative_path"] == relative)
+    return next(
+        item for item in database.list_datasets() if item["relative_path"] == relative
+    )
 
 
 def test_merge_reindexes_episodes_and_preserves_source_lineage(tmp_path: Path) -> None:
@@ -48,8 +50,7 @@ def test_merge_reindexes_episodes_and_preserves_source_lineage(tmp_path: Path) -
     profile = database.create_profile("Merge operator")
     payload = {
         "sources": [
-            {"id": item["id"], "fingerprint": item["fingerprint"]}
-            for item in datasets
+            {"id": item["id"], "fingerprint": item["fingerprint"]} for item in datasets
         ],
         "output_name": "merged-pick",
         "robot_type": "rby1-combined",
@@ -79,6 +80,11 @@ def test_merge_reindexes_episodes_and_preserves_source_lineage(tmp_path: Path) -
     assert info["total_episodes"] == 4
     assert info["total_frames"] == 40
     assert info["robot_type"] == "rby1-combined"
+    assert result["video_policy"] == "preserve_source_files"
+    manifest = json.loads(
+        (settings.nas_root / f"manifests/merge/{job['id']}.json").read_text()
+    )
+    assert manifest["video_policy"] == "preserve_source_files"
     assert sorted(data["episode_index"].unique().tolist()) == [0, 1, 2, 3]
     assert data["index"].tolist() == list(range(40))
     assert [item["source_dataset_id"] for item in result["output"]["lineage"]] == [
@@ -115,8 +121,7 @@ def test_merge_rejects_feature_schema_difference(tmp_path: Path) -> None:
     profile = database.create_profile("Merge guard")
     payload = {
         "sources": [
-            {"id": item["id"], "fingerprint": item["fingerprint"]}
-            for item in datasets
+            {"id": item["id"], "fingerprint": item["fingerprint"]} for item in datasets
         ],
         "output_name": "bad-merge",
         "robot_type": "rby1",
@@ -138,3 +143,53 @@ def test_merge_rejects_feature_schema_difference(tmp_path: Path) -> None:
             worker_id="merge-worker",
         )
     assert not (settings.nas_root / "derived/bad-merge").exists()
+
+
+def test_merge_rejects_changed_source_data_with_unchanged_info(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    first = settings.nas_root / "raw/lab/first"
+    second = settings.nas_root / "raw/lab/second"
+    _write_v21(first)
+    _write_v21(second)
+    database = Database(settings.database_path)
+    database.initialize()
+    candidates = [
+        inspect_dataset(
+            area_root=settings.nas_root / "raw", storage_area="raw", relative_path=path
+        ).as_record()
+        for path in ("lab/first", "lab/second")
+    ]
+    generation = database.begin_dataset_scan("raw")
+    database.synchronize_datasets(
+        storage_area="raw", records=candidates, scan_generation=generation
+    )
+    datasets = database.list_datasets()
+    payload = {
+        "sources": [
+            {"id": item["id"], "fingerprint": item["fingerprint"]} for item in datasets
+        ],
+        "output_name": "stale-merge",
+        "robot_type": "rby1",
+    }
+    profile = database.create_profile("Merge revision guard")
+    job, _ = database.create_job(
+        kind="datasets.merge",
+        queue_name="cpu",
+        profile_id=profile["id"],
+        payload=payload,
+        idempotency_key="merge-stale",
+    )
+    database.claim_job(job["id"], worker_id="merge-worker", lease_seconds=120)
+    path = first / "data/chunk-000/episode_000000.parquet"
+    frame = pd.read_parquet(path)
+    frame.loc[0, "action"] = [42.0]
+    frame.to_parquet(path, index=False)
+
+    with pytest.raises(RecipeRevisionMismatchError):
+        merge_datasets(
+            database=database,
+            settings=settings,
+            payload=payload,
+            job_id=job["id"],
+            worker_id="merge-worker",
+        )

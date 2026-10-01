@@ -144,6 +144,31 @@ def test_queue_cleanup_failure_does_not_undo_database_cancellation(
     assert database.get_job(job["id"])["status"] == "cancelled"
 
 
+def test_finalizing_job_rejects_late_cancellation(
+    client: TestClient, database: Database
+) -> None:
+    profile_id = _profile_id(client)
+    job, _ = database.create_job(
+        kind="phase2.smoke",
+        queue_name="cpu",
+        profile_id=profile_id,
+        payload={},
+        idempotency_key="cancel-too-late",
+    )
+    database.claim_job(job["id"], worker_id="publisher", lease_seconds=120)
+    database.begin_job_finalization(job["id"], worker_id="publisher")
+
+    response = client.post(
+        f"/api/v1/jobs/{job['id']}/cancel", json={"profile_id": profile_id}
+    )
+
+    assert response.status_code == 409
+    assert "결과 게시" in response.json()["detail"]
+    stored = client.get(f"/api/v1/jobs/{job['id']}").json()
+    assert stored["cancellation_guarded_at"] is not None
+    assert stored["cancellation_requested"] is False
+
+
 def test_idempotent_retry_recovers_a_job_not_written_to_redis(
     client: TestClient, database: Database, dispatcher: RecordingDispatcher
 ) -> None:

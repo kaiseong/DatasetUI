@@ -180,7 +180,7 @@ class ValidationReporter:
             ),
         )
 
-    def complete(self) -> dict[str, Any]:
+    def complete(self) -> list[dict[str, Any]]:
         self.stage = "complete"
         self.emit()
         return deepcopy(self.checks)

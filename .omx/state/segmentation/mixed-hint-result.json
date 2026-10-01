@@ -1,0 +1,59 @@
+{
+  "status": "deployed-and-verified",
+  "image_tag": "release-20261001-mixed-v1",
+  "backup": "/home/rtx6000/kgs/datasetui-backup-20261001-mixed-194733",
+  "backend_pass": 622,
+  "backend_skip": 1,
+  "ruff": "pass",
+  "gpu_proof": [
+    {
+      "case": "reported_box_points",
+      "kind": "segmentation.sample",
+      "job_id": "5f87b887-6750-466b-bf9e-6d76c6cce7c9",
+      "frame_count": 1,
+      "seconds": 9.86,
+      "artifact": "/proof/jobs/segmentation-samples/5f87b887-6750-466b-bf9e-6d76c6cce7c9/mask.png"
+    },
+    {
+      "case": "reported_box_points",
+      "kind": "segmentation.preview",
+      "job_id": "42321467-65f7-4ab5-8272-b44e78d7355e",
+      "frame_count": 4,
+      "seconds": 7.74,
+      "artifact": "/proof/jobs/segmentation/42321467-65f7-4ab5-8272-b44e78d7355e/composite.mp4"
+    },
+    {
+      "case": "box_point_brush",
+      "kind": "segmentation.sample",
+      "job_id": "29c150a9-3f4b-4c57-9c7d-382f28b8e59a",
+      "frame_count": 1,
+      "seconds": 7.65,
+      "artifact": "/proof/jobs/segmentation-samples/29c150a9-3f4b-4c57-9c7d-382f28b8e59a/mask.png"
+    },
+    {
+      "case": "box_point_brush",
+      "kind": "segmentation.preview",
+      "job_id": "58d40350-3f3d-4333-9d73-3189c9f5103f",
+      "frame_count": 4,
+      "seconds": 7.23,
+      "artifact": "/proof/jobs/segmentation/58d40350-3f3d-4333-9d73-3189c9f5103f/composite.mp4"
+    }
+  ],
+  "live_retry": {
+    "status": "succeeded",
+    "job_id": "8d68e1e3-2375-4cd5-b249-9689aa60ae75",
+    "source_failed_job": "7a85904f-20b6-4e22-a940-daa193dc3b19",
+    "same_spec": true,
+    "frame_count": 1
+  },
+  "scope": [
+    "sam3_engine.py",
+    "segmentation.py",
+    "segmentation_sample.py",
+    "segmentation_masks.py"
+  ],
+  "limitations": [
+    "GPU video proof is a four-frame fixture, not all-episode mask-quality validation.",
+    "Text prompts retain semantic grounding; spatial-only Box/Point/Brush share instance hints."
+  ]
+}

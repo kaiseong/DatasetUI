@@ -16,6 +16,7 @@ from datasetui.hf_errors import (
     HuggingFaceImportValidationError,
 )
 from datasetui.huggingface import HuggingFaceGateway, import_huggingface_dataset
+from datasetui.jobs import _validate_hf_import_payload
 from datasetui.queueing import RecordingDispatcher
 
 
@@ -239,6 +240,39 @@ def test_hf_import_endpoint_pins_revision_and_dispatches_opaque_job(
         },
     )
     assert generic.status_code == 422
+
+
+def test_hf_request_accepts_shared_trailing_underscore_name_validator(
+    tmp_path: Path,
+) -> None:
+    client, _, dispatcher, gateway, _ = _client(tmp_path)
+    gateway.commit_sha = SHA
+    gateway.resolve_revision = lambda dataset_name, revision: {
+        "repo_id": f"rainbowrobotics/{dataset_name}",
+        "requested_revision": revision,
+        "commit_sha": SHA,
+        "file_count": 2,
+        "total_bytes": 512,
+    }
+    profile_id = client.post("/api/v1/profiles", json={"name": "Researcher"}).json()[
+        "id"
+    ]
+    response = client.post(
+        "/api/v1/hf/imports",
+        json={
+            "profile_id": profile_id,
+            "dataset_name": "safe_trailing_underscore_",
+            "requested_revision": "main",
+            "commit_sha": SHA,
+            "idempotency_key": "hf-trailing-underscore",
+        },
+    )
+    assert response.status_code == 202
+    assert response.json()["payload"]["dataset_name"] == "safe_trailing_underscore_"
+    assert len(dispatcher.enqueued) == 1
+
+    internal = _validate_hf_import_payload(response.json()["payload"])
+    assert internal["repo_id"] == "rainbowrobotics/safe_trailing_underscore_"
 
 
 def test_moved_revision_is_rejected_before_job_creation(tmp_path: Path) -> None:

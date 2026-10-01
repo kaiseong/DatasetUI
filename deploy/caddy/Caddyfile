@@ -20,8 +20,7 @@ https://{$DATASETUI_HOST} {
 		Referrer-Policy "same-origin"
 	}
 
-	# Phase 1 exposes liveness only. Dataset write/export/push endpoints remain
-	# private until profile authorization and server-side secret handling land.
+	# Only the versioned Workbench boundary exposes write/export operations.
 	@api_health path /api/health
 	handle @api_health {
 		reverse_proxy api:7861
@@ -29,6 +28,14 @@ https://{$DATASETUI_HOST} {
 
 	# Versioned Workbench APIs are the persistent-state boundary introduced
 	# in Phase 2. They never accept raw commands or credentials in job payloads.
+	@segmentation_api path /api/v1/segmentation/*
+	handle @segmentation_api {
+		request_body {
+			max_size 20MB
+		}
+		reverse_proxy api:7861
+	}
+
 	@workbench_api path /api/v1/*
 	handle @workbench_api {
 		reverse_proxy api:7861

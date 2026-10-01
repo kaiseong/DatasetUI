@@ -65,6 +65,34 @@ def test_scanner_classifies_supported_incomplete_and_unsupported_datasets(
     assert all("absolute_path" not in record for record in records)
 
 
+def test_scanner_fingerprint_covers_all_dataset_content(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    dataset = _write_dataset(raw, "lab/identity")
+    data_file = dataset / "data" / "frames.parquet"
+    data_file.write_bytes(b"first")
+    first = scan_storage_area(tmp_path, "raw", max_depth=6)[0]["fingerprint"]
+
+    data_file.write_bytes(b"second")
+    second = scan_storage_area(tmp_path, "raw", max_depth=6)[0]["fingerprint"]
+
+    assert second != first
+
+
+def test_scanner_rejects_symlinks_inside_dataset_tree(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    dataset = _write_dataset(raw, "lab/unsafe")
+    outside = tmp_path / "outside.parquet"
+    outside.write_bytes(b"private")
+    (dataset / "data" / "linked.parquet").symlink_to(outside)
+
+    record = scan_storage_area(tmp_path, "raw", max_depth=6)[0]
+
+    assert record["readiness"] == "invalid"
+    assert record["scan_error"] == "Unable to fingerprint dataset contents safely"
+
+
 def test_scanner_reports_bad_metadata_without_following_symlinks(
     tmp_path: Path,
 ) -> None:

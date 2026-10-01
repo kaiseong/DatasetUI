@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="700" viewBox="0 0 1100 700">
+<rect width="1100" height="700" fill="#0a0e17"/>
+<defs><marker id="a-38bdf8" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#38bdf8"/></marker></defs>
+<defs><marker id="a-34d399" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#34d399"/></marker></defs>
+<defs><marker id="a-a78bfa" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#a78bfa"/></marker></defs>
+<defs><marker id="a-64748b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#64748b"/></marker></defs>
+<text x="48" y="50" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="26" font-weight="700" fill="#e7eef8">DatasetUI — NAS · Server · Client</text>
+<text x="48" y="76" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="13" font-weight="400" fill="#64748b">누가 무엇을 가지고 있고, 무엇이 오가는가</text>
+<rect x="48" y="130" width="382" height="210" rx="14" fill="#131b2b" stroke="#a78bfa" stroke-width="1.6"/>
+<text x="72" y="162" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="11" font-weight="700" fill="#a78bfa" letter-spacing="2.4">CLIENT</text>
+<text x="72" y="192" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="19" font-weight="700" fill="#e7eef8">팀원 Ubuntu PC</text>
+<text x="72" y="214" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#a78bfa">사내 LAN · 브라우저 + SSH</text>
+<circle cx="76" cy="238" r="3" fill="#a78bfa" opacity="0.7"/>
+<text x="88" y="242" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12.5" font-weight="400" fill="#9db0c9">화면으로 보고 무엇을 고칠지 지시</text>
+<circle cx="76" cy="264" r="3" fill="#a78bfa" opacity="0.7"/>
+<text x="88" y="268" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12.5" font-weight="400" fill="#9db0c9">완성된 데이터셋을 내 PC로 받음</text>
+<circle cx="76" cy="290" r="3" fill="#a78bfa" opacity="0.7"/>
+<text x="88" y="294" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12.5" font-weight="400" fill="#9db0c9">원본 파일은 손에 쥐지 않음</text>
+<rect x="660" y="130" width="392" height="210" rx="14" fill="#131b2b" stroke="#38bdf8" stroke-width="1.6"/>
+<text x="684" y="162" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="11" font-weight="700" fill="#38bdf8" letter-spacing="2.4">SERVER</text>
+<text x="684" y="192" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="19" font-weight="700" fill="#e7eef8">RTX 6000 서버</text>
+<text x="684" y="214" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#38bdf8">192.168.0.3 · docker compose</text>
+<circle cx="688" cy="238" r="3" fill="#38bdf8" opacity="0.7"/>
+<text x="700" y="242" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12.5" font-weight="400" fill="#9db0c9">모든 가공 · 검증 · 납품을 실행</text>
+<circle cx="688" cy="264" r="3" fill="#38bdf8" opacity="0.7"/>
+<text x="700" y="268" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12.5" font-weight="400" fill="#9db0c9">누가 무엇을 했는지 기록 (SQLite)</text>
+<circle cx="688" cy="290" r="3" fill="#38bdf8" opacity="0.7"/>
+<text x="700" y="294" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12.5" font-weight="400" fill="#9db0c9">데이터는 쌓지 않고 NAS를 사용</text>
+<rect x="660" y="440" width="392" height="180" rx="14" fill="#131b2b" stroke="#34d399" stroke-width="1.6"/>
+<text x="684" y="472" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="11" font-weight="700" fill="#34d399" letter-spacing="2.4">NAS</text>
+<text x="684" y="502" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="19" font-weight="700" fill="#e7eef8">공유 스토리지</text>
+<text x="684" y="524" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="11" font-weight="400" fill="#34d399">NFS / CIFS</text>
+<circle cx="688" cy="548" r="3" fill="#34d399" opacity="0.7"/>
+<text x="700" y="552" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12.5" font-weight="400" fill="#9db0c9">원본 데이터셋 (건드리지 않음)</text>
+<circle cx="688" cy="574" r="3" fill="#34d399" opacity="0.7"/>
+<text x="700" y="578" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12.5" font-weight="400" fill="#9db0c9">가공 결과 · 납품본 보관</text>
+<circle cx="688" cy="600" r="3" fill="#34d399" opacity="0.7"/>
+<text x="700" y="604" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12.5" font-weight="400" fill="#9db0c9">실제 용량은 전부 여기</text>
+<path d="M430,195 L652,195" fill="none" stroke="#a78bfa" stroke-width="2" marker-end="url(#a-a78bfa)" stroke-linejoin="round"/>
+<text x="541" y="182" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12" font-weight="600" fill="#e7eef8" text-anchor="middle">① 열람 · 편집 요청</text>
+<text x="541" y="212" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.5" font-weight="400" fill="#64748b" text-anchor="middle">선별 · 트림 · 어노테이션 지시</text>
+<path d="M652,252 L430,252" fill="none" stroke="#38bdf8" stroke-width="2" marker-end="url(#a-38bdf8)" stroke-linejoin="round"/>
+<text x="541" y="239" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12" font-weight="600" fill="#e7eef8" text-anchor="middle">② 영상 · 그래프 스트림</text>
+<text x="541" y="269" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.5" font-weight="400" fill="#64748b" text-anchor="middle">원본은 NAS에 그대로 둔 채 보여주기만</text>
+<path d="M652,309 L430,309" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#a-34d399)" stroke-linejoin="round"/>
+<text x="541" y="296" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12" font-weight="600" fill="#e7eef8" text-anchor="middle">③ 완성된 데이터셋 사본</text>
+<text x="541" y="326" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.5" font-weight="400" fill="#64748b" text-anchor="middle">검증 통과본만 PC로 직접 전송</text>
+<path d="M740,340 L740,432" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#a-34d399)" stroke-linejoin="round"/>
+<text x="754" y="370" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12" font-weight="600" fill="#e7eef8">④ 가공 결과 · 납품본 쓰기</text>
+<text x="754" y="388" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="10.5" font-weight="400" fill="#64748b">derived/ · exports/</text>
+<path d="M972,432 L972,340" fill="none" stroke="#34d399" stroke-width="2" marker-end="url(#a-34d399)" stroke-linejoin="round"/>
+<text x="958" y="414" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="12" font-weight="600" fill="#e7eef8" text-anchor="end">⑤ 원본 데이터셋 읽기</text>
+<text x="958" y="432" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="10.5" font-weight="400" fill="#64748b" text-anchor="end">raw/ 는 읽기 전용</text>
+<rect x="48" y="644" width="1004" height="44" rx="10" fill="#0d1421" stroke="#1f2b42" stroke-width="1"/>
+<circle cx="70" cy="666" r="4" fill="#34d399"/>
+<text x="84" y="670" font-family="ui-sans-serif, system-ui, -apple-system, 'Noto Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif" font-size="11.5" font-weight="400" fill="#9db0c9">원본은 NAS에만 존재하고 서버·PC로 복제되지 않습니다. 밖으로 나가는 건 검증을 통과한 완성본뿐이며, Hugging Face 반입·반출도 서버만 수행합니다.</text>
+</svg>

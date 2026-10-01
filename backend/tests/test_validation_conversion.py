@@ -36,6 +36,22 @@ def test_validation_levels_report_structural_failures_and_nonblocking_warnings(
     assert any(item["code"] == "timestamp_regression" for item in broken["issues"])
 
 
+def test_validation_reports_malformed_numeric_parquet_as_structured_failure(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "dataset"
+    _write_v21(root)
+    path = root / "data/chunk-000/episode_000000.parquet"
+    frame = pd.read_parquet(path)
+    frame["timestamp"] = ["bad"] * len(frame)
+    frame.to_parquet(path, index=False)
+
+    result = validate_dataset_root(root, mode="quick")
+
+    assert result["passed"] is False
+    assert any(item["code"] == "feature_dtype_mismatch" for item in result["issues"])
+
+
 def _write_v3(root: Path) -> None:
     (root / "meta/episodes/chunk-000").mkdir(parents=True)
     (root / "data/chunk-000").mkdir(parents=True)
@@ -204,26 +220,6 @@ def test_v3_full_validation_decodes_a_shared_video_shard_once(
     assert video_opens == 1
 
 
-def test_v3_validation_reads_a_shared_data_shard_once(
-    tmp_path: Path, monkeypatch
-) -> None:
-    root = tmp_path / "dataset"
-    _write_v3(root)
-    original = transforms._read_parquet
-    data_reads = 0
-
-    def tracked(path: Path):
-        nonlocal data_reads
-        if path == root / "data/chunk-000/file-000.parquet":
-            data_reads += 1
-        return original(path)
-
-    monkeypatch.setattr(transforms, "_read_parquet", tracked)
-    validate_dataset_root(root, mode="full")
-
-    assert data_reads == 1
-
-
 def test_v3_to_v21_conversion_rebuilds_layout_and_passes_export_gate(
     tmp_path: Path,
 ) -> None:
@@ -272,3 +268,23 @@ def test_v3_to_v21_conversion_rebuilds_layout_and_passes_export_gate(
     assert (output / "meta/tasks.jsonl").is_file()
     assert len(list((output / "data").rglob("episode_*.parquet"))) == 2
     assert result["validation"]["passed"] is True
+
+
+def test_v3_validation_reads_a_shared_data_shard_once(
+    tmp_path: Path, monkeypatch
+) -> None:
+    root = tmp_path / "dataset"
+    _write_v3(root)
+    original = transforms._read_parquet
+    data_reads = 0
+
+    def tracked(path: Path):
+        nonlocal data_reads
+        if path == root / "data/chunk-000/file-000.parquet":
+            data_reads += 1
+        return original(path)
+
+    monkeypatch.setattr(transforms, "_read_parquet", tracked)
+    validate_dataset_root(root, mode="full")
+
+    assert data_reads == 1

@@ -1,0 +1,94 @@
+{
+  "status": "deployed-and-verified",
+  "url": "https://192.168.0.3/augment",
+  "image_tag": "release-20261001-object-v1",
+  "backup": "/home/rtx6000/kgs/datasetui-backup-20261001-object-181215",
+  "runtime_files": 11,
+  "tests": {
+    "backend_pass": 616,
+    "backend_skip": 1,
+    "frontend_pass": 277,
+    "typescript": "pass",
+    "eslint": "pass",
+    "ruff": "pass",
+    "build": "pass",
+    "browser_fixture": "pass",
+    "live_browser": "pass"
+  },
+  "gpu_proof": [
+    {
+      "case": "keep",
+      "kind": "segmentation.sample",
+      "job_id": "5ae8da7f-e112-4e0b-9d7a-21de48e2d899",
+      "frame_count": 1,
+      "seconds": 10.29,
+      "artifact": "/proof/jobs/segmentation-samples/5ae8da7f-e112-4e0b-9d7a-21de48e2d899/mask.png"
+    },
+    {
+      "case": "keep",
+      "kind": "segmentation.preview",
+      "job_id": "904add30-b387-4d84-b9b1-aced28a47f28",
+      "frame_count": 4,
+      "seconds": 8.3,
+      "artifact": "/proof/jobs/segmentation/904add30-b387-4d84-b9b1-aced28a47f28/composite.mp4"
+    },
+    {
+      "case": "remove",
+      "kind": "segmentation.sample",
+      "job_id": "ff08d4c9-f8dc-4600-904f-699db1216e45",
+      "frame_count": 1,
+      "seconds": 7.7,
+      "artifact": "/proof/jobs/segmentation-samples/ff08d4c9-f8dc-4600-904f-699db1216e45/mask.png"
+    },
+    {
+      "case": "remove",
+      "kind": "segmentation.preview",
+      "job_id": "595b0246-5bc1-441f-a4f9-1b9c734749c7",
+      "frame_count": 4,
+      "seconds": 7.79,
+      "artifact": "/proof/jobs/segmentation/595b0246-5bc1-441f-a4f9-1b9c734749c7/composite.mp4"
+    },
+    {
+      "case": "both",
+      "kind": "segmentation.sample",
+      "job_id": "d26a8321-569a-4737-bb27-3376fc1448e6",
+      "frame_count": 1,
+      "seconds": 7.14,
+      "artifact": "/proof/jobs/segmentation-samples/d26a8321-569a-4737-bb27-3376fc1448e6/mask.png"
+    },
+    {
+      "case": "both",
+      "kind": "segmentation.preview",
+      "job_id": "4e2336f5-0312-417a-841c-0e1a2f2fd959",
+      "frame_count": 4,
+      "seconds": 8.4,
+      "artifact": "/proof/jobs/segmentation/4e2336f5-0312-417a-841c-0e1a2f2fd959/composite.mp4"
+    },
+    {
+      "case": "brush",
+      "kind": "segmentation.sample",
+      "job_id": "21fbc934-bd12-41fe-ba52-54a224818fde",
+      "frame_count": 1,
+      "seconds": 7.32,
+      "artifact": "/proof/jobs/segmentation-samples/21fbc934-bd12-41fe-ba52-54a224818fde/mask.png"
+    },
+    {
+      "case": "brush",
+      "kind": "segmentation.preview",
+      "job_id": "e8b2c5c7-ddfb-4771-9564-c4fafabe2c13",
+      "frame_count": 4,
+      "seconds": 7.19,
+      "artifact": "/proof/jobs/segmentation/e8b2c5c7-ddfb-4771-9564-c4fafabe2c13/composite.mp4"
+    }
+  ],
+  "live_sample": {
+    "job_id": "16cc01ee-24a1-4259-83e3-5f0e199537f3",
+    "status": "succeeded",
+    "frame_count": 1,
+    "sample_id": "16cc01ee-24a1-4259-83e3-5f0e199537f3"
+  },
+  "limitations": [
+    "Actual GPU episode proof uses a four-frame isolated fixture, not every production episode.",
+    "Original datasets unchanged; no production export performed."
+  ]
+}

@@ -138,6 +138,10 @@ def main():
                 model="fixture-SAM",
                 message="SAM 체크포인트 경로 및 SHA256 설정 필요",
             )
+        elif path.endswith("/catalog"):
+            result = dict(metadata_revision="b" * 64, total_episodes=2, video_keys=["observation.images.top"], fps=10)
+        elif path.endswith("/selection"):
+            result = dict(metadata_revision="b" * 64, frame_token="fixture", length=10, fps=10)
         elif path.endswith("/scope"):
             result = dict(
                 fingerprint="a" * 64,
@@ -170,7 +174,7 @@ def main():
             result = job(f"preview-{len(jobs)+1}", data["spec"])
         elif path.startswith("/api/v1/segmentation/previews/"):
             result = previews[path.split("/")[5]]
-        elif path == "/api/v1/segmentation/batches":
+        elif path in {"/api/v1/segmentation/batches", "/api/v1/segmentation/batches/prepare"}:
             if data:
                 camera = templates[0]["cameras"][0]
                 items = []
@@ -180,7 +184,7 @@ def main():
                         "dataset_id": dataset_id,
                         "fingerprint": "a" * 64,
                         "episode_index": episode,
-                        "mode": "protect_foreground",
+                        "mode": camera["mode"],
                         "render_mode": "black",
                         "background_base64": "",
                     }
@@ -206,6 +210,8 @@ def main():
                     "created_at": stamp,
                 }
                 batches.append(result)
+                if path.endswith("/prepare"):
+                    result = dict(id="preparation", kind="segmentation.batch_prepare", status="succeeded", result={"batch_id": result["id"]})
             else:
                 result = {"batches": batches}
         elif path.startswith("/api/v1/segmentation/batches/"):
@@ -264,9 +270,11 @@ def main():
             expect(
                 page.get_by_role("heading", name="작업 영역 Segmentation")
             ).to_be_visible()
+            page.get_by_role("button", name="확인", exact=True).click()
             expect(page.get_by_label("출력 배경")).to_have_value("black")
             assert page.locator('input[type="file"]').count() == 0
-            page.get_by_label("대상 프롬프트").fill("black plug")
+            page.get_by_label("SAM3.1 분할 프롬프트").fill("black plug")
+            page.get_by_role("tab", name="Labeling", exact=True).click()
             source_image = page.locator('img[alt*="plug-fixture episode"]')
 
             def assert_overlay_geometry(expected_height):
@@ -296,7 +304,7 @@ def main():
                     bounds["x"] + bounds["width"] * x,
                     bounds["y"] + bounds["height"] * y,
                 )
-            page.get_by_role("button", name="수동 보호 영역", exact=True).click()
+            page.get_by_role("button", name="객체 선택 Box 그리기", exact=True).click()
             source_image.scroll_into_view_if_needed()
             bounds = assert_overlay_geometry(480)["image"]
             page.mouse.move(
@@ -310,7 +318,7 @@ def main():
                 steps=3,
             )
             page.mouse.up()
-            page.get_by_role("button", name="Brush", exact=True).click()
+            page.get_by_role("button", name="포함 힌트 칠하기", exact=True).click()
             source_image.scroll_into_view_if_needed()
             bounds = assert_overlay_geometry(480)["image"]
             page.mouse.click(
@@ -342,13 +350,15 @@ def main():
                     abs(actual["x"] - expected[0]) < 0.002
                     and abs(actual["y"] - expected[1]) < 0.002
                 ), point_payload
-            actual_box = template_payload["manual_regions"][0]["box"]
+            actual_box = template_payload["prompts"][0]["box"]
+            assert not template_payload["manual_regions"]
+            assert template_payload["mode"] == "object_selection"
             assert all(
                 abs(actual - expected) < 0.002
                 for actual, expected in zip(actual_box, [0.2, 0.3, 0.6, 0.6])
             ), actual_box
             page.get_by_text(
-                "고정 카메라는 동일한 설치·화각의 촬영 묶음임을 확인했습니다.",
+                "같은 설치·화각임을 확인하고 점·박스·브러시 좌표도 재사용합니다. 미선택 시 텍스트로 재탐지합니다.",
                 exact=True,
             ).click()
             page.get_by_role("button", name="검은 배경 마스크 2개 생성").click()
@@ -364,22 +374,8 @@ def main():
                 expect(page.locator(".segmentation-review-banner strong")).to_have_text(
                     f"검토 중: Episode {index} · observation.images.top"
                 )
-                source_episode = page.get_by_role(
-                    "combobox", name="에피소드", exact=True
-                )
-                expect(source_episode).to_be_disabled()
-                expect(source_episode).to_have_value(str(index))
-                source_camera = page.get_by_role(
-                    "combobox", name="Camera key", exact=True
-                )
-                expect(source_camera).to_be_disabled()
-                expect(source_camera).to_have_value("observation.images.top")
-                expect(
-                    page.get_by_role("combobox", name="대표 에피소드", exact=True)
-                ).to_have_value(str(index))
-                expect(
-                    page.locator('img[alt*="plug-fixture episode"]')
-                ).to_have_attribute("src", re.compile(f"episode_index={index}&"))
+                expect(page.get_by_role("combobox", name="대표 에피소드", exact=True)).to_have_value(str(index))
+                expect(page.get_by_role("combobox", name="설정할 카메라", exact=True)).to_have_value("observation.images.top")
                 expect(
                     page.get_by_text("후보 선택 전입니다.", exact=False)
                 ).to_be_visible()
@@ -441,27 +437,25 @@ def main():
             configured = False
             frame_height = 360
             page.reload(wait_until="networkidle")
+            page.get_by_role("button", name="확인", exact=True).click()
             assert_overlay_geometry(360)
             page.set_viewport_size({"width": 1440, "height": 1080})
             assert_overlay_geometry(360)
             expect(
                 page.get_by_text("GPU 추론 설정이 필요합니다", exact=True)
             ).to_be_visible()
-            expect(page.get_by_label("대상 프롬프트")).to_be_enabled()
+            expect(page.get_by_label("SAM3.1 분할 프롬프트")).to_be_enabled()
             expect(
-                page.get_by_role("button", name="마스크 생성", exact=True)
+                page.get_by_role("button", name="선택 에피소드 전체 적용", exact=True)
             ).to_be_disabled()
-            page.get_by_label("대상 프롬프트").fill("board")
+            page.get_by_label("SAM3.1 분할 프롬프트").fill("board")
             expect(
                 page.get_by_role("button", name="카메라 템플릿 저장", exact=True)
             ).to_be_enabled()
-            page.get_by_label("대상 프롬프트").fill("")
-            page.get_by_role(
-                "button", name="Box를 수동 보호 영역으로 추가", exact=True
-            ).click()
-            expect(
-                page.get_by_role("button", name="마스크 생성", exact=True)
-            ).to_be_enabled()
+            page.get_by_label("SAM3.1 분할 프롬프트").fill("")
+            page.get_by_role("tab", name="Labeling", exact=True).click()
+            expect(page.get_by_role("button", name="수동 보호 영역", exact=True)).to_have_count(0)
+            expect(page.get_by_role("button", name="선택 에피소드 전체 적용", exact=True)).to_be_disabled()
             assert not errors, errors
             (output / "report.json").write_text(
                 json.dumps(
@@ -474,7 +468,7 @@ def main():
                             "four_three_desktop_mobile": True,
                             "sixteen_nine_desktop_mobile": True,
                             "normalized_corners": True,
-                            "normalized_manual_box": True,
+                            "normalized_object_box": True,
                             "brush_radius_matches_source_pixel_geometry": True,
                         },
                     },

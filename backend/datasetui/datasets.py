@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
 import os
@@ -9,6 +8,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
+
+from datasetui.content_integrity import (
+    ContentIntegrityError,
+    dataset_content_fingerprint,
+)
 
 
 StorageArea = Literal["raw", "derived"]
@@ -123,6 +127,7 @@ def inspect_dataset(
     raw = b""
     info_mtime_ns = 0
     info_size = 0
+    fingerprint = ""
 
     try:
         raw, info_mtime_ns, info_size = _read_info_safely(area_root, relative_path)
@@ -141,6 +146,18 @@ def inspect_dataset(
         )
         error = "Unable to read meta/info.json safely"
 
+    try:
+        fingerprint = dataset_content_fingerprint(dataset_root)
+    except ContentIntegrityError:
+        logger.warning(
+            "unable to fingerprint dataset contents in %s at relative path %r",
+            storage_area,
+            relative_path,
+            exc_info=True,
+        )
+        if error is None:
+            error = "Unable to fingerprint dataset contents safely"
+
     version = _optional_string(metadata.get("codebase_version"))
     if error:
         readiness = "invalid"
@@ -156,7 +173,6 @@ def inspect_dataset(
     else:
         readiness = "ready"
 
-    fingerprint_source = raw or error.encode()
     display_name = _display_name(relative_path, storage_area)
     return DatasetCandidate(
         storage_area=storage_area,
@@ -169,7 +185,7 @@ def inspect_dataset(
         total_frames=_optional_nonnegative_int(metadata.get("total_frames")),
         total_tasks=_optional_nonnegative_int(metadata.get("total_tasks")),
         fps=_optional_positive_number(metadata.get("fps")),
-        fingerprint=hashlib.sha256(fingerprint_source).hexdigest(),
+        fingerprint=fingerprint,
         info_mtime_ns=info_mtime_ns,
         info_size=info_size,
         scan_error=error,

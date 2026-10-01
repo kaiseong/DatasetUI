@@ -856,7 +856,8 @@ class Database:
                     SELECT 1
                     FROM dataset_trash t
                     JOIN datasets d ON d.id = t.dataset_id
-                    WHERE d.storage_area = 'raw' AND d.relative_path = ? LIMIT 1
+                    WHERE d.storage_area = 'raw' AND d.relative_path = ?
+                    LIMIT 1
                     """,
                         (target_relative_path,),
                     ).fetchone()
@@ -1084,11 +1085,11 @@ class Database:
         return self.get_job(job_id)
 
     def cancel_queued_job(self, job_id: str, *, profile_id: str) -> dict[str, Any]:
+        """Compatibility wrapper for callers using the original endpoint method."""
+
         return self.request_job_cancellation(job_id, profile_id=profile_id)
 
-    def is_job_cancellation_requested(
-        self, job_id: str, *, worker_id: str
-    ) -> bool:
+    def is_job_cancellation_requested(self, job_id: str, *, worker_id: str) -> bool:
         with self.connect() as connection:
             row = connection.execute(
                 """
@@ -1100,6 +1101,8 @@ class Database:
         return row is not None and row["cancellation_requested_at"] is not None
 
     def begin_job_finalization(self, job_id: str, *, worker_id: str) -> None:
+        """Atomically close cancellation before an irreversible publication."""
+
         from datasetui.job_cancellation import JobCancellationRequested
 
         now = utc_now()
@@ -1141,7 +1144,9 @@ class Database:
                 raise JobCancellationRequested(job_id)
         raise JobLeaseLostError(job_id)
 
-    def complete_job_cancellation(self, job_id: str, *, worker_id: str) -> dict[str, Any]:
+    def complete_job_cancellation(
+        self, job_id: str, *, worker_id: str
+    ) -> dict[str, Any]:
         now = utc_now()
         with self.connect() as connection:
             updated = connection.execute(
@@ -1262,6 +1267,23 @@ class Database:
                         row["id"],
                         "failed",
                         {"error_code": "validation_interrupted"},
+                        now=now,
+                    )
+                    continue
+                if row["kind"] in {"datasets.upload_hf", "datasets.copy_pc_key"}:
+                    connection.execute(
+                        """UPDATE jobs SET status = 'interrupted',
+                        error_code = 'external_outcome_uncertain',
+                        error_message = 'Check the external destination before retrying',
+                        finished_at = ?, worker_id = NULL, heartbeat_at = NULL,
+                        lease_expires_at = NULL WHERE id = ?""",
+                        (now, row["id"]),
+                    )
+                    self._append_event(
+                        connection,
+                        row["id"],
+                        "interrupted",
+                        {"error_code": "external_outcome_uncertain"},
                         now=now,
                     )
                     continue
@@ -1558,6 +1580,7 @@ class Database:
         status: str | None = None,
         kind: str | None = None,
         limit: int = 100,
+        public: bool = False,
         active_only: bool = False,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -1576,10 +1599,15 @@ class Database:
             clauses.append("status IN ('queued', 'running')")
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         parameters.extend((limit, offset))
+        payload_column = (
+            "json_remove(payload_json, '$.spec.background_base64') AS payload_json"
+            if public
+            else "payload_json"
+        )
         with self.connect() as connection:
             rows = connection.execute(
                 f"""
-                SELECT id, kind, queue_name, status, profile_id, payload_json,
+                SELECT id, kind, queue_name, status, profile_id, {payload_column},
                        result_json, progress_json, error_code, error_message, idempotency_key,
                        rq_job_id, created_at, enqueued_at, started_at, finished_at,
                        cancellation_requested_at, cancellation_guarded_at,

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-import sys
-from dataclasses import replace
 from pathlib import Path
+from dataclasses import replace
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -13,6 +13,7 @@ from datasetui.datasets import inspect_dataset
 import datasetui.delivery as delivery_module
 from datasetui.delivery import (
     ExportGateRequiredError,
+    HuggingFaceCleanupRequiredError,
     HuggingFaceExternalOperationAmbiguousError,
     copy_to_pc_with_key,
     copy_to_pc_with_password,
@@ -184,8 +185,20 @@ def test_delivery_job_payload_rejects_any_secret_field() -> None:
     with pytest.raises(ValueError, match="delivery payload"):
         validate_job_payload("datasets.copy_pc_key", payload)
 
+    hf_payload = {
+        "dataset_id": "11111111-1111-4111-8111-111111111111",
+        "fingerprint": "a" * 64,
+        "storage_area": "derived",
+        "relative_path": "safe/output",
+        "repo_name": "safe_trailing_underscore_",
+        "visibility": "private",
+    }
+    assert validate_job_payload("datasets.upload_hf", hf_payload)["repo_name"] == (
+        "safe_trailing_underscore_"
+    )
 
-def test_pc_key_delivery_lost_lease_cannot_publish_remote_name(
+
+def test_pc_key_delivery_checks_lease_immediately_before_remote_rename(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     settings, database, dataset, profile, _ = _registered(tmp_path)
@@ -283,12 +296,12 @@ def test_pc_key_delivery_lost_lease_cannot_publish_remote_name(
     assert fake_sftp.renamed is False
 
 
-def test_hf_post_upload_lease_loss_does_not_delete_external_repository(
+def test_hf_cleanup_failure_reports_orphan_repository_without_credentials(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     settings, database, dataset, profile, _ = _registered(tmp_path)
     _pass_gate(database, dataset, profile)
-    settings = replace(settings, hf_write_token="test-token")
+    settings = replace(settings, hf_write_token="super-secret-token")
     payload = {
         "dataset_id": dataset["id"],
         "fingerprint": dataset["fingerprint"],
@@ -302,36 +315,26 @@ def test_hf_post_upload_lease_loss_does_not_delete_external_repository(
         queue_name="io",
         profile_id=profile["id"],
         payload=payload,
-        idempotency_key="hf-lease",
+        idempotency_key="hf-cleanup",
     )
     database.claim_job(job["id"], worker_id="hf-worker", lease_seconds=120)
-    deleted: list[str] = []
 
     class FakeApi:
         def __init__(self, token=None):
-            return None
+            self.token = token
 
         def create_repo(self, **kwargs):
             return None
 
         def upload_folder(self, **kwargs):
-            return SimpleNamespace(commit_url="https://example.invalid/commit")
+            raise TimeoutError("upload outcome unknown: super-secret-token")
 
         def delete_repo(self, **kwargs):
-            deleted.append(kwargs["repo_id"])
+            raise TimeoutError("delete outcome unknown: super-secret-token")
 
     monkeypatch.setattr("huggingface_hub.HfApi", FakeApi)
-    lease_checks = 0
 
-    def lease_check(*args, **kwargs):
-        nonlocal lease_checks
-        lease_checks += 1
-        if lease_checks == 2:
-            raise JobLeaseLostError(job["id"])
-
-    monkeypatch.setattr(database, "assert_job_lease", lease_check)
-
-    with pytest.raises(JobLeaseLostError):
+    with pytest.raises(HuggingFaceCleanupRequiredError) as captured:
         upload_to_huggingface(
             database=database,
             settings=settings,
@@ -339,21 +342,22 @@ def test_hf_post_upload_lease_loss_does_not_delete_external_repository(
             job_id=job["id"],
             worker_id="hf-worker",
         )
-    assert deleted == []
+    assert captured.value.repo_id == "rainbowrobotics/pick-export"
+    assert "super-secret-token" not in str(captured.value)
 
 
-def test_hf_uncertain_upload_is_reported_without_attempting_delete(
+def test_hf_delayed_upload_is_reported_as_ambiguous_after_safe_cleanup(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     settings, database, dataset, profile, _ = _registered(tmp_path)
     _pass_gate(database, dataset, profile)
-    settings = replace(settings, hf_write_token="test-token")
+    settings = replace(settings, hf_write_token="super-secret-token")
     payload = {
         "dataset_id": dataset["id"],
         "fingerprint": dataset["fingerprint"],
         "storage_area": dataset["storage_area"],
         "relative_path": dataset["relative_path"],
-        "repo_name": "pick-uncertain",
+        "repo_name": "pick-delayed",
         "visibility": "private",
     }
     job, _ = database.create_job(
@@ -361,7 +365,7 @@ def test_hf_uncertain_upload_is_reported_without_attempting_delete(
         queue_name="io",
         profile_id=profile["id"],
         payload=payload,
-        idempotency_key="hf-uncertain",
+        idempotency_key="hf-delayed",
     )
     database.claim_job(job["id"], worker_id="hf-worker", lease_seconds=120)
     deleted: list[str] = []
@@ -374,7 +378,7 @@ def test_hf_uncertain_upload_is_reported_without_attempting_delete(
             return None
 
         def upload_folder(self, **kwargs):
-            raise TimeoutError("unknown upload outcome")
+            raise TimeoutError("late response containing super-secret-token")
 
         def delete_repo(self, **kwargs):
             deleted.append(kwargs["repo_id"])
@@ -390,4 +394,5 @@ def test_hf_uncertain_upload_is_reported_without_attempting_delete(
             worker_id="hf-worker",
         )
     assert captured.value.phase == "upload"
-    assert deleted == []
+    assert deleted == ["rainbowrobotics/pick-delayed"]
+    assert "super-secret-token" not in str(captured.value)

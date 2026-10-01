@@ -1,0 +1,13 @@
+{
+  "status": "diagnostic-fix-deployed",
+  "backup": "/home/rtx6000/kgs/datasetui-backup-20261001-semantic-201201",
+  "tests_passed": 624,
+  "live_replay": {
+    "status": "failed",
+    "job_id": "7c7af116-18f2-4dfc-8ff4-877d2581729d",
+    "source_failed_job": "206db800-2d86-4cfb-8c25-8d65809c6372",
+    "same_spec": true,
+    "error_message": "객체 2: 텍스트·Box로 찾은 대상과 포함점이 하나의 객체로 연결되지 않습니다 (일치하는 후보가 없습니다). 텍스트와 라벨이 같은 대상을 가리키도록 보정하세요. Point·Box·Brush만 사용하려면 이 객체의 Instruction에서 텍스트를 지우세요."
+  },
+  "unresolved": "Original semantic/spatial conflict is unchanged; no hints silently removed."
+}

@@ -669,7 +669,12 @@ def _copytree_with_progress(
         return copied
 
     try:
-        shutil.copytree(source, destination, symlinks=symlinks, copy_function=copy_file)
+        shutil.copytree(
+            source,
+            destination,
+            symlinks=symlinks,
+            copy_function=copy_file,
+        )
     except _ProgressCallbackFailure as exc:
         raise exc.original from exc
 

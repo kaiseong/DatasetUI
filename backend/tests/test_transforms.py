@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import datasetui.transforms as transforms
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import inspect_dataset
@@ -242,6 +243,63 @@ def test_materialize_rejects_a_source_changed_after_recipe_snapshot(
     changed_info = json.loads(info_path.read_text(encoding="utf-8"))
     changed_info["total_frames"] = 999
     info_path.write_text(json.dumps(changed_info), encoding="utf-8")
+
+    with pytest.raises(RecipeRevisionMismatchError):
+        materialize_curation_recipe(
+            database=database,
+            settings=settings,
+            payload=job["payload"],
+            job_id=job["id"],
+            worker_id="guard-worker",
+        )
+    assert list((settings.nas_root / "derived").iterdir()) == []
+
+
+def test_materialize_rejects_changed_parquet_with_unchanged_info(
+    tmp_path: Path, monkeypatch
+) -> None:
+    settings = _settings(tmp_path)
+    source = settings.nas_root / "raw/lab/changed-data"
+    _write_v21(source)
+    database = Database(settings.database_path)
+    database.initialize()
+    candidate = inspect_dataset(
+        area_root=settings.nas_root / "raw",
+        storage_area="raw",
+        relative_path="lab/changed-data",
+    )
+    generation = database.begin_dataset_scan("raw")
+    database.synchronize_datasets(
+        storage_area="raw", records=[candidate.as_record()], scan_generation=generation
+    )
+    dataset = database.list_datasets()[0]
+    profile = database.create_profile("Data revision guard")
+    recipe = database.create_curation_recipe(
+        dataset_id=dataset["id"],
+        profile_id=profile["id"],
+        name="Immutable data",
+        selection_mode="all",
+    )
+    snapshot = database.snapshot_curation_recipe(recipe["id"], profile_id=profile["id"])
+    job, _ = database.create_job(
+        kind="curation.materialize",
+        queue_name="cpu",
+        profile_id=profile["id"],
+        payload={"snapshot_id": snapshot["id"], "output_name": "changed-data-output"},
+        idempotency_key="changed-data-run",
+    )
+    database.claim_job(job["id"], worker_id="guard-worker", lease_seconds=120)
+    original_write_dataset = transforms._write_dataset
+
+    def write_then_mutate(**kwargs):
+        result = original_write_dataset(**kwargs)
+        data_path = source / "data/chunk-000/episode_000000.parquet"
+        frame = pd.read_parquet(data_path)
+        frame.loc[0, "action"] = [999.0]
+        frame.to_parquet(data_path, index=False)
+        return result
+
+    monkeypatch.setattr(transforms, "_write_dataset", write_then_mutate)
 
     with pytest.raises(RecipeRevisionMismatchError):
         materialize_curation_recipe(

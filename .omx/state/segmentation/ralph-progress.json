@@ -1,0 +1,209 @@
+{
+  "scope": "segmentation",
+  "phase": "live-visual-verification-complete",
+  "verdict": "pass",
+  "method": "Manual screenshot inspection plus fixture-only Playwright assertions; no unavailable skill was invoked.",
+  "evidence": {
+    "report": "/tmp/datasetui-segmentation-browser/report.json",
+    "desktop": "/tmp/datasetui-segmentation-browser/desktop.png",
+    "mobile": "/tmp/datasetui-segmentation-browser/mobile.png",
+    "browser_script": "scripts/smoke_segmentation_workflow.py",
+    "desktop_viewport": {
+      "width": 1440,
+      "height": 1080
+    },
+    "mobile_viewport": {
+      "width": 390,
+      "height": 844
+    },
+    "live_v2_report": "/tmp/datasetui-segmentation-live-v2-browser/report.json"
+  },
+  "checks": {
+    "industrial_dark_theme_consistent": true,
+    "preserve_first_black_default_visible": true,
+    "template_batch_review_sections_distinguishable": true,
+    "explicit_candidate_selection_visible": true,
+    "uncertain_frames_marked_as_heuristics": true,
+    "review_source_banner_selectors_frame_url_agree": true,
+    "review_episode_and_camera_locked": true,
+    "all_selected_items_required_before_export": true,
+    "background_edit_invalidates_approval": true,
+    "mobile_has_no_horizontal_document_overflow": true,
+    "gpu_unconfigured_reason_and_manual_path_visible": true,
+    "page_errors": [],
+    "actual_640x480_image_and_overlay_bounds_match_desktop_mobile": true,
+    "normalized_corner_and_manual_box_wire_regression_passed": true,
+    "width_based_brush_fill_radius_verified": true
+  },
+  "limitations": [
+    "Fixture images and empty video responses validate layout and workflow only, not video playback or actual mask quality.",
+    "Sticky navigation may appear inside full-page captures at the captured scroll position; viewport interactions passed.",
+    "Real fixed/wrist-camera pilot quality and learning benefit require separate evaluation."
+  ],
+  "follow_up": "Real RTX UI/source-frame smoke passed after frontend-only coordinate fix. Full pilot segmentation accuracy and learning benefit remain separate evaluation, not implied by this verdict.",
+  "iterations": [
+    {
+      "phase": "live-geometry-review-before-fix",
+      "verdict": "fail",
+      "evidence": "/tmp/datasetui-segmentation-live-browser/report.json",
+      "source_pixels": [
+        640,
+        480
+      ],
+      "image_display": [
+        817.578125,
+        613.171875
+      ],
+      "pointer_overlay": [
+        817.578125,
+        817.578125
+      ],
+      "failure": "SVG grid intrinsic aspect ratio stretches pointer overlay beyond displayed image; normalized y coordinates are wrong.",
+      "regression": "scripts/smoke_segmentation_workflow.py fails 4:3 bounds assertion before fix; evidence /tmp/datasetui-segmentation-overlay-before/failure.png"
+    },
+    {
+      "phase": "fixed-overlay-fixture-verification",
+      "verdict": "pass",
+      "evidence": "/tmp/datasetui-segmentation-overlay-fixed/report.json",
+      "desktop": "/tmp/datasetui-segmentation-overlay-fixed/desktop.png",
+      "mobile": "/tmp/datasetui-segmentation-overlay-fixed/mobile.png",
+      "checks": [
+        "4:3 desktop/mobile image and overlay identical bounds",
+        "16:9 desktop/mobile image and overlay identical bounds",
+        "top-left/bottom-right normalized point wire values",
+        "normalized manual ROI box wire values",
+        "brush fill radii match width-based source-pixel radius",
+        "275 Bun tests, app/test typecheck, scoped ESLint pass"
+      ],
+      "implementation": "Three CSS class changes make overlay absolute inset-0 over natural-aspect image parent; no mask/coordinate scaling factors added."
+    },
+    {
+      "phase": "live-web-v2-geometry-verification",
+      "verdict": "pass",
+      "evidence": "/tmp/datasetui-segmentation-live-v2-browser/report.json",
+      "desktop": "/tmp/datasetui-segmentation-live-v2-browser/desktop.png",
+      "mobile": "/tmp/datasetui-segmentation-live-v2-browser/mobile.png",
+      "source_pixels": [
+        640,
+        480
+      ],
+      "desktop_image_and_overlay": [
+        817.578125,
+        613.171875
+      ],
+      "mobile_image_and_overlay": [
+        287.625,
+        215.71875
+      ],
+      "read_only": true,
+      "responses_mocked": false,
+      "writes_attempted": [],
+      "page_errors": [],
+      "console_errors": [],
+      "http_errors": []
+    }
+  ],
+  "sample_loading_iteration": {
+    "date": "2026-10-01",
+    "verdict": "pass",
+    "method": "Playwright assertions and manual screenshot inspection; real RTX GPU and live UI",
+    "evidence": [
+      "/tmp/datasetui-sample-browser/report.json",
+      "/tmp/datasetui-oct01-workflow-browser-final/report.json",
+      "/tmp/datasetui-oct01-live-browser/report.json",
+      "/tmp/datasetui-oct01-live-sample/sample-job.json",
+      "/tmp/datasetui-oct01-gpu-result.json"
+    ],
+    "limitations": [
+      "GPU episode proof is a bounded four-frame isolated fixture, not all-episode quality validation"
+    ]
+  },
+  "object_selection_iteration": {
+    "verdict": "pass",
+    "evidence": [
+      "/tmp/datasetui-object-browser-final/desktop.png",
+      "/tmp/datasetui-object-browser-final/mobile.png",
+      "/tmp/datasetui-object-workflow/report.json",
+      "/tmp/datasetui-object-gpu-result.json",
+      "/tmp/datasetui-object-live-sample/report.json",
+      "/tmp/datasetui-object-live-sample/desktop.png",
+      "/tmp/datasetui-object-live-sample/mobile.png"
+    ],
+    "notes": "PASS: independent Point/Box/Brush fieldsets, object intent and SAM polarity distinct, desktop/mobile geometry aligned. Actual remove-only board sample preserves surroundings. GPU four-frame episode proof is bounded, not full-dataset quality certification."
+  },
+  "guidance_error_iteration": {
+    "verdict": "pass",
+    "evidence": [
+      "/tmp/seg-guidance-browser/validation.png",
+      "/tmp/seg-guidance-browser/report.json"
+    ],
+    "notes": "Actual live 422 message visible; corrected positive+negative object succeeded on GPU. No layout changes."
+  },
+  "non_destructive_intent_iteration": {
+    "verdict": "pass",
+    "evidence": [
+      "/tmp/seg-intent-browser-final/report.json",
+      "/tmp/seg-intent-workflow/report.json",
+      "/tmp/seg-intent-live/report.json",
+      "/tmp/seg-intent-live/desktop.png",
+      "/tmp/seg-intent-live/mobile.png"
+    ],
+    "notes": "Keep Point remains object 1/protect while remove Box gets object 2/replace. Explicit bulk role conversion requires confirmation. Live GPU sample succeeded; mobile no horizontal overflow."
+  },
+  "confirm_save_iteration": {
+    "verdict": "pass",
+    "method": "Manual desktop/mobile screenshot review plus fixture and live Playwright assertions",
+    "desktop": "/tmp/seg-confirm-live/final-desktop.png",
+    "mobile": "/tmp/seg-confirm-live/final-mobile.png",
+    "report": "/tmp/seg-confirm-live/report.json",
+    "full_video": "/tmp/seg-confirm-live/live-video.png",
+    "frame_count": 1198,
+    "video_duration_seconds": 39.933333,
+    "backend_tests": 631,
+    "backend_skipped": 1,
+    "frontend_tests": 280,
+    "images": {
+      "web": "release-20261001-confirm-v2",
+      "backend": "release-20261001-confirm-v2"
+    },
+    "followup_visual_issue": "Resolved groups incorrectly displayed the legacy candidate picker; render-only edits were incorrectly blocked by object editing lock. Split render updates from object confirmation.",
+    "final_ui": {
+      "background_edit_after_confirm": true,
+      "no_duplicate_candidate_picker": true,
+      "existing_real_video_replayed": true
+    }
+  },
+  "included_hints_iteration": {
+    "status": "verified",
+    "backend_tests": 107,
+    "draft_tests": 20,
+    "typecheck": "passed",
+    "lint": "passed",
+    "browser": "desktop/mobile fixture passed",
+    "gpu": {
+      "status": "passed",
+      "candidate": "360aa5c9-afc9-49af-8fbc-1c5a39aad94e",
+      "sample": "e5ff2c13-eda2-4a89-ad9a-3a436776f4df",
+      "points": 9,
+      "area": 78086,
+      "mask_and_composite_identical": true
+    },
+    "visual_verdict": {
+      "pass": true,
+      "evidence": "/tmp/seg-hints-browser",
+      "layout_change": false
+    },
+    "backup": "/home/rtx6000/kgs/datasetui-backup-20261001-hints-220137"
+  },
+  "object_chips_iteration": {
+    "pass": true,
+    "evidence": "/tmp/seg-chips-browser-final",
+    "frontend_tests": 281,
+    "typecheck": "passed",
+    "lint": "passed",
+    "save_success_auto_new": true,
+    "save_failure_keeps_draft": true,
+    "desktop_mobile": "passed",
+    "backup": "/home/rtx6000/kgs/datasetui-backup-20261001-chips-221359"
+  }
+}

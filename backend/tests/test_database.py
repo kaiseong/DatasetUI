@@ -11,7 +11,6 @@ import pytest
 import datasetui.database as database_module
 from datasetui.database import (
     Database,
-    JobCancellationConflictError,
     JobOwnershipError,
 )
 

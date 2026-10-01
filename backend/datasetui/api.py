@@ -250,6 +250,7 @@ def create_router(
             status=job_status,
             kind=kind,
             limit=limit,
+            public=True,
             active_only=active_only,
             offset=offset,
         )
@@ -689,13 +690,16 @@ def create_router(
                     database.abort_dataset_trash(dataset_id)
                     raise
                 record = database.record_dataset_trash_source_identity(
-                    dataset_id, source_device=source_device, source_inode=source_inode
+                    dataset_id,
+                    source_device=source_device,
+                    source_inode=source_inode,
                 )
             else:
                 database.get_profile(payload.profile_id)
                 if (
                     existing["dataset"]["name"] != payload.expected_name
-                    or existing["dataset"]["fingerprint"] != payload.expected_fingerprint
+                    or existing["dataset"]["fingerprint"]
+                    != payload.expected_fingerprint
                 ):
                     raise DatasetTrashConflictError("confirmation_mismatch")
                 if existing["state"] != "moving":
@@ -708,7 +712,9 @@ def create_router(
                 if trash_exists and not original_exists:
                     if not identity_matches(
                         existing,
-                        dataset_location_identity(settings.nas_root, existing, trashed=True),
+                        dataset_location_identity(
+                            settings.nas_root, existing, trashed=True
+                        ),
                     ):
                         database.mark_dataset_trash_recovery_required(dataset_id)
                         raise DatasetTrashConflictError("trash_recovery_required")
@@ -793,7 +799,9 @@ def create_router(
                 if original_exists and not trash_exists:
                     if not identity_matches(
                         existing,
-                        dataset_location_identity(settings.nas_root, existing, trashed=False),
+                        dataset_location_identity(
+                            settings.nas_root, existing, trashed=False
+                        ),
                     ):
                         database.mark_dataset_trash_recovery_required(dataset_id)
                         raise DatasetTrashConflictError("trash_recovery_required")
@@ -801,7 +809,9 @@ def create_router(
                 if trash_exists and not original_exists:
                     if not identity_matches(
                         existing,
-                        dataset_location_identity(settings.nas_root, existing, trashed=True),
+                        dataset_location_identity(
+                            settings.nas_root, existing, trashed=True
+                        ),
                     ):
                         database.mark_dataset_trash_recovery_required(dataset_id)
                         raise DatasetTrashConflictError("trash_recovery_required")

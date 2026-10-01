@@ -794,3 +794,102 @@ def test_fixed_manual_only_template_batches_without_model_but_wrist_rejects(cont
     )
     with pytest.raises(ValidationError, match="손목"):
         CameraTemplate.model_validate({**camera, "camera_mode": "wrist"})
+
+
+def test_selection_token_preview_binds_by_resolved_fingerprint(context):
+    """AUGMENT corrections are submitted with a selection token, not a fingerprint."""
+    settings, database, _, _, profile, _ = context
+    batch = _batch(context)
+    item = batch["items"][0]
+
+    def pending_job(key):
+        spec = {**item["spec"], "fingerprint": None, "frame_token": str(uuid4())}
+        job, _ = database.create_job(
+            kind="segmentation.preview",
+            queue_name="gpu",
+            profile_id=profile["id"],
+            payload={"spec": spec},
+            idempotency_key=key,
+        )
+        return job
+
+    queued = pending_job("pending-queued")
+    workflow.bind_preview(
+        database, settings, batch["id"], item["id"], profile["id"], queued["id"]
+    )
+    finished = pending_job("pending-finished")
+    _finish(context, finished["id"])
+    bound = workflow.bind_preview(
+        database, settings, batch["id"], item["id"], profile["id"], finished["id"]
+    )
+    assert bound["items"][0]["preview_id"] == finished["id"]
+    result = database.get_job(finished["id"])["result"]
+    approved = workflow.approve_item(
+        database, settings, batch["id"], item["id"], profile["id"], result["recipe_hash"]
+    )
+    assert approved["batch"]["items"][0]["review_status"] == "approved"
+
+    other = pending_job("pending-other-source")
+    database.claim_job(other["id"], worker_id="test")
+    root = settings.jobs_root / "segmentation" / other["id"]
+    root.mkdir(parents=True)
+    database.succeed_job(
+        other["id"],
+        {
+            "preview_id": other["id"],
+            "fingerprint": "f" * 64,
+            "recipe_hash": "e" * 64,
+            "artifact_fingerprint": dataset_content_fingerprint(root),
+        },
+        worker_id="test",
+    )
+    with pytest.raises(ValueError, match="동일 프로필"):
+        workflow.bind_preview(
+            database, settings, batch["id"], item["id"], profile["id"], other["id"]
+        )
+
+
+def test_text_redetection_keeps_source_episode_and_reports_dropped_objects(context):
+    _, _, _, dataset, profile, _ = context
+    camera = CameraTemplate.model_validate(
+        {
+            "video_key": "observation.images.top",
+            "camera_mode": "fixed",
+            "mode": "object_selection",
+            "reuse_policy": "text_by_default",
+            "source_episode_index": 0,
+            "prompts": [
+                {"object_id": 1, "frame_index": 1, "target": "protect", "text": "board"},
+                {
+                    "object_id": 2,
+                    "frame_index": 1,
+                    "target": "replace",
+                    "box": [0.1, 0.1, 0.3, 0.3],
+                },
+            ],
+        }
+    ).model_dump(mode="json")
+    payload = BatchCreate.model_validate(
+        {
+            "profile_id": profile["id"],
+            "idempotency_key": "redetect",
+            "template_id": str(uuid4()),
+            "dataset_id": dataset["id"],
+            "fingerprint": dataset["fingerprint"],
+            "episode_indices": [0, 1],
+            "video_keys": ["observation.images.top"],
+        }
+    )
+    source = workflow._instantiate_camera(camera, payload, 0)
+    other = workflow._instantiate_camera(camera, payload, 1)
+    assert {p["object_id"] for p in source["prompts"]} == {1, 2}
+    assert source["prompts"][0]["frame_index"] == 1
+    assert {p["object_id"] for p in other["prompts"]} == {1}
+    [warning] = workflow.reuse_warnings(
+        {"cameras": [camera]}, payload.model_dump(mode="json")
+    )
+    assert "객체 2" in warning and "observation.images.top" in warning
+    assert not workflow.reuse_warnings(
+        {"cameras": [camera]},
+        {**payload.model_dump(mode="json"), "same_camera_setup_confirmed": True},
+    )

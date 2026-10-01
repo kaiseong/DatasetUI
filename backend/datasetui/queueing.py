@@ -90,7 +90,9 @@ class RQDispatcher:
             connection=connection,
             serializer=JSONSerializer,
             default_timeout=(
-                self.io_timeout_seconds if queue_name in {"io", "gpu"} else self.timeout_seconds
+                self.io_timeout_seconds
+                if queue_name in {"io", "gpu"}
+                else self.timeout_seconds
             ),
         )
         rq_job = queue.enqueue(

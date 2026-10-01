@@ -15,6 +15,15 @@ __pycache__/
 # Local build and packaging output
 release/
 
+# Local-only LeRobot comparison probes and captured validation evidence
+/scripts/validation/
+/docs/validation/
+# Tests of the local-only probe tools (not product regression tests)
+/backend/tests/test_upstream_stats_probe.py
+/backend/tests/test_video_workflow_probe.py
+/backend/tests/test_validation_baseline_capture.py
+/backend/tests/test_dataset_row_comparator.py
+
 # Local DatasetUI runtime data and secrets
 .runtime/
 .env
@@ -26,4 +35,3 @@ release/
 .idea/
 .vscode/
 *.log
-

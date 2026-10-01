@@ -151,6 +151,168 @@ available without it:
 docker compose stop worker-gpu
 ```
 
+## Sample/lazy-loading release (2026-10-01)
+
+The AUGMENT page now confirms dataset selection before loading metadata. New
+`/catalog` and `/selection` endpoints do not instantiate the eager dataset source
+or load action/state parquet. Selection tokens bind the selected physical video
+and its metadata dependencies; a metadata revision is never a content fingerprint.
+
+`segmentation.sample` produces one-frame PNG artifacts in `segmentation-samples`.
+It has separate artifacts and cannot enter preview approval, mask reuse, batch
+binding, or export. Full preview requests may carry a selection token instead of
+an already-computed content fingerprint. The queued worker verifies that token,
+resolves full integrity, and publishes an ordinary exportable preview. Template
+saving accepts a metadata revision without scanning the full source. New BATCH
+preparation is queued as `segmentation.batch_prepare`.
+
+New templates default to text redetection on other episodes. Spatial hints need
+explicit same-setup confirmation. Legacy camera/template contracts remain valid.
+Point marker radius (2–16 CSS px, default 6) is presentation-only; brush radius
+still changes the actual correction area.
+
+### Verification evidence
+
+- Backend: 607 passed, 1 skipped; frontend: 275 passed.
+- TypeScript application/test type checks, scoped ESLint and Ruff passed.
+- Both browser regression scripts passed, including BATCH/reapproval/export and
+  image/overlay geometry at 4:3 and 16:9, desktop and mobile.
+- RTX6000: actual single-frame GPU sample and a complete **4-frame isolated
+  episode fixture** sourced from real footage passed. This is not a quality
+  evaluation of all episodes or a full-length production dataset run.
+- Live `https://192.168.0.3/augment`: no scope/frame request before confirmation;
+  one selected-scope request and one frame request afterwards. A real queued
+  one-frame GPU sample from `JIMTOF_TEST_0` completed and displayed successfully.
+- Release images: `release-20261001-sample-v1` for API, processor, converter,
+  segmentation worker and web. Only 18 scoped source files were deployed; remote
+  changes unrelated to segmentation were retained.
+- Backup: `/home/rtx6000/kgs/datasetui-backup-20261001-sample-154837` (private source,
+  configuration, and SQLite backup). No NAS originals or dataset statistics were
+  modified by validation; no HF uploads or production exports were requested.
+
+### RQ rollout ordering
+
+This installed RQ version exits at startup while suspended. During idle-only
+rollout, suspend dispatch, stop the API, recheck idleness, back up, and replace
+images. Start/check the API, **resume RQ before restarting workers**, then verify
+stable workers and CUDA. Starting workers while suspended caused a temporary
+restart loop during this release; it was resolved by resuming RQ and restarting
+the same services. The registry was retained, not rolled back.
+
+## 2026-10-01 object-selection release
+
+- New explicit `object_selection` mode: keep union minus remove union; remove-only keeps the complement. Removal wins overlap. Legacy `protect_foreground` / `replace_background` retain their old equations and stored results; manual regions are rejected only in the new mode.
+- Point / Box / Brush activation, settings and scoped deletion now live in separate fieldsets. Object keep/remove applies to all of its keyframes without changing point polarity or brush operation. Point radius remains display-only.
+- New-mode brushes provide bounded radius-aware SAM point hints (at most 63 per stroke), never post-inference raster overwrites. Brush-only objects receive a derived primary SAM seed, not a persistent Point in the UI draft.
+- Shared compositor is used by sample, episode preview and export. Mode is part of mask cache identity. Missing requested objects fail explicitly; edits invalidate review and cached candidate selections.
+- Local validation: backend 616 passed / 1 skipped; Bun 277 passed; application/test TypeScript checks, scoped ESLint/Ruff, browser fixture sample and BATCH/review/export checks passed. Desktop/mobile geometry and grouped controls checked with Playwright and screenshots.
+- Real GPU proof: four cases (keep, remove, overlapping keep+remove, brush-only), each with a one-frame sample and a four-frame episode fixture. Keep/remove masks were exact complements; overlapping removal won. Production NAS and model mounts were read-only. This is a bounded integration proof, not all-episode segmentation-quality certification.
+- Deployment image family: `release-20261001-object-v1`, based on the existing sample release. Only 11 runtime files are overlaid onto fresh server source. Idle queues and source hashes are checked, source/config/SQLite privately backed up, then API/web started, **RQ resumed before workers start**. No registry restore or original dataset edits.
+
+- Completed backup: `/home/rtx6000/kgs/datasetui-backup-20261001-object-181215`. Live browser successfully ran remove-only `JIMTOF_TEST_0` sample; no page/API errors, one selection request and one frame request, no full-scope request. Original datasets unchanged.
+
+### Guidance error handling hotfix (2026-10-01)
+
+- `release-20261001-guidance-v1`: five scoped runtime files; backup `/home/rtx6000/kgs/datasetui-backup-20261001-guidance-191816`.
+- New-mode objects whose initial prompt has only negative points are rejected before enqueueing. Existing identified objects may still have negative-only correction keyframes. Sample frame filtering revalidates effective guidance; legacy modes are unchanged.
+- Safe `SegmentationGuidanceError` messages propagate through the existing public curation-error path, without exposing arbitrary exceptions. The frontend displays Pydantic validation messages rather than just HTTP status, without echoing input payloads.
+- Regression: 618 backend passed / 1 skipped, 278 frontend passed; TypeScript (app/tests), ESLint, Ruff and image builds passed.
+- Live browser: negative-only object 2 returned 422 with actionable Korean message; adding a positive point to the same object succeeded on the actual GPU (`4ddd2d88-7435-4094-896c-c0bcb767315b`). Evidence `/tmp/seg-guidance-browser/report.json`. Original datasets unchanged.
+
+### Mixed spatial hints fix (2026-10-01)
+
+- Labeling in `object_selection` uses an explicit instance-hint policy: Box corners are labels 2/3 in the same SAM point request as positive/negative Points. A Box no longer acts as a prerequisite semantic candidate detector for text-free labeling.
+- Brush corrections on an already prompted frame set `clear_old_points=False`, preserving prior Point/Box/Brush hints. New-frame corrections initialize their own frame hints. Legacy modes retain the previous behavior; text prompts retain semantic grounding.
+- The installed pinned official SAM predictor was inspected: its request handler defaults `clear_old_points` to true and forwards explicit false for instance corrections. No SAM package or model changes were made.
+- Provenance records `instance-box-points-accumulate-v1`. Reuse of older object-selection masks is rejected with a regeneration message; existing outputs remain readable/exportable.
+- Regression: 622 backend passed, 1 skipped; scoped Ruff and diff checks passed. New tests cover mixed corners/point polarities, brush accumulation, new-frame isolation, and old/current cache policies.
+- GPU proof: the user's exact failed Box+Point payload and a Box+Point+add/erase Brush payload both succeeded as one-frame samples and four-frame previews with read-only NAS/model mounts. This proves the processing path, not segmentation quality for every episode or contradictory hint set.
+
+- Deployed `release-20261001-mixed-v1` (backend images only; web unchanged), backup `/home/rtx6000/kgs/datasetui-backup-20261001-mixed-194733`. Exact original sample spec successfully retried as `8d68e1e3-2375-4cd5-b249-9689aa60ae75`; request spec equality checked. No original dataset changes.
+
+### Non-destructive input-intent switch (2026-10-01)
+
+- Web-only `release-20261001-intent-v1`; backup `/home/rtx6000/kgs/datasetui-backup-20261001-intent-195857`. API, GPU workers and queues were not restarted or changed.
+- Switching keep/remove intent starts a new object when the current object has annotations in any frame; an empty object may be reused. Existing Points/Boxes/Brush/text and approval remain untouched until actual annotation edits. Capacity exhaustion reports a message without relabeling anything.
+- Deliberate role conversion is separated into an expandable section with a confirmation dialog; it updates the entire current object's keyframes and invalidates review as before. Previously saved role assignments are not silently migrated.
+- Tests: 279 Bun passed, app/test TypeScript and scoped ESLint passed, production web build passed. Desktop/mobile fixtures cover keep-point then remove-box payload, explicit conversion cancel/accept, draft preservation and BATCH/review/export regression.
+- Actual RTX web interaction produced separate protect-point and replace-box objects and GPU sample `7399bb76-809d-4e92-8644-2c6797a9efe6` succeeded. Screenshots/report under `/tmp/seg-intent-live`. Original datasets unchanged.
+
+### Semantic/spatial conflict diagnostics (2026-10-01)
+
+- Added an allowlisted `Sam3PromptMatchError` that identifies the object and distinguishes zero versus multiple matching semantic candidates. The worker exposes this safe message as `segmentation_guidance`; arbitrary SAM failures remain redacted.
+- This does NOT ignore text, drop spatial hints, or change mask semantics. Text+spatial conflicts still require an explicit input correction.
+- Regression: 624 backend tests passed / 1 skipped, Ruff passed. Remote tasks.py received only the import and specific exception mapping, preserving unrelated remote worker changes.
+
+- Deployed backend `release-20261001-semantic-v1`; backup `/home/rtx6000/kgs/datasetui-backup-20261001-semantic-201201`. Unchanged-input GPU replay `7c7af116-18f2-4dfc-8ff4-877d2581729d` correctly remains failed but now exposes object 2 / zero matching candidates and actionable guidance. This is diagnostic verification, not successful segmentation.
+
+## 2026-10-01 — Confirmed objects and scored Instruction candidates
+
+- Editing is now a separate buffer. Object confirmation atomically persists the
+  scoped workspace (`profile/dataset/episode/camera`) with optimistic revision
+  checks; refresh restores saved objects. Samples, video and template capture use
+  confirmed annotations, not an unfinished object's buffer.
+- `GET/PUT /api/v1/segmentation/workspace` stores bounded groups independently of
+  reusable templates. Metadata identity is not substituted for full integrity.
+  Confirmed changes revoke matching preview/batch approvals. Conflicts retain the
+  draft; “최신 목록 불러오기 · 초안 유지” loads the latest revision explicitly.
+- New Instruction prompts have a configurable 0–1 detection threshold (UI default
+  0.50). The pinned model's detector, new-track and image-only gates are configured
+  together. Scores are captured before instance refinement, which can replace
+  upstream scores with 1.0. Spatial-only objects have no semantic confidence.
+- Multiple candidates can form one keep/remove group. Durable references bind to
+  a successful owned sample, matching source frame, text, checkpoint, hint policy
+  and verified artifact. Re-execution matches masks (unique IoU >= 0.5), not stale
+  SAM IDs. Ambiguity fails closed rather than selecting a different instance.
+- Group-member Point/Box/Brush corrections remain separate. Tracking uses the
+  eligible detection set; scores describe detection, not per-frame confidence.
+  Other episodes drop candidate references and re-detect using text; outputs still
+  require review. Existing source datasets remain unchanged.
+- The inference policy is `instance-box-points-detection-score-v2`; old mask caches
+  require regeneration. Existing legacy results retain their export contracts.
+- Candidate references are intentionally frame-bound. Re-detect after changing
+  the source frame or Instruction; unavailable/tampered candidate artifacts are
+  rejected, not silently replaced.
+
+Verification: 280 frontend unit tests, 631 backend tests (1 skipped), app/test
+TypeScript checks, ESLint/Ruff, and fixture Playwright confirmation/restore,
+keep-point + remove-box isolation, candidate score selection, desktop/mobile.
+RTX6000 GPU proof uses a separate four-frame fixture with read-only NAS/model
+mounts; deployment and live evidence are recorded in the scoped runtime report.
+
+RTX6000 deployment: `release-20261001-confirm-v1` (web/API/all workers).
+Backup: `/home/rtx6000/kgs/datasetui-backup-20261001-confirm-211356`.
+Final isolated GPU report: `/tmp/seg-confirm-gpu-proof-release/result.json` on RTX6000.
+Live Playwright: `/tmp/seg-confirm-live/report.json` locally; real `board` detection
+returned four candidates, two were confirmed as a group, GPU sample succeeded,
+and the confirmed group survived refresh without page errors. This uses the
+separate profile `Segmentation 확인 검증 20261001`, not a user's existing workspace.
+
+Compatibility follow-up: API/workers use `release-20261001-confirm-v2`; web remains
+`release-20261001-confirm-v1`. Original recipes without an explicit threshold keep
+the pinned builder's original detection/admission defaults, even after another
+object session temporarily configures custom thresholds. The previous defaults
+are captured and restored, not guessed. Regression coverage includes this reset.
+Backup: `/home/rtx6000/kgs/datasetui-backup-20261001-confirm-compat-212147`.
+
+Full live episode verification also passed with the default 0.50 threshold:
+job `88fcbcca-88e3-4519-8ec8-19c12a0a9d92`, 1,198 frames, 640×480,
+39.933333 seconds; browser decoded/played the composite video without errors.
+A preceding low-threshold two-candidate test was intentionally rejected when a
+candidate could not be re-associated in the full video; no substitute object was
+selected and that failed preview was not approved/exported.
+
+Final web follow-up: web also uses `release-20261001-confirm-v2`. Confirmed groups
+no longer show the legacy second candidate picker; render-only background and
+legacy candidate-selection updates remain independent of object confirmation.
+Fixture and live UI replay verified this using the already generated real video.
+Web backup: `/home/rtx6000/kgs/datasetui-backup-20261001-confirm-web-213108`.
+
+Main changed surfaces: `src/components/workbench/segmentation-editor.tsx`,
+`src/lib/segmentation-{api,draft}.ts`, new `backend/datasetui/segmentation_workspace.py`
+and `segmentation_candidates.py`, plus SAM engine and segmentation contracts,
+sample/preview/mask/workflow integration. No new dependencies were added.
+
 ## 2026-10-01 — 검토 수정: 배치 연결·객체 단위 Instruction·재등장·원본 보존 내보내기
 
 ### 동작 변경

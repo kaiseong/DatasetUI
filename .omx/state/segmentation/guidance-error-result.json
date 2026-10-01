@@ -1,0 +1,13 @@
+{
+  "status": "deployed-and-verified",
+  "backup": "/home/rtx6000/kgs/datasetui-backup-20261001-guidance-191816",
+  "backend_tests": 618,
+  "frontend_tests": 278,
+  "live": {
+    "invalid_status": 422,
+    "message_visible": true,
+    "corrected_job": "4ddd2d88-7435-4094-896c-c0bcb767315b",
+    "corrected_status": "succeeded",
+    "page_errors": []
+  }
+}

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 import math
 import os
@@ -20,6 +19,11 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from datasetui.config import Settings
+from datasetui.content_integrity import (
+    ContentIntegrityError,
+    dataset_content_fingerprint,
+    dataset_content_manifest,
+)
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import MAX_INFO_BYTES, inspect_dataset, scan_storage_area
 from datasetui.job_progress import JobProgressReporter
@@ -113,11 +117,12 @@ def materialize_curation_recipe(
         snapshot["storage_area"],
         snapshot["relative_path"],
     )
+    _assert_source_fingerprint(
+        source_root, snapshot["dataset_fingerprint"], snapshot["dataset_id"]
+    )
     raw_info = _read_regular_bytes(
         source_root / "meta" / "info.json", max_bytes=MAX_INFO_BYTES
     )
-    if hashlib.sha256(raw_info).hexdigest() != snapshot["dataset_fingerprint"]:
-        raise RecipeRevisionMismatchError(snapshot["dataset_id"])
     info = _decode_json_object(raw_info)
     version = info.get("codebase_version")
     if version not in {"v2.0", "v2.1", "v3.0"}:
@@ -227,6 +232,11 @@ def materialize_curation_recipe(
                 current_item=f"{output['name']} 구조 검사",
             )
             database.assert_job_lease(job_id, worker_id=worker_id)
+            _assert_source_fingerprint(
+                source_root,
+                snapshot["dataset_fingerprint"],
+                snapshot["dataset_id"],
+            )
             manifest = _publish_output(
                 database=database,
                 settings=settings,
@@ -559,6 +569,9 @@ def _write_dataset(
                 relative_action,
                 on_progress=on_progress,
             )
+            # Recalculate raw statistics, including decoded RGB samples: source
+            # metadata may contain stale statistics even when its media is valid.
+            # Decoding for statistics never rewrites or re-encodes a video.
             stats_path = copies[0] / "meta/stats.json"
             absolute_stats = _read_json(stats_path) if stats_path.exists() else {}
             absolute_stats.update(
@@ -693,13 +706,13 @@ def _write_dataset(
         if "task_index" in data.columns:
             data["task_index"] = data["task_index"].map(task_mapping).astype("int64")
 
+    # Resolve the exact mask and validate chunk statistics before video work.
     relative_profile = _relative_action_profile(
         source.info,
         [item[0] for item in episodes],
         relative_action or {},
         on_progress=on_progress,
     )
-
     language_types = _language_column_types(episodes)
     output_video_codecs = (
         {}
@@ -800,6 +813,8 @@ def _write_dataset(
 
 def _write_relative_profile(destination: Path, relative_profile: dict) -> None:
     if relative_profile["enabled"]:
+        # Official relative training keeps stored actions absolute. Only the
+        # normalization distribution changes; preserve raw statistics explicitly.
         absolute_stats = _read_json(destination / "meta/stats.json")
         _write_json(destination / "meta/stats.absolute.json", absolute_stats)
         _write_json(
@@ -880,17 +895,26 @@ def _coerce_atom(
 def _extract_existing_language_atoms(data: pd.DataFrame) -> list[dict[str, Any]]:
     atoms: list[dict[str, Any]] = []
 
-    def read_many(values: Any, *, timestamp: float | None = None) -> list[dict[str, Any]]:
+    def read_many(
+        values: Any, *, timestamp: float | None = None
+    ) -> list[dict[str, Any]]:
         if values is None:
             return []
         if isinstance(values, np.ndarray):
             values = values.tolist()
         if not isinstance(values, list):
-            raise CurationTransformError("Existing annotation column must contain lists")
+            raise CurationTransformError(
+                "Existing annotation column must contain lists"
+            )
         parsed = []
         for value in values:
             if not isinstance(value, dict) or set(value) - {
-                "role", "content", "style", "timestamp", "camera", "tool_calls"
+                "role",
+                "content",
+                "style",
+                "timestamp",
+                "camera",
+                "tool_calls",
             }:
                 raise CurationTransformError(
                     "Existing annotation contains unsupported fields or structure"
@@ -913,7 +937,9 @@ def _extract_existing_language_atoms(data: pd.DataFrame) -> list[dict[str, Any]]
                     "Persistent annotation rows differ; unsupported broadcast structure"
                 )
         if LANGUAGE_EVENTS in data.columns:
-            atoms.extend(read_many(row[LANGUAGE_EVENTS], timestamp=float(row["timestamp"])))
+            atoms.extend(
+                read_many(row[LANGUAGE_EVENTS], timestamp=float(row["timestamp"]))
+            )
     # Match upstream canonical ordering without discarding repeated messages.
     atoms.sort(
         key=lambda atom: (atom["timestamp"], atom.get("style") or "", atom["role"])
@@ -2272,40 +2298,19 @@ def _refresh_derived_registry(database: Database, settings: Settings) -> None:
 
 
 def _tree_manifest(root: Path) -> dict[str, Any]:
-    digest = hashlib.sha256()
-    count = 0
-    total = 0
-    for current, directories, files in os.walk(root, followlinks=False):
-        current_path = Path(current)
-        directories.sort()
-        for name in directories:
-            if (current_path / name).is_symlink():
-                raise CurationTransformError("Derived dataset contains a symlink")
-        for name in sorted(files):
-            path = current_path / name
-            descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
-            file_digest = hashlib.sha256()
-            size = 0
-            try:
-                metadata = os.fstat(descriptor)
-                if not stat.S_ISREG(metadata.st_mode):
-                    raise CurationTransformError(
-                        "Derived dataset contains an unsafe file"
-                    )
-                while chunk := os.read(descriptor, 1024 * 1024):
-                    file_digest.update(chunk)
-                    size += len(chunk)
-            finally:
-                os.close(descriptor)
-            relative = path.relative_to(root).as_posix()
-            digest.update(f"{relative}\0{size}\0{file_digest.hexdigest()}\n".encode())
-            count += 1
-            total += size
-    return {
-        "tree_sha256": digest.hexdigest(),
-        "file_count": count,
-        "total_bytes": total,
-    }
+    try:
+        return dataset_content_manifest(root)
+    except ContentIntegrityError as exc:
+        raise CurationTransformError("Dataset tree contains an unsafe entry") from exc
+
+
+def _assert_source_fingerprint(root: Path, expected: str, identifier: str) -> None:
+    try:
+        actual = dataset_content_fingerprint(root)
+    except ContentIntegrityError as exc:
+        raise RecipeRevisionMismatchError(identifier) from exc
+    if actual != expected:
+        raise RecipeRevisionMismatchError(identifier)
 
 
 def _safe_dataset_root(nas_root: Path, storage_area: str, relative_path: str) -> Path:

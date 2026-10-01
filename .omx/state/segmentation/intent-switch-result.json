@@ -1,0 +1,18 @@
+{
+  "status": "deployed-and-verified",
+  "image": "datasetui-web:release-20261001-intent-v1",
+  "backup": "/home/rtx6000/kgs/datasetui-backup-20261001-intent-195857",
+  "frontend_tests": 279,
+  "typecheck": "pass",
+  "eslint": "pass",
+  "live": {
+    "keep_point_preserved": true,
+    "remove_box_new_object": true,
+    "job_id": "7399bb76-809d-4e92-8644-2c6797a9efe6",
+    "status": "succeeded",
+    "page_errors": []
+  },
+  "limitations": [
+    "Previously saved role assignments are not automatically reinterpreted or migrated."
+  ]
+}

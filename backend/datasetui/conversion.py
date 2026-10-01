@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import tempfile
@@ -22,6 +21,7 @@ from datasetui.transforms import (
     _tree_manifest,
     _write_dataset,
     _write_json_atomic,
+    _assert_source_fingerprint,
 )
 from datasetui.validation import validate_dataset_root
 
@@ -91,9 +91,10 @@ def convert_dataset_to_v21(
     source_root = _safe_dataset_root(
         settings.nas_root, record["storage_area"], record["relative_path"]
     )
+    _assert_source_fingerprint(
+        source_root, payload["fingerprint"], payload["dataset_id"]
+    )
     raw = _read_regular_bytes(source_root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
-    if hashlib.sha256(raw).hexdigest() != payload["fingerprint"]:
-        raise RecipeRevisionMismatchError(payload["dataset_id"])
     from datasetui.relative_artifacts import reject_relative_profile
 
     reject_relative_profile(source_root, operation="v2.1 conversion")
@@ -216,6 +217,9 @@ def convert_dataset_to_v21(
             current_item="변환 결과 Export Gate 검사",
         )
         database.assert_job_lease(job_id, worker_id=worker_id)
+        _assert_source_fingerprint(
+            source_root, payload["fingerprint"], payload["dataset_id"]
+        )
         manifest = _publish_output(
             database=database,
             settings=settings,

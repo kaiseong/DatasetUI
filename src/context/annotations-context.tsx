@@ -30,14 +30,17 @@ import {
   saveEpisodeAtoms,
   fetchFrameTimestamps,
   isAnnotationPersistenceEnabled,
+  resolveDatasetFingerprint,
   type DatasetIdent,
 } from "../utils/annotationsClient";
-
-const STORAGE_PREFIX = "lerobot-annotations:v2:";
-
-function storageKey(repoOrPath: string, episodeId: number): string {
-  return `${STORAGE_PREFIX}${repoOrPath}::${episodeId}`;
-}
+import {
+  annotationDraftStorageKey,
+  isDirtyAfterSave,
+  mayApplyHydration,
+  parseStoredAnnotationDraft,
+  serializeAnnotationDraft,
+  type AnnotationDraft,
+} from "../utils/annotationDraftLifecycle";
 
 export interface PendingBboxDraw {
   kind: "bbox";
@@ -135,17 +138,16 @@ export function useAnnotations(): AnnotationsContextType {
   return ctx;
 }
 
-function identKey(ident: DatasetIdent): string {
-  return ident.datasetId || ident.localPath || ident.repoId || "unknown";
-}
-
-type StoredDraft = {
-  atoms: LanguageAtom[];
-  taskOverride: string | null;
-};
-
-function serializeDraft(atoms: LanguageAtom[], taskOverride: string | null) {
-  return JSON.stringify({ atoms, taskOverride });
+function writeStoredDraft(
+  key: string,
+  draft: AnnotationDraft,
+  savedSnapshot: string,
+) {
+  try {
+    sessionStorage.setItem(key, JSON.stringify({ ...draft, savedSnapshot }));
+  } catch {
+    /* ignore */
+  }
 }
 
 export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
@@ -171,7 +173,26 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
   const isWorkbench = !!ident.datasetId;
 
   // Track the last saved snapshot to detect dirtiness honestly.
-  const savedSnapshotRef = useRef<string>("[]");
+  const savedSnapshotRef = useRef<string>(
+    serializeAnnotationDraft({ atoms: [], taskOverride: null }),
+  );
+  const contentRef = useRef<AnnotationDraft>({
+    atoms: [],
+    taskOverride: null,
+  });
+  const scopeGenerationRef = useRef(0);
+  const saveGenerationRef = useRef(0);
+  const revisionRef = useRef(0);
+  const storageKeyRef = useRef<string | null>(null);
+  const [resolvedStorageKey, setResolvedStorageKey] = useState<string | null>(
+    null,
+  );
+
+  const applyDraft = useCallback((draft: AnnotationDraft) => {
+    contentRef.current = draft;
+    setAtoms(draft.atoms);
+    setTaskOverrideState(draft.taskOverride);
+  }, []);
 
   // Hydrate from sessionStorage when episode/ident changes; if the backend
   // is enabled, also fetch authoritative atoms + frame timestamps.
@@ -183,104 +204,161 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
       initialFrameTimestamps?: number[],
       initialTask?: string | null,
     ) => {
+      const scopeGeneration = ++scopeGenerationRef.current;
+      saveGenerationRef.current += 1;
+      setSaving(false);
+      storageKeyRef.current = null;
+      setResolvedStorageKey(null);
       setEpisodeId(newEpisodeId);
       setIdent(newIdent);
       setPendingDrawState(null);
       setSelectedIdxState(null);
       setBaseTask(initialTask ?? null);
+      revisionRef.current = 0;
       setAnnotationRevision(0);
 
-      // Hydrate from session first (so user edits survive episode toggles).
-      // If session is empty, fall back to initialAtoms (parquet-extracted).
-      let initial: LanguageAtom[] = [];
-      let initialTaskOverride: string | null = null;
-      let hasStoredDraft = false;
-      try {
-        const raw = sessionStorage.getItem(
-          storageKey(identKey(newIdent), newEpisodeId),
-        );
-        if (raw) {
-          const stored = JSON.parse(raw) as LanguageAtom[] | StoredDraft;
-          hasStoredDraft = true;
-          if (Array.isArray(stored)) initial = stored;
-          else {
-            initial = stored.atoms ?? [];
-            initialTaskOverride = stored.taskOverride ?? null;
-          }
-        }
-      } catch {
-        /* ignore */
-      }
-      if (initial.length === 0 && initialAtoms && initialAtoms.length > 0) {
-        initial = initialAtoms;
-      }
-      setAtoms(initial);
-      setTaskOverrideState(initialTaskOverride);
-      savedSnapshotRef.current = serializeDraft(initial, initialTaskOverride);
+      // The parquet seed is safe to show immediately. A stored Workbench draft
+      // is not read until the current dataset fingerprint has been resolved.
+      const seed: AnnotationDraft = {
+        atoms: initialAtoms ?? [],
+        taskOverride: null,
+      };
+      applyDraft(seed);
+      savedSnapshotRef.current = serializeAnnotationDraft(seed);
       setDirty(false);
       // Seed frame timestamps from the parquet (no backend dependency); the
       // backend will optionally overwrite this below.
       setFrameTimestamps(initialFrameTimestamps ?? []);
 
-      // Fetch from backend if available.
-      if (newIdent.datasetId && newIdent.profileId) {
-        fetchEpisodeAnnotationState(newEpisodeId, newIdent)
-          .then((remote) => {
-            if (!remote) return;
+      void (async () => {
+        let resolvedIdent = newIdent;
+        try {
+          resolvedIdent = await resolveDatasetFingerprint(newIdent);
+        } catch {
+          // Without a current fingerprint, a Workbench draft cannot be safely
+          // attributed to this dataset generation.
+          return;
+        }
+        if (scopeGenerationRef.current !== scopeGeneration) return;
+
+        const key = annotationDraftStorageKey(resolvedIdent, newEpisodeId);
+        if (!key) return;
+        setIdent(resolvedIdent);
+
+        let stored = null;
+        try {
+          stored = parseStoredAnnotationDraft(sessionStorage.getItem(key));
+        } catch {
+          /* ignore */
+        }
+        const editedBeforeDraftLoad = !mayApplyHydration(
+          contentRef.current,
+          seed,
+        );
+        if (stored && !editedBeforeDraftLoad) {
+          applyDraft({
+            atoms: stored.atoms,
+            taskOverride: stored.taskOverride,
+          });
+        }
+        const storedDraft = stored
+          ? { atoms: stored.atoms, taskOverride: stored.taskOverride }
+          : null;
+        const storedDraftIsDirty =
+          storedDraft !== null &&
+          serializeAnnotationDraft(storedDraft) !==
+            (stored?.savedSnapshot ?? serializeAnnotationDraft(seed));
+        const preserveCurrentDraft =
+          editedBeforeDraftLoad || storedDraftIsDirty;
+        const remoteHydrationBase = contentRef.current;
+        savedSnapshotRef.current =
+          stored?.savedSnapshot ?? serializeAnnotationDraft(seed);
+        storageKeyRef.current = key;
+        setResolvedStorageKey(key);
+        setDirty(
+          serializeAnnotationDraft(contentRef.current) !==
+            savedSnapshotRef.current,
+        );
+
+        if (resolvedIdent.datasetId && resolvedIdent.profileId) {
+          try {
+            const remote = await fetchEpisodeAnnotationState(
+              newEpisodeId,
+              resolvedIdent,
+            );
+            if (
+              !remote ||
+              scopeGenerationRef.current !== scopeGeneration ||
+              remote.dataset_fingerprint !== resolvedIdent.datasetFingerprint
+            ) {
+              return;
+            }
+            revisionRef.current = remote.revision;
             setAnnotationRevision(remote.revision);
-            if (remote.revision > 0 || !hasStoredDraft) {
-              const nextAtoms =
+            const remoteDraft: AnnotationDraft = {
+              atoms:
                 remote.revision === 0 && remote.atoms.length === 0
                   ? (initialAtoms ?? [])
-                  : remote.atoms;
-              setAtoms(nextAtoms);
-              setTaskOverrideState(remote.task_override);
-              savedSnapshotRef.current = serializeDraft(
-                nextAtoms,
-                remote.task_override,
-              );
-              setDirty(false);
+                  : remote.atoms,
+              taskOverride: remote.task_override,
+            };
+            if (
+              !preserveCurrentDraft &&
+              mayApplyHydration(contentRef.current, remoteHydrationBase)
+            ) {
+              applyDraft(remoteDraft);
             }
-          })
-          .catch(() => {
+            savedSnapshotRef.current = serializeAnnotationDraft(remoteDraft);
+            setDirty(
+              serializeAnnotationDraft(contentRef.current) !==
+                savedSnapshotRef.current,
+            );
+            writeStoredDraft(key, contentRef.current, savedSnapshotRef.current);
+          } catch {
             /* Workbench temporarily unavailable — retain the local draft. */
-          });
-      } else if (isAnnotationPersistenceEnabled(newIdent)) {
-        fetchEpisodeAtoms(newEpisodeId, newIdent)
-          .then((remoteAtoms) => {
-            if (remoteAtoms && remoteAtoms.length > 0) {
-              setAtoms(remoteAtoms);
-              savedSnapshotRef.current = serializeDraft(remoteAtoms, null);
-              setDirty(false);
-            }
-          })
-          .catch(() => {
-            /* backend offline — silent fallback to sessionStorage */
-          });
+          }
+        } else if (isAnnotationPersistenceEnabled(resolvedIdent)) {
+          void fetchEpisodeAtoms(newEpisodeId, resolvedIdent)
+            .then((remoteAtoms) => {
+              if (scopeGenerationRef.current !== scopeGeneration) return;
+              if (
+                !preserveCurrentDraft &&
+                remoteAtoms.length > 0 &&
+                mayApplyHydration(contentRef.current, remoteHydrationBase)
+              ) {
+                const remoteDraft = { atoms: remoteAtoms, taskOverride: null };
+                applyDraft(remoteDraft);
+                savedSnapshotRef.current =
+                  serializeAnnotationDraft(remoteDraft);
+                setDirty(false);
+              }
+            })
+            .catch(() => {});
 
-        fetchFrameTimestamps(newEpisodeId, newIdent)
-          .then(setFrameTimestamps)
-          .catch(() => setFrameTimestamps([]));
-      }
+          void fetchFrameTimestamps(newEpisodeId, resolvedIdent)
+            .then((timestamps) => {
+              if (scopeGenerationRef.current === scopeGeneration) {
+                setFrameTimestamps(timestamps);
+              }
+            })
+            .catch(() => {});
+        }
+      })();
     },
-    [],
+    [applyDraft],
   );
 
   // Persist to sessionStorage on every change once we have an episode.
   useEffect(() => {
-    if (episodeId == null) return;
-    try {
-      sessionStorage.setItem(
-        storageKey(identKey(ident), episodeId),
-        serializeDraft(atoms, taskOverride),
-      );
-    } catch {
-      /* ignore */
-    }
-    setDirty(serializeDraft(atoms, taskOverride) !== savedSnapshotRef.current);
-  }, [atoms, episodeId, ident, taskOverride]);
+    if (episodeId == null || !resolvedStorageKey) return;
+    const draft = { atoms, taskOverride };
+    contentRef.current = draft;
+    writeStoredDraft(resolvedStorageKey, draft, savedSnapshotRef.current);
+    setDirty(serializeAnnotationDraft(draft) !== savedSnapshotRef.current);
+  }, [atoms, episodeId, resolvedStorageKey, taskOverride]);
 
   const setTaskOverride = useCallback((task: string | null) => {
+    contentRef.current = { ...contentRef.current, taskOverride: task };
     setTaskOverrideState(task);
   }, []);
 
@@ -291,44 +369,48 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
   );
 
   const addAtom = useCallback((atom: LanguageAtom) => {
-    setAtoms((prev) => [...prev, atom]);
+    const next = [...contentRef.current.atoms, atom];
+    contentRef.current = { ...contentRef.current, atoms: next };
+    setAtoms(next);
   }, []);
 
   const addAtoms = useCallback((newAtoms: LanguageAtom[]) => {
-    setAtoms((prev) => [...prev, ...newAtoms]);
+    const next = [...contentRef.current.atoms, ...newAtoms];
+    contentRef.current = { ...contentRef.current, atoms: next };
+    setAtoms(next);
   }, []);
 
   const updateAtom = useCallback(
     (index: number, updates: Partial<LanguageAtom>) => {
-      setAtoms((prev) => {
-        if (index < 0 || index >= prev.length) return prev;
-        const next = prev.slice();
-        next[index] = { ...next[index], ...updates };
-        return next;
-      });
+      const prev = contentRef.current.atoms;
+      if (index < 0 || index >= prev.length) return;
+      const next = prev.slice();
+      next[index] = { ...next[index], ...updates };
+      contentRef.current = { ...contentRef.current, atoms: next };
+      setAtoms(next);
     },
     [],
   );
 
   const deleteAtom = useCallback((atom: LanguageAtom) => {
-    setAtoms((prev) => {
-      const next = prev.filter((a) => a !== atom);
-      // If the deleted index was selected (or the selected index was after the
-      // deleted one), nudge selection so it remains pointing at a valid atom
-      // — or null when the list is empty.
-      setSelectedIdxState((cur) => {
-        if (cur == null) return null;
-        const oldIdx = prev.indexOf(atom);
-        if (oldIdx < 0) return cur;
-        if (cur === oldIdx) return null;
-        if (cur > oldIdx) return cur - 1;
-        return cur;
-      });
-      return next;
+    const prev = contentRef.current.atoms;
+    const next = prev.filter((a) => a !== atom);
+    contentRef.current = { ...contentRef.current, atoms: next };
+    setAtoms(next);
+    // If the deleted index was selected (or the selected index was after the
+    // deleted one), nudge selection so it remains pointing at a valid atom.
+    setSelectedIdxState((cur) => {
+      if (cur == null) return null;
+      const oldIdx = prev.indexOf(atom);
+      if (oldIdx < 0) return cur;
+      if (cur === oldIdx) return null;
+      if (cur > oldIdx) return cur - 1;
+      return cur;
     });
   }, []);
 
   const resetAtoms = useCallback(() => {
+    contentRef.current = { ...contentRef.current, atoms: [] };
     setAtoms([]);
     setSelectedIdxState(null);
   }, []);
@@ -361,36 +443,94 @@ export const AnnotationsProvider: React.FC<{ children: React.ReactNode }> = ({
     path?: string | null;
   }> => {
     if (episodeId == null) return { ok: false, error: "no episode" };
+    const scopeGeneration = scopeGenerationRef.current;
+    const saveGeneration = ++saveGenerationRef.current;
+    const submitted = contentRef.current;
+    const submittedSnapshot = serializeAnnotationDraft(submitted);
+    const submittedIdent = ident;
+    const submittedRevision = revisionRef.current;
+    if (submittedIdent.datasetId && !submittedIdent.datasetFingerprint) {
+      return { ok: false, error: "dataset fingerprint is still loading" };
+    }
     if (!isAnnotationPersistenceEnabled(ident)) {
       // Persistence is sessionStorage-only — that already happened in the
       // effect above. Report the storage key as the location so the UI can
       // show a concrete "path" instead of a vague offline message.
-      savedSnapshotRef.current = serializeDraft(atoms, taskOverride);
-      setDirty(false);
+      savedSnapshotRef.current = submittedSnapshot;
+      setDirty(isDirtyAfterSave(contentRef.current, submitted));
+      if (storageKeyRef.current) {
+        writeStoredDraft(
+          storageKeyRef.current,
+          contentRef.current,
+          submittedSnapshot,
+        );
+      }
       return {
         ok: true,
-        path: `sessionStorage://${storageKey(identKey(ident), episodeId)}`,
+        path: storageKeyRef.current
+          ? `sessionStorage://${storageKeyRef.current}`
+          : null,
       };
     }
     setSaving(true);
     try {
+      let persistenceIdent = submittedIdent;
+      if (submittedIdent.datasetId) {
+        persistenceIdent = await resolveDatasetFingerprint(submittedIdent);
+        if (scopeGenerationRef.current !== scopeGeneration) {
+          return { ok: false, error: "annotation scope changed while saving" };
+        }
+        if (
+          persistenceIdent.datasetFingerprint !==
+          submittedIdent.datasetFingerprint
+        ) {
+          return {
+            ok: false,
+            error: "dataset changed since this annotation draft was loaded",
+          };
+        }
+      }
       const { path, state } = await saveEpisodeAtoms(
         episodeId,
-        ident,
-        atoms,
-        annotationRevision,
-        taskOverride,
+        persistenceIdent,
+        submitted.atoms,
+        submittedRevision,
+        submitted.taskOverride,
       );
-      if (state) setAnnotationRevision(state.revision);
-      savedSnapshotRef.current = serializeDraft(atoms, taskOverride);
-      setDirty(false);
+      if (scopeGenerationRef.current !== scopeGeneration) {
+        return { ok: false, error: "annotation scope changed while saving" };
+      }
+      if (
+        state?.dataset_fingerprint &&
+        state.dataset_fingerprint !== persistenceIdent.datasetFingerprint
+      ) {
+        return { ok: false, error: "dataset changed while saving" };
+      }
+      if (state) {
+        revisionRef.current = state.revision;
+        setAnnotationRevision(state.revision);
+      }
+      savedSnapshotRef.current = submittedSnapshot;
+      setDirty(isDirtyAfterSave(contentRef.current, submitted));
+      if (storageKeyRef.current) {
+        writeStoredDraft(
+          storageKeyRef.current,
+          contentRef.current,
+          submittedSnapshot,
+        );
+      }
       return { ok: true, path };
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     } finally {
-      setSaving(false);
+      if (
+        scopeGenerationRef.current === scopeGeneration &&
+        saveGenerationRef.current === saveGeneration
+      ) {
+        setSaving(false);
+      }
     }
-  }, [annotationRevision, atoms, episodeId, ident, taskOverride]);
+  }, [episodeId, ident]);
 
   const value = useMemo<AnnotationsContextType>(
     () => ({

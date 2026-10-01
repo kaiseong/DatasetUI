@@ -128,11 +128,11 @@ def test_dataset_file_does_not_follow_file_or_directory_symlinks(
     nas_root = tmp_path / "nas"
     (nas_root / "raw").mkdir(parents=True)
     dataset_root = _write_dataset(nas_root, "lab/pick-cup")
+    dataset = _register(database, nas_root)
     outside = tmp_path / "outside.bin"
     outside.write_bytes(b"private")
     (dataset_root / "linked.bin").symlink_to(outside)
     (dataset_root / "linked-dir").symlink_to(tmp_path, target_is_directory=True)
-    dataset = _register(database, nas_root)
     client = _client_for_nas(
         database=database, dispatcher=dispatcher, nas_root=nas_root
     )
