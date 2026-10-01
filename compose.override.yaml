@@ -1,9 +1,9 @@
 # Verified local release; plain `docker compose up -d` uses these images.
 services:
   web:
-    image: datasetui-web:release-20261002-progress-v1
+    image: datasetui-web:release-20261002-refactor-v1
   api:
-    image: datasetui-api:release-20261002-progress-v1
+    image: datasetui-api:release-20261002-refactor-v1
     environment:
       DATASETUI_QUEUE_SUFFIX: relative-v1
       DATASETUI_CPU_QUEUE: cpu-adaptive-v1
@@ -11,14 +11,14 @@ services:
       DATASETUI_PARALLEL_MAX_JOBS: "3"
       DATASETUI_RELATIVE_TIMEOUT_SECONDS: "86400"
   worker-io:
-    image: datasetui-api:release-20261002-progress-v1
+    image: datasetui-api:release-20261002-refactor-v1
   worker-cpu:
-    image: datasetui-processor:release-20261002-progress-v1
+    image: datasetui-processor:release-20261002-refactor-v1
     environment:
       DATASETUI_PROCESSOR_ENGINE: lerobot-v3
       TORCHINDUCTOR_CACHE_DIR: /data/cache/torchinductor
   worker-converter-v21:
-    image: datasetui-converter:release-20261002-progress-v1
+    image: datasetui-converter:release-20261002-refactor-v1
   # Keep legacy workers alive for already-dispatched jobs. Never use global
   # --force-recreate / down during this rolling deployment.
   worker-cpu-relative:
@@ -26,7 +26,7 @@ services:
     extends:
       file: compose.yaml
       service: worker-cpu
-    image: datasetui-processor:release-20261002-progress-v1
+    image: datasetui-processor:release-20261002-refactor-v1
     command: [rq, worker, --url, "redis://redis:6379/0", --serializer, rq.serializers.JSONSerializer, cpu-relative-v1]
     cpus: 4.0
     mem_limit: 32g
@@ -42,7 +42,7 @@ services:
     extends:
       file: compose.yaml
       service: worker-io
-    image: datasetui-api:release-20261002-progress-v1
+    image: datasetui-api:release-20261002-refactor-v1
     command: [rq, worker, --url, "redis://redis:6379/0", --serializer, rq.serializers.JSONSerializer, io-relative-v1]
     cpus: 1.0
     mem_limit: 4g
@@ -50,7 +50,7 @@ services:
     extends:
       file: compose.yaml
       service: worker-converter-v21
-    image: datasetui-converter:release-20261002-progress-v1
+    image: datasetui-converter:release-20261002-refactor-v1
     command: [rq, worker, --url, "redis://redis:6379/0", --serializer, rq.serializers.JSONSerializer, converter-v21-relative-v1]
     cpus: 2.0
     mem_limit: 8g
@@ -58,7 +58,7 @@ services:
     extends:
       file: compose.yaml
       service: worker-cpu
-    image: datasetui-processor:release-20261002-progress-v1
+    image: datasetui-processor:release-20261002-refactor-v1
     command: [python, -m, datasetui.adaptive_pool]
     cpus: 12.0
     mem_limit: 48g
@@ -78,4 +78,4 @@ services:
       MKL_NUM_THREADS: "1"
 
   worker-gpu:
-    image: datasetui-segmentation:release-20261002-progress-v1
+    image: datasetui-segmentation:release-20261002-refactor-v1
