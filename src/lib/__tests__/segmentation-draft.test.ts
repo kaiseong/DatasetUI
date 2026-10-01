@@ -1,6 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
   addCorrectionPoint,
+  candidateGuidance,
+  candidateGuidanceSignature,
+  setObjectTarget,
+  objectForInputTarget,
   clampNormalized,
   clearFrameCorrections,
   emptySegmentationDraft,
@@ -17,12 +21,14 @@ import {
   objectsFromDraft,
   semanticPromptFor,
   updateSemanticPrompt,
+  batchItemAttention,
+  batchEstimate,
 } from "../segmentation-draft";
 
 describe("segmentation draft", () => {
   test("new drafts preserve foreground with black background and require no image", () => {
     expect(emptySegmentationDraft()).toMatchObject({
-      mode: "protect_foreground",
+      mode: "object_selection",
       render_mode: "black",
       camera_mode: "fixed",
       background_base64: "",
@@ -77,6 +83,7 @@ describe("segmentation draft", () => {
       hasSegmentationGuidance(
         {
           ...emptySegmentationDraft(),
+          mode: "protect_foreground",
           manual_regions: [{ box: [0.2, 0.2, 0.4, 0.4] }],
         },
         "protect",
@@ -237,9 +244,9 @@ describe("segmentation draft", () => {
     ]);
   });
 
-  test("brush corrections alone are not a valid primary prompt", () => {
+  test("legacy brush corrections alone are not a valid primary prompt", () => {
     const corrected = addCorrectionPoint(
-      emptySegmentationDraft(),
+      { ...emptySegmentationDraft(), mode: "protect_foreground" },
       0,
       "replace",
       0.02,
@@ -309,6 +316,103 @@ describe("segmentation draft", () => {
       key: "export-key-2",
     });
   });
+});
+
+test("object intent changes all its keyframes without changing point polarity or another object", () => {
+  const draft = emptySegmentationDraft();
+  draft.prompts = [0, 5].map((frame_index) => ({
+    object_id: 1,
+    frame_index,
+    target: "protect",
+    text: frame_index ? "" : "plug",
+    points: [{ x: 0.5, y: 0.5, label: 0 }],
+    box: null,
+  }));
+  draft.prompts.push({ ...draft.prompts[0], object_id: 2 });
+  draft.corrections = [
+    {
+      object_id: 1,
+      frame_index: 5,
+      target: "protect",
+      radius: 0.1,
+      operation: "erase",
+      points: [{ x: 0.4, y: 0.5 }],
+    },
+  ];
+  const changed = setObjectTarget(draft, 1, "replace");
+  expect(
+    changed.prompts
+      .slice(0, 2)
+      .every((item) => item.target === "replace" && item.points[0].label === 0),
+  ).toBe(true);
+  expect(changed.prompts[2].target).toBe("protect");
+  expect(changed.corrections[0].target).toBe("replace");
+  expect(changed.corrections[0].operation).toBe("erase");
+  expect(segmentationMaskSignature(changed)).not.toBe(
+    segmentationMaskSignature(draft),
+  );
+});
+
+test("new mode accepts additive brush guidance but never manual regions", () => {
+  let draft = emptySegmentationDraft();
+  expect(
+    hasSegmentationGuidance({
+      ...draft,
+      manual_regions: [{ box: [0, 0, 0.5, 0.5] }],
+    }),
+  ).toBe(false);
+  draft = addCorrectionPoint(
+    draft,
+    0,
+    "replace",
+    0.1,
+    { x: 0.5, y: 0.5 },
+    "add",
+    1,
+  );
+  expect(hasSegmentationGuidance(draft)).toBe(true);
+  expect(hasSegmentationGuidance(draft, "protect")).toBe(false);
+});
+
+test("switching input intent preserves existing object hints across frames", () => {
+  let draft = updatePrompt(emptySegmentationDraft(), 5, "protect", p => ({...p, points: [{x: .3, y: .5, label: 1}]}), 1);
+  draft = addCorrectionPoint(draft, 8, "protect", .02, {x: .2, y: .4}, "add", 1);
+  const before = JSON.stringify(draft);
+  expect(objectForInputTarget(draft, 1, "protect", "replace", [1, 2])).toBe(3);
+  expect(JSON.stringify(draft)).toBe(before);
+  expect(objectForInputTarget(draft, 1, "protect", "protect", [1])).toBe(1);
+  expect(objectForInputTarget(emptySegmentationDraft(), 1, "protect", "replace", [1])).toBe(1);
+  expect(objectForInputTarget(draft, 1, "protect", "replace", Array.from({length: 32}, (_, i) => i+1))).toBeNull();
+});
+
+test("confirmed objects exclude unconfirmed annotations and member hints remain isolated", () => {
+  const base = emptySegmentationDraft();
+  const first = updatePrompt(base, 0, "protect", p => ({...p, points:[{x:0.2,y:0.3,label:1}]}), 1, "1-2");
+  const next = updatePrompt(first, 0, "protect", p => ({...p, points:[{x:0.8,y:0.3,label:0}]}), 1, "1-3");
+  expect(next.prompts).toHaveLength(2);
+  expect(promptFor(next, 0, "protect", 1, "1-2").points[0].label).toBe(1);
+  expect(promptFor(next, 0, "protect", 1, "1-3").points[0].label).toBe(0);
+});
+
+
+test("candidate preview retains same-object frame hints without other objects", () => {
+  const draft = emptySegmentationDraft();
+  draft.prompts = [
+    {object_id: 1, target: "protect", frame_index: 0, text: "board", points: [{x: .2, y: .3, label: 1}], box: [.1,.1,.3,.3]},
+    {object_id: 2, target: "replace", frame_index: 0, text: "wire", points: [], box: null},
+  ];
+  draft.corrections = [
+    {object_id: 1, target: "protect", frame_index: 0, operation: "add", radius: .02, points: [{x:.2,y:.3}]},
+    {object_id: 1, target: "protect", frame_index: 1, operation: "add", radius: .02, points: [{x:.2,y:.3}]},
+  ];
+  const input = candidateGuidance(draft, 1, 0);
+  expect(input.prompts).toHaveLength(1);
+  expect(input.prompts[0].points).toHaveLength(1);
+  expect(input.prompts[0].box).toEqual([.1,.1,.3,.3]);
+  expect(input.corrections).toHaveLength(1);
+  const before = candidateGuidanceSignature(draft, 1, 0);
+  draft.prompts[0].points = [];
+  expect(candidateGuidanceSignature(draft, 1, 0)).not.toBe(before);
 });
 
 describe("object-level Instruction", () => {
@@ -393,5 +497,94 @@ describe("object-level Instruction", () => {
     const next = addCorrectionPoint(fromServer, 0, "protect", 0.02, { x: 0.2, y: 0.2 }, "add", 1);
     expect(next.corrections).toHaveLength(1);
     expect(next.corrections[0].points).toHaveLength(2);
+  });
+});
+
+describe("batch rework list", () => {
+  const base = {
+    id: "i",
+    episode_index: 3,
+    video_key: "observation.images.wrist",
+    preview_id: "p",
+    review_status: "pending" as const,
+  };
+  const result = {
+    preview_id: "p",
+    recipe_hash: "h",
+    fingerprint: "f",
+    frame_count: 100,
+    model: "SAM 3.1",
+  };
+
+  test("failed, blocked and unselected items need work", () => {
+    expect(batchItemAttention({ ...base, job_status: "failed" })).toContain("실패");
+    expect(
+      batchItemAttention({ ...base, job_status: "succeeded", result: { ...result, selection_required: true } }),
+    ).toContain("후보 선택");
+    expect(batchItemAttention({ ...base, job_status: "running" })).toBeNull();
+  });
+
+  test("an object missing on some frames is reported with its range", () => {
+    const covered = {
+      ...base,
+      job_status: "succeeded",
+      result: {
+        ...result,
+        object_coverage: [
+          { object_id: 2, target: "protect" as const, visible_frames: 100, frame_count: 100, missing_ranges: [] },
+          {
+            object_id: 4,
+            target: "protect" as const,
+            visible_frames: 70,
+            frame_count: 100,
+            missing_ranges: [[40, 59], [90, 99]] as Array<[number, number]>,
+          },
+        ],
+      },
+    };
+    expect(batchItemAttention(covered)).toBe("객체 4 누락 30/100프레임 (40~59 외 1구간)");
+    expect(
+      batchItemAttention({ ...covered, result: { ...covered.result, object_coverage: [covered.result.object_coverage[0]] } }),
+    ).toBeNull();
+    expect(batchItemAttention(covered, true)).toContain("재생성");
+  });
+});
+
+describe("progress estimates", () => {
+  test("whole-job remaining time extrapolates from elapsed time", async () => {
+    const { wholeJobEstimate, formatDuration } = await import("../job-presentation");
+    expect(wholeJobEstimate(0.25, 60)).toEqual({ percent: 25, remainingSeconds: 180 });
+    expect(wholeJobEstimate(0.01, 60)?.remainingSeconds).toBeNull();
+    expect(wholeJobEstimate(undefined, 60)).toBeNull();
+    expect(formatDuration(3725)).toBe("1시간 2분");
+    expect(formatDuration(200)).toBe("3분 20초");
+    expect(formatDuration(9)).toBe("9초");
+  });
+
+  test("batch estimate uses finished items and the running item's fraction", () => {
+    const item = (job_status: string, started?: string, finished?: string, overall?: number) => ({
+      id: job_status,
+      episode_index: 0,
+      video_key: "wrist",
+      preview_id: "p",
+      review_status: "pending" as const,
+      job_status,
+      started_at: started,
+      finished_at: finished,
+      progress: overall === undefined ? null : { overall },
+    });
+    const now = Date.parse("2026-10-02T00:10:00Z");
+    const estimate = batchEstimate(
+      [
+        item("succeeded", "2026-10-02T00:00:00Z", "2026-10-02T00:03:00Z"),
+        item("failed", "2026-10-02T00:03:00Z", "2026-10-02T00:06:00Z"),
+        item("running", "2026-10-02T00:06:00Z", undefined, 0.5),
+        item("queued"),
+      ],
+      now,
+    );
+    expect(estimate).toEqual({ done: 2, total: 4, percent: 62, remainingSeconds: 270 });
+    const first = batchEstimate([item("running", "2026-10-02T00:08:00Z", undefined, 0.25), item("queued")], now);
+    expect(first.remainingSeconds).toBe(480 * 1.75);
   });
 });

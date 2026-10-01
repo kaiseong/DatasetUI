@@ -578,3 +578,221 @@ def test_last_endpoint_runs_backwards_first_but_interior_keeps_bidirectional():
     assert list(adapter.handle_stream_request({**request, "start_frame_index": 1})) == [
         "both"
     ]
+
+
+def test_mixed_spatial_hints_use_one_track_and_accumulate_brush(tmp_path, monkeypatch):
+    checkpoint = tmp_path / "sam3.pt"
+    checkpoint.write_bytes(b"test checkpoint")
+    video = tmp_path / "clip.mp4"
+    video.write_bytes(b"test clip")
+    predictor = FakePredictor(
+        [
+            [
+                _frame(0, np.ones((2, 2), dtype=bool)),
+                _frame(1, np.ones((2, 2), dtype=bool)),
+            ]
+        ]
+    )
+    monkeypatch.setattr(sam3_engine, "_build_predictor", lambda _: predictor)
+    prompts = [
+        {
+            "object_id": 2,
+            "frame_index": 0,
+            "target": "replace",
+            "box": [0, 0, 1, 0.2],
+            "points": [
+                {"x": 0.3, "y": 0.6, "label": 1},
+                {"x": 0.9, "y": 0.9, "label": 0},
+            ],
+        },
+        {
+            "object_id": 2,
+            "frame_index": 0,
+            "target": "replace",
+            "points": [{"x": 0.4, "y": 0.6, "label": 1}],
+        },
+        {
+            "object_id": 2,
+            "frame_index": 0,
+            "target": "replace",
+            "points": [{"x": 0.8, "y": 0.8, "label": 0}],
+        },
+        {
+            "object_id": 2,
+            "frame_index": 1,
+            "target": "replace",
+            "box": [0.2, 0.2, 0.3, 0.3],
+        },
+    ]
+    result = Sam3Engine(_settings(checkpoint), mixed_spatial=True).propagate(
+        video_path=video,
+        prompts=prompts,
+        frame_count=2,
+        output_dir=tmp_path / "out",
+        check_lease=lambda: None,
+    )
+    assert len(predictor.sessions) == 1
+    assert len(predictor.prompts) == 4
+    assert predictor.prompts[0]["point_labels"] == [2, 3, 1, 0]
+    assert predictor.prompts[0]["points"] == [[0, 0], [1, 0.2], [0.3, 0.6], [0.9, 0.9]]
+    assert all(
+        p["bounding_boxes"] is None and p["text"] is None for p in predictor.prompts
+    )
+    assert [p.get("clear_old_points", True) for p in predictor.prompts] == [
+        True,
+        False,
+        False,
+        True,
+    ]
+    assert (
+        len(predictor.stream_requests) == 1
+    )  # no semantic candidate-resolution prerequisite
+    assert result["hint_policy"] == sam3_engine.MIXED_HINT_POLICY
+
+
+def test_mixed_box_only_is_instance_geometry_not_semantic_detection():
+    from datasetui.segmentation_contract import RegionPrompt
+
+    predictor = FakePredictor([])
+    prompt = RegionPrompt(frame_index=0, target="protect", box=(0, 0, 1, 0.2))
+    _, ids = sam3_engine._add_initial_prompt(
+        predictor, "session", prompt, 1, lambda: None, mixed_spatial=True
+    )
+    assert ids == {1}
+    assert predictor.prompts[0]["point_labels"] == [2, 3]
+    assert predictor.prompts[0]["bounding_boxes"] is None
+
+
+@pytest.mark.parametrize("matches", [0, 2])
+def test_semantic_hint_conflict_reports_object_and_action(matches):
+    from datasetui.segmentation_contract import RegionPrompt
+    from datasetui.tasks import _public_failure
+
+    mask = np.ones((2, 2), dtype=bool) if matches else np.zeros((2, 2), dtype=bool)
+    predictor = FakePredictor(
+        [[_frame(0, mask, discovered_mask=mask if matches else None)]]
+    )
+    prompt = RegionPrompt(
+        object_id=2,
+        frame_index=0,
+        target="replace",
+        text="board",
+        points=[{"x": 0.5, "y": 0.5}],
+    )
+    with pytest.raises(Sam3InferenceError) as error:
+        sam3_engine._resolve_correction_object(
+            predictor, "session-0", prompt, prompt, 1, lambda: None
+        )
+    code, message = _public_failure(error.value)
+    assert code == "segmentation_guidance"
+    assert "객체 2" in message and "텍스트" in message
+    assert ("없습니다" if matches == 0 else "여러 개") in message
+    assert (
+        _public_failure(Sam3InferenceError("/private/arbitrary error"))[1]
+        == "SAM 3.1 did not produce a complete valid mask sequence"
+    )
+
+
+def test_detection_score_alignment_and_invalid_values():
+    assert sam3_engine._detection_scores({'outputs': {'out_obj_ids': [8, 2], 'out_probs': [.2, .8]}}) == {8:.2, 2:.8}
+    for scores in ([.2], [float('nan'), .8], [-1,.8], [1.1,.8]):
+        with pytest.raises(Sam3InferenceError):
+            sam3_engine._detection_scores({'outputs': {'out_obj_ids': [8,2], 'out_probs': scores}})
+    assert sam3_engine._detection_scores({'original_detection_scores': {8:.6}, 'outputs': {'out_obj_ids':[8], 'out_probs':[1.]}}) == {8:.6}
+
+
+@pytest.mark.parametrize("singleton", [False, True])
+def test_selected_group_matches_masks_not_ephemeral_ids_and_refines_one_member(singleton):
+    from datasetui.segmentation_contract import RegionPrompt
+    left = np.array([[1,0],[1,0]], dtype=bool)
+    right = ~left
+    response = {'frame_index':0, 'outputs':{'out_obj_ids':np.array([70,91]),
+        'out_probs':np.array([.7,.9]), 'out_binary_masks':np.array([left,right])}}
+    class Predictor:
+        def __init__(self): self.requests=[]
+        def handle_request(self, request):
+            self.requests.append(request)
+            return response
+        def handle_stream_request(self, request): yield response
+    predictor=Predictor()
+    sample='00000000-0000-0000-0000-000000000001'
+    prompt=RegionPrompt(object_id=1, frame_index=0, target='protect', text='wire', confidence_threshold=.5,
+        selected_candidates=[{'sample_id':sample,'candidate_id':'1-2'},{'sample_id':sample,'candidate_id':'1-3'}],
+        member_candidate_id='1-3', points=[{'x':.8,'y':.8,'label':0}])
+    if singleton:
+        prompt = prompt.model_copy(update={'selected_candidates': prompt.selected_candidates[1:], 'member_candidate_id': None})
+    result, ids=sam3_engine._add_initial_prompt(predictor,'session',prompt,1,lambda:None,
+        reference_masks={(sample,'1-2'):left, (sample,'1-3'):right})
+    assert ids == ({91} if singleton else {70,91})
+    assert result['member_ids'] == ({'1-3':91} if singleton else {'1-2':70,'1-3':91})
+    assert predictor.requests[-1]['obj_id']==91
+    assert result['original_detection_scores']=={70:.7,91:.9}
+
+
+def test_detector_pruning_gates_follow_requested_threshold():
+    model=SimpleNamespace(score_threshold_detection=.4,new_det_thresh=.65,image_only_det_thresh=.5)
+    adapter=sam3_engine._MultiplexCompatibilityAdapter(SimpleNamespace(model=model))
+    adapter.configure_detection_threshold(None)
+    assert model.score_threshold_detection==.4 and model.new_det_thresh==.65
+    adapter.configure_detection_threshold(.1)
+    assert model.score_threshold_detection==model.new_det_thresh==model.image_only_det_thresh==.1
+    adapter.configure_detection_threshold(None)
+    assert model.score_threshold_detection==.4 and model.new_det_thresh==.65 and model.image_only_det_thresh==.5
+
+
+def test_redetected_group_correction_does_not_drop_other_members(tmp_path, monkeypatch):
+    from datasetui.segmentation_contract import RegionPrompt
+    left=np.array([[1,0],[1,0]],dtype=bool)
+    right=~left
+    response={'frame_index':0,'outputs':{'out_obj_ids':np.array([1,2]),'out_probs':np.array([.8,.9]),'out_binary_masks':np.array([left,right])}}
+    class Predictor(FakePredictor):
+        def handle_request(self,request):
+            if request['type']=='add_prompt':
+                self.prompts.append(request)
+                return response
+            return super().handle_request(request)
+    predictor=Predictor([[response]])
+    targets=sam3_engine._prepare_output_directories(tmp_path/'masks')
+    result=sam3_engine._propagate_masks(predictor=predictor,video_path=tmp_path/'clip.mp4',frame_count=1,
+        target_directories=targets,checkpoint_sha256='a'*64,check_lease=lambda:None,mixed_spatial=True,
+        prompts=[RegionPrompt(object_id=1,frame_index=0,target='protect',text='wire',confidence_threshold=.5),
+                 RegionPrompt(object_id=1,frame_index=0,target='protect',points=[{'x':0,'y':0,'label':1}])])
+    assert {c['sam_object_id'] for c in result['candidates']}=={1,2}
+    assert {c['sam_object_id'] for c in result['candidates'] if c['manually_refined']}=={1}
+
+
+def test_unassigned_member_only_resolves_singleton():
+    from datasetui.segmentation_selection import SegmentationGuidanceError
+    assert sam3_engine._selected_member({'4-0': 91}, None) == 91
+    assert sam3_engine._selected_member({'4-0': 91, '4-1': 70}, '4-1') == 70
+    for members, candidate in [({}, None), ({'4-0': 91, '4-1': 70}, None), ({'4-0': 91}, '4-2')]:
+        with pytest.raises(SegmentationGuidanceError):
+            sam3_engine._selected_member(members, candidate)
+
+
+def test_grounding_identity_survives_corrected_display_mask(tmp_path):
+    from datasetui.segmentation_contract import RegionPrompt
+    from PIL import Image
+    sample = '00000000-0000-0000-0000-000000000001'
+    root = tmp_path / 'segmentation-samples' / sample
+    root.mkdir(parents=True)
+    original = np.array([[1, 0], [0, 0]], dtype=bool)
+    corrected = np.ones((2, 2), dtype=bool)
+    Image.fromarray(corrected.astype('uint8') * 255).save(root / 'candidate-1-0.png')
+    Image.fromarray(original.astype('uint8') * 255).save(root / 'grounding-1-0.png')
+    prompt = RegionPrompt(object_id=1, frame_index=0, target='protect', text='board',
+        selected_candidates=[dict(sample_id=sample, candidate_id='1-0')])
+    masks = sam3_engine._load_candidate_masks(SimpleNamespace(jobs_root=tmp_path), [prompt])
+    assert np.array_equal(masks[(sample, '1-0')], original)
+    (root / 'grounding-1-0.png').unlink()
+    legacy = sam3_engine._load_candidate_masks(SimpleNamespace(jobs_root=tmp_path), [prompt])
+    assert np.array_equal(legacy[(sample, '1-0')], corrected)
+
+
+def test_grounding_snapshot_is_not_mutated_by_refinement():
+    mask = np.array([[1, 0], [0, 0]], dtype=bool)
+    response = {'frame_index': 0, 'outputs': {'out_obj_ids': np.array([7]),
+        'out_binary_masks': np.array([mask])}}
+    saved = sam3_engine._grounding_masks(response, 1)
+    response['outputs']['out_binary_masks'][:] = True
+    assert np.array_equal(saved[7], mask)
