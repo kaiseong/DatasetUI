@@ -981,6 +981,9 @@ export function publicJobError(errorCode: string | null): string {
   };
   if (errorCode && operationErrors[errorCode])
     return operationErrors[errorCode];
+  if (errorCode === "external_outcome_uncertain") {
+    return "전송 중 연결이 끊겨 외부 저장 결과를 확정할 수 없습니다. 대상 위치를 확인한 뒤 다시 시도하세요. 자동 재시도하지 않습니다.";
+  }
   if (errorCode === "segmentation_unavailable") {
     return "SAM GPU 작업자의 가중치·SHA256·CUDA 설정을 확인하세요. 임의의 마스크로 대체하지 않습니다.";
   }

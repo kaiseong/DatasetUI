@@ -102,3 +102,16 @@ def test_progress_callback_failure_propagates_without_becoming_a_video_issue(
 
     with pytest.raises(RuntimeError, match="UI reporting is unavailable"):
         validate_dataset_root(root, mode="full", on_progress=broken_callback)
+
+
+def test_official_aggregate_issues_belong_to_statistics_not_metadata():
+    from datasetui.validation_reporting import ValidationReporter
+
+    reporter = ValidationReporter(None)
+    reporter.issue("WARN", "official_visual_stats_difference", "sampled images")
+    reporter.issue("WARN", "official_bookkeeping_stats_difference", "reindexing")
+    reporter.issue("FAIL", "official_statistics_provenance_invalid", "changed file")
+    checks = _checks_by_id(reporter.snapshot())
+    assert checks["statistics"]["warnings"] == 2
+    assert checks["statistics"]["failures"] == 1
+    assert checks["metadata"]["warnings"] == checks["metadata"]["failures"] == 0

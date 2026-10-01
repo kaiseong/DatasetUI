@@ -20,6 +20,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from datasetui.config import Settings
+from datasetui.content_integrity import ContentIntegrityError, dataset_tree_identity
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import MAX_INFO_BYTES, inspect_dataset, scan_storage_area
 from datasetui.job_progress import JobProgressReporter
@@ -113,6 +114,7 @@ def materialize_curation_recipe(
         snapshot["storage_area"],
         snapshot["relative_path"],
     )
+    source_identity = _source_tree_identity(source_root)
     raw_info = _read_regular_bytes(
         source_root / "meta" / "info.json", max_bytes=MAX_INFO_BYTES
     )
@@ -225,6 +227,9 @@ def materialize_curation_recipe(
                 total=len(outputs),
                 unit="items",
                 current_item=f"{output['name']} 구조 검사",
+            )
+            _assert_source_unchanged(
+                source_root, source_identity, snapshot["dataset_id"]
             )
             database.assert_job_lease(job_id, worker_id=worker_id)
             manifest = _publish_output(
@@ -2306,6 +2311,28 @@ def _tree_manifest(root: Path) -> dict[str, Any]:
         "file_count": count,
         "total_bytes": total,
     }
+
+
+def _source_tree_identity(root: Path) -> str:
+    """Stat-only snapshot of a source tree, taken before the job reads it."""
+    try:
+        return dataset_tree_identity(root)
+    except ContentIntegrityError as exc:
+        raise CurationTransformError("Dataset source contains an unsafe entry") from exc
+
+
+def _assert_source_unchanged(root: Path, baseline: str, dataset_id: str) -> None:
+    """Refuse to publish an output built from a source modified mid-job.
+
+    The registry fingerprint covers only ``meta/info.json``; this closes the gap
+    for data and video files without hashing their contents.
+    """
+    try:
+        current = dataset_tree_identity(root)
+    except ContentIntegrityError:
+        raise RecipeRevisionMismatchError(dataset_id) from None
+    if current != baseline:
+        raise RecipeRevisionMismatchError(dataset_id)
 
 
 def _safe_dataset_root(nas_root: Path, storage_area: str, relative_path: str) -> Path:

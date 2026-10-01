@@ -228,3 +228,41 @@ def test_progress_failure_aborts_current_video_copy(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="lease lost"):
         merge_writer._copy_videos([(source, destination, tmp_path)], lose_lease)
     assert not destination.exists()
+
+
+def test_v21_merge_prefers_episode_statistics_without_full_recompute(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from datasetui import official_operations
+
+    source = _FakeMergedSource(tmp_path, version="v2.1")
+    destination = tmp_path / "output"
+    captured = []
+
+    def aggregate(actual_destination, episodes):
+        captured.extend(episodes)
+        return True
+
+    monkeypatch.setattr(
+        official_operations, "write_legacy_aggregated_statistics", aggregate
+    )
+    monkeypatch.setattr(
+        merge_writer,
+        "_write_stats",
+        lambda *args, **kwargs: pytest.fail("must not fully recompute statistics"),
+    )
+
+    result = write_preserved_merge(source=source, destination=destination)
+
+    assert result["statistics_reused"] is True
+    assert result["statistics"] == {
+        "policy": "lerobot-official-aggregate-v1",
+        "source": "legacy-episode-statistics",
+        "fallback": False,
+    }
+    assert [(root, index) for root, index, _ in captured] == [
+        (tmp_path, 0),
+        (tmp_path, 1),
+        (tmp_path, 0),
+        (tmp_path, 1),
+    ]

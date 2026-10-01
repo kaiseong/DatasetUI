@@ -483,3 +483,17 @@ def test_scan_generation_check_and_registry_write_share_one_write_lock(
         scan_generation=newer_generation,
     )
     assert database.list_datasets() == []
+
+
+def test_scanner_rejects_symlinks_inside_dataset_tree(tmp_path: Path) -> None:
+    raw = tmp_path / "raw"
+    raw.mkdir()
+    dataset = _write_dataset(raw, "lab/unsafe")
+    outside = tmp_path / "outside.parquet"
+    outside.write_bytes(b"private")
+    (dataset / "data" / "linked.parquet").symlink_to(outside)
+
+    record = scan_storage_area(tmp_path, "raw", max_depth=6)[0]
+
+    assert record["readiness"] == "invalid"
+    assert record["scan_error"] == "Dataset contains a symlink or an unsafe file"

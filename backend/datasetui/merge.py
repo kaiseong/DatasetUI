@@ -23,7 +23,9 @@ from datasetui.transforms import (
     _DatasetSource,
     _publish_output,
     _read_regular_bytes,
+    _assert_source_unchanged,
     _safe_dataset_root,
+    _source_tree_identity,
     _safe_child,
     _tree_manifest,
     _write_json_atomic,
@@ -131,6 +133,7 @@ def merge_datasets(
             "_force": True,
         }
     )
+    source_identities: list[str] = []
     for source_number, requested in enumerate(source_requests, start=1):
         record = database.get_dataset(requested["id"])
         if (
@@ -142,6 +145,7 @@ def merge_datasets(
         root = _safe_dataset_root(
             settings.nas_root, record["storage_area"], record["relative_path"]
         )
+        source_identities.append(_source_tree_identity(root))
         raw = _read_regular_bytes(root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
         if hashlib.sha256(raw).hexdigest() != requested["fingerprint"]:
             raise RecipeRevisionMismatchError(requested["id"])
@@ -268,6 +272,10 @@ def merge_datasets(
                 "current_item": "구조 검사",
             }
         )
+        for source, identity, requested in zip(
+            sources, source_identities, source_requests
+        ):
+            _assert_source_unchanged(source.root, identity, requested["id"])
         database.assert_job_lease(job_id, worker_id=worker_id)
         manifest = _publish_output(
             database=database,

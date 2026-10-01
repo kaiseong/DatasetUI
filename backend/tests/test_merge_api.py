@@ -71,3 +71,33 @@ def test_merge_endpoint_rejects_duplicates_and_secret_fields(
     }
     response = client.post("/api/v1/datasets/merge", json=body)
     assert response.status_code == 422
+
+
+def test_merge_dispatch_uses_large_dataset_timeout(client, database, monkeypatch):
+    seen = []
+    original = RecordingDispatcher.enqueue
+
+    def capture(self, **kwargs):
+        seen.append(kwargs)
+        return original(self, **kwargs)
+
+    monkeypatch.setattr(RecordingDispatcher, "enqueue", capture)
+    generation = database.begin_dataset_scan("raw")
+    database.synchronize_datasets(
+        storage_area="raw",
+        records=[_record("lab/a", "a" * 64), _record("lab/b", "b" * 64)],
+        scan_generation=generation,
+    )
+    profile = database.create_profile("Merge timeout")
+    response = client.post(
+        "/api/v1/datasets/merge",
+        json={
+            "profile_id": profile["id"],
+            "dataset_ids": [row["id"] for row in database.list_datasets()],
+            "output_name": "combined",
+            "robot_type": "rby1",
+            "idempotency_key": "merge-timeout",
+        },
+    )
+    assert response.status_code == 202
+    assert seen[-1]["job_timeout"] == 86400

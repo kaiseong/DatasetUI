@@ -6,7 +6,8 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from datasetui.database import Database
+import datasetui.merge as merge_module
+from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import inspect_dataset
 from datasetui.merge import MergeCompatibilityError, merge_datasets
 from test_transforms import _settings, _write_v21
@@ -138,3 +139,62 @@ def test_merge_rejects_feature_schema_difference(tmp_path: Path) -> None:
             worker_id="merge-worker",
         )
     assert not (settings.nas_root / "derived/bad-merge").exists()
+
+
+def test_merge_rejects_changed_source_data_with_unchanged_info(
+    tmp_path: Path, monkeypatch
+) -> None:
+    settings = _settings(tmp_path)
+    first = settings.nas_root / "raw/lab/first"
+    second = settings.nas_root / "raw/lab/second"
+    _write_v21(first)
+    _write_v21(second)
+    database = Database(settings.database_path)
+    database.initialize()
+    candidates = [
+        inspect_dataset(
+            area_root=settings.nas_root / "raw", storage_area="raw", relative_path=path
+        ).as_record()
+        for path in ("lab/first", "lab/second")
+    ]
+    generation = database.begin_dataset_scan("raw")
+    database.synchronize_datasets(
+        storage_area="raw", records=candidates, scan_generation=generation
+    )
+    datasets = database.list_datasets()
+    payload = {
+        "sources": [
+            {"id": item["id"], "fingerprint": item["fingerprint"]} for item in datasets
+        ],
+        "output_name": "stale-merge",
+        "robot_type": "rby1",
+    }
+    profile = database.create_profile("Merge revision guard")
+    job, _ = database.create_job(
+        kind="datasets.merge",
+        queue_name="cpu",
+        profile_id=profile["id"],
+        payload=payload,
+        idempotency_key="merge-stale",
+    )
+    database.claim_job(job["id"], worker_id="merge-worker", lease_seconds=120)
+    original_inspect = merge_module.inspect_dataset
+
+    def inspect_then_mutate(**kwargs):
+        # A source is rewritten after the merge read it but before publication.
+        path = first / "data/chunk-000/episode_000000.parquet"
+        frame = pd.read_parquet(path)
+        frame.loc[0, "action"] = [42.0]
+        frame.to_parquet(path, index=False)
+        return original_inspect(**kwargs)
+
+    monkeypatch.setattr(merge_module, "inspect_dataset", inspect_then_mutate)
+
+    with pytest.raises(RecipeRevisionMismatchError):
+        merge_datasets(
+            database=database,
+            settings=settings,
+            payload=payload,
+            job_id=job["id"],
+            worker_id="merge-worker",
+        )

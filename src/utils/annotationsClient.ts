@@ -9,6 +9,7 @@
 
 import type { LanguageAtom } from "../types/language.types";
 import {
+  getDataset,
   getEpisodeAnnotations,
   replaceEpisodeAnnotations,
   type EpisodeAnnotations,
@@ -35,7 +36,16 @@ export interface DatasetIdent {
   localPath?: string | null;
   revision?: string | null;
   datasetId?: string | null;
+  datasetFingerprint?: string | null;
   profileId?: string | null;
+}
+
+export async function resolveDatasetFingerprint(
+  ident: DatasetIdent,
+): Promise<DatasetIdent> {
+  if (!ident.datasetId) return ident;
+  const dataset = await getDataset(ident.datasetId);
+  return { ...ident, datasetFingerprint: dataset.fingerprint };
 }
 
 function isWorkbenchIdent(

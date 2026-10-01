@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
+from datasetui.content_integrity import ContentIntegrityError, dataset_tree_identity
+
 
 StorageArea = Literal["raw", "derived"]
 SUPPORTED_VERSIONS = frozenset({"v2.0", "v2.1", "v3.0"})
@@ -155,6 +157,20 @@ def inspect_dataset(
         error = "Dataset data directory is missing"
     else:
         readiness = "ready"
+
+    if readiness == "ready":
+        # Stat-only walk: jobs refuse unsafe trees, so flag them at scan time.
+        try:
+            dataset_tree_identity(dataset_root)
+        except ContentIntegrityError:
+            logger.warning(
+                "unsafe entry in dataset tree in %s at relative path %r",
+                storage_area,
+                relative_path,
+                exc_info=True,
+            )
+            readiness = "invalid"
+            error = "Dataset contains a symlink or an unsafe file"
 
     fingerprint_source = raw or error.encode()
     display_name = _display_name(relative_path, storage_area)

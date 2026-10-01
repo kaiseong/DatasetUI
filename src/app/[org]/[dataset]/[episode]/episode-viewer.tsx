@@ -233,6 +233,7 @@ function EpisodeBootstrap({ data }: { data: EpisodeData }) {
       data.episodeId,
       {
         repoId: data.datasetInfo.repoId,
+        revision: "main",
         datasetId,
         profileId: datasetId ? storedProfileId() : null,
       },

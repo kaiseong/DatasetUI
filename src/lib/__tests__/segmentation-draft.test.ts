@@ -375,40 +375,111 @@ test("new mode accepts additive brush guidance but never manual regions", () => 
 });
 
 test("switching input intent preserves existing object hints across frames", () => {
-  let draft = updatePrompt(emptySegmentationDraft(), 5, "protect", p => ({...p, points: [{x: .3, y: .5, label: 1}]}), 1);
-  draft = addCorrectionPoint(draft, 8, "protect", .02, {x: .2, y: .4}, "add", 1);
+  let draft = updatePrompt(
+    emptySegmentationDraft(),
+    5,
+    "protect",
+    (p) => ({ ...p, points: [{ x: 0.3, y: 0.5, label: 1 }] }),
+    1,
+  );
+  draft = addCorrectionPoint(
+    draft,
+    8,
+    "protect",
+    0.02,
+    { x: 0.2, y: 0.4 },
+    "add",
+    1,
+  );
   const before = JSON.stringify(draft);
   expect(objectForInputTarget(draft, 1, "protect", "replace", [1, 2])).toBe(3);
   expect(JSON.stringify(draft)).toBe(before);
   expect(objectForInputTarget(draft, 1, "protect", "protect", [1])).toBe(1);
-  expect(objectForInputTarget(emptySegmentationDraft(), 1, "protect", "replace", [1])).toBe(1);
-  expect(objectForInputTarget(draft, 1, "protect", "replace", Array.from({length: 32}, (_, i) => i+1))).toBeNull();
+  expect(
+    objectForInputTarget(
+      emptySegmentationDraft(),
+      1,
+      "protect",
+      "replace",
+      [1],
+    ),
+  ).toBe(1);
+  expect(
+    objectForInputTarget(
+      draft,
+      1,
+      "protect",
+      "replace",
+      Array.from({ length: 32 }, (_, i) => i + 1),
+    ),
+  ).toBeNull();
 });
 
 test("confirmed objects exclude unconfirmed annotations and member hints remain isolated", () => {
   const base = emptySegmentationDraft();
-  const first = updatePrompt(base, 0, "protect", p => ({...p, points:[{x:0.2,y:0.3,label:1}]}), 1, "1-2");
-  const next = updatePrompt(first, 0, "protect", p => ({...p, points:[{x:0.8,y:0.3,label:0}]}), 1, "1-3");
+  const first = updatePrompt(
+    base,
+    0,
+    "protect",
+    (p) => ({ ...p, points: [{ x: 0.2, y: 0.3, label: 1 }] }),
+    1,
+    "1-2",
+  );
+  const next = updatePrompt(
+    first,
+    0,
+    "protect",
+    (p) => ({ ...p, points: [{ x: 0.8, y: 0.3, label: 0 }] }),
+    1,
+    "1-3",
+  );
   expect(next.prompts).toHaveLength(2);
   expect(promptFor(next, 0, "protect", 1, "1-2").points[0].label).toBe(1);
   expect(promptFor(next, 0, "protect", 1, "1-3").points[0].label).toBe(0);
 });
 
-
 test("candidate preview retains same-object frame hints without other objects", () => {
   const draft = emptySegmentationDraft();
   draft.prompts = [
-    {object_id: 1, target: "protect", frame_index: 0, text: "board", points: [{x: .2, y: .3, label: 1}], box: [.1,.1,.3,.3]},
-    {object_id: 2, target: "replace", frame_index: 0, text: "wire", points: [], box: null},
+    {
+      object_id: 1,
+      target: "protect",
+      frame_index: 0,
+      text: "board",
+      points: [{ x: 0.2, y: 0.3, label: 1 }],
+      box: [0.1, 0.1, 0.3, 0.3],
+    },
+    {
+      object_id: 2,
+      target: "replace",
+      frame_index: 0,
+      text: "wire",
+      points: [],
+      box: null,
+    },
   ];
   draft.corrections = [
-    {object_id: 1, target: "protect", frame_index: 0, operation: "add", radius: .02, points: [{x:.2,y:.3}]},
-    {object_id: 1, target: "protect", frame_index: 1, operation: "add", radius: .02, points: [{x:.2,y:.3}]},
+    {
+      object_id: 1,
+      target: "protect",
+      frame_index: 0,
+      operation: "add",
+      radius: 0.02,
+      points: [{ x: 0.2, y: 0.3 }],
+    },
+    {
+      object_id: 1,
+      target: "protect",
+      frame_index: 1,
+      operation: "add",
+      radius: 0.02,
+      points: [{ x: 0.2, y: 0.3 }],
+    },
   ];
   const input = candidateGuidance(draft, 1, 0);
   expect(input.prompts).toHaveLength(1);
   expect(input.prompts[0].points).toHaveLength(1);
-  expect(input.prompts[0].box).toEqual([.1,.1,.3,.3]);
+  expect(input.prompts[0].box).toEqual([0.1, 0.1, 0.3, 0.3]);
   expect(input.corrections).toHaveLength(1);
   const before = candidateGuidanceSignature(draft, 1, 0);
   draft.prompts[0].points = [];
@@ -471,9 +542,17 @@ describe("object-level Instruction", () => {
       ],
     };
     const objects = objectsFromDraft(draft, [
-      { object_id: 1, name: "보드", target: "protect", prompts: [], corrections: [] },
+      {
+        object_id: 1,
+        name: "보드",
+        target: "protect",
+        prompts: [],
+        corrections: [],
+      },
     ]);
-    expect(objects.map((item) => [item.object_id, item.name, item.target])).toEqual([
+    expect(
+      objects.map((item) => [item.object_id, item.name, item.target]),
+    ).toEqual([
       [1, "보드", "protect"],
       [2, "객체 2", "replace"],
     ]);
@@ -494,7 +573,15 @@ describe("object-level Instruction", () => {
         },
       ],
     };
-    const next = addCorrectionPoint(fromServer, 0, "protect", 0.02, { x: 0.2, y: 0.2 }, "add", 1);
+    const next = addCorrectionPoint(
+      fromServer,
+      0,
+      "protect",
+      0.02,
+      { x: 0.2, y: 0.2 },
+      "add",
+      1,
+    );
     expect(next.corrections).toHaveLength(1);
     expect(next.corrections[0].points).toHaveLength(2);
   });
@@ -517,9 +604,15 @@ describe("batch rework list", () => {
   };
 
   test("failed, blocked and unselected items need work", () => {
-    expect(batchItemAttention({ ...base, job_status: "failed" })).toContain("실패");
+    expect(batchItemAttention({ ...base, job_status: "failed" })).toContain(
+      "실패",
+    );
     expect(
-      batchItemAttention({ ...base, job_status: "succeeded", result: { ...result, selection_required: true } }),
+      batchItemAttention({
+        ...base,
+        job_status: "succeeded",
+        result: { ...result, selection_required: true },
+      }),
     ).toContain("후보 선택");
     expect(batchItemAttention({ ...base, job_status: "running" })).toBeNull();
   });
@@ -531,20 +624,37 @@ describe("batch rework list", () => {
       result: {
         ...result,
         object_coverage: [
-          { object_id: 2, target: "protect" as const, visible_frames: 100, frame_count: 100, missing_ranges: [] },
+          {
+            object_id: 2,
+            target: "protect" as const,
+            visible_frames: 100,
+            frame_count: 100,
+            missing_ranges: [],
+          },
           {
             object_id: 4,
             target: "protect" as const,
             visible_frames: 70,
             frame_count: 100,
-            missing_ranges: [[40, 59], [90, 99]] as Array<[number, number]>,
+            missing_ranges: [
+              [40, 59],
+              [90, 99],
+            ] as Array<[number, number]>,
           },
         ],
       },
     };
-    expect(batchItemAttention(covered)).toBe("객체 4 누락 30/100프레임 (40~59 외 1구간)");
+    expect(batchItemAttention(covered)).toBe(
+      "객체 4 누락 30/100프레임 (40~59 외 1구간)",
+    );
     expect(
-      batchItemAttention({ ...covered, result: { ...covered.result, object_coverage: [covered.result.object_coverage[0]] } }),
+      batchItemAttention({
+        ...covered,
+        result: {
+          ...covered.result,
+          object_coverage: [covered.result.object_coverage[0]],
+        },
+      }),
     ).toBeNull();
     expect(batchItemAttention(covered, true)).toContain("재생성");
   });
@@ -552,8 +662,12 @@ describe("batch rework list", () => {
 
 describe("progress estimates", () => {
   test("whole-job remaining time extrapolates from elapsed time", async () => {
-    const { wholeJobEstimate, formatDuration } = await import("../job-presentation");
-    expect(wholeJobEstimate(0.25, 60)).toEqual({ percent: 25, remainingSeconds: 180 });
+    const { wholeJobEstimate, formatDuration } =
+      await import("../job-presentation");
+    expect(wholeJobEstimate(0.25, 60)).toEqual({
+      percent: 25,
+      remainingSeconds: 180,
+    });
     expect(wholeJobEstimate(0.01, 60)?.remainingSeconds).toBeNull();
     expect(wholeJobEstimate(undefined, 60)).toBeNull();
     expect(formatDuration(3725)).toBe("1시간 2분");
@@ -562,7 +676,12 @@ describe("progress estimates", () => {
   });
 
   test("batch estimate uses finished items and the running item's fraction", () => {
-    const item = (job_status: string, started?: string, finished?: string, overall?: number) => ({
+    const item = (
+      job_status: string,
+      started?: string,
+      finished?: string,
+      overall?: number,
+    ) => ({
       id: job_status,
       episode_index: 0,
       video_key: "wrist",
@@ -583,8 +702,19 @@ describe("progress estimates", () => {
       ],
       now,
     );
-    expect(estimate).toEqual({ done: 2, total: 4, percent: 62, remainingSeconds: 270 });
-    const first = batchEstimate([item("running", "2026-10-02T00:08:00Z", undefined, 0.25), item("queued")], now);
+    expect(estimate).toEqual({
+      done: 2,
+      total: 4,
+      percent: 62,
+      remainingSeconds: 270,
+    });
+    const first = batchEstimate(
+      [
+        item("running", "2026-10-02T00:08:00Z", undefined, 0.25),
+        item("queued"),
+      ],
+      now,
+    );
     expect(first.remainingSeconds).toBe(480 * 1.75);
   });
 });

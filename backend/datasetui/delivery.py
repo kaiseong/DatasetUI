@@ -12,7 +12,7 @@ from typing import Any
 
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
-from datasetui.huggingface import HF_NAMESPACE
+from datasetui.huggingface import HF_NAMESPACE, validate_dataset_name
 from datasetui.validation_integrity import (
     ContentIntegrityError,
     VALIDATOR_POLICY,
@@ -232,7 +232,7 @@ def upload_to_huggingface(
         raise CurationTransformError("Hugging Face write access is not configured")
     from huggingface_hub import HfApi
 
-    repo_id = f"{HF_NAMESPACE}/{payload['repo_name']}"
+    repo_id = f"{HF_NAMESPACE}/{validate_dataset_name(payload['repo_name'])}"
     staging_parent = settings.staging_root / "hf-uploads"
     staging_parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f"{job_id}-", dir=staging_parent))

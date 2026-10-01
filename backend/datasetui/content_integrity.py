@@ -47,6 +47,59 @@ def dataset_content_manifest(
     write, replacement or metadata change produces a new ctime and forces a full
     re-hash, so repeated verification of an immutable source stays cheap.
     """
+    entries = _safe_entries(root)
+
+    digest = hashlib.sha256()
+    total_bytes = 0
+    for path, metadata in sorted(
+        entries, key=lambda item: item[0].relative_to(root).as_posix()
+    ):
+        cached = None
+        if reuse_file_digests:
+            with _FILE_DIGEST_CACHE_LOCK:
+                cached = _FILE_DIGEST_CACHE.get(_file_identity(path, metadata))
+        if cached is not None:
+            size, file_sha256 = cached
+        else:
+            size, file_sha256, identity = _hash_regular_file(path)
+            if reuse_file_digests:
+                with _FILE_DIGEST_CACHE_LOCK:
+                    _FILE_DIGEST_CACHE[identity] = (size, file_sha256)
+                    _FILE_DIGEST_CACHE.move_to_end(identity)
+                    while len(_FILE_DIGEST_CACHE) > _FILE_DIGEST_CACHE_LIMIT:
+                        _FILE_DIGEST_CACHE.popitem(last=False)
+        relative = path.relative_to(root).as_posix()
+        digest.update(f"{relative}\0{size}\0{file_sha256}\n".encode())
+        total_bytes += size
+    return {
+        "tree_sha256": digest.hexdigest(),
+        "file_count": len(entries),
+        "total_bytes": total_bytes,
+    }
+
+
+def dataset_tree_identity(root: Path) -> str:
+    """Cheap, stat-only identity of every file in a dataset tree.
+
+    Reads no file content. Any write, replacement, addition or removal changes
+    the result (size, mtime or ctime moves), so comparing the value taken when
+    a job starts with one taken before it publishes detects a source that was
+    modified while the job ran. Unsafe entries raise like the full manifest.
+    """
+    digest = hashlib.sha256()
+    for path, metadata in sorted(
+        _safe_entries(root), key=lambda item: item[0].relative_to(root).as_posix()
+    ):
+        relative = path.relative_to(root).as_posix()
+        digest.update(
+            f"{relative}\0{metadata.st_dev}\0{metadata.st_ino}\0{metadata.st_size}"
+            f"\0{metadata.st_mtime_ns}\0{metadata.st_ctime_ns}\n".encode()
+        )
+    return digest.hexdigest()
+
+
+def _safe_entries(root: Path) -> list[tuple[Path, os.stat_result]]:
+    """Every regular file under ``root``; symlinks and special files are rejected."""
     try:
         root_metadata = root.lstat()
     except OSError as exc:
@@ -81,33 +134,7 @@ def dataset_content_manifest(
     if traversal_errors:
         raise ContentIntegrityError("dataset tree could not be read completely")
 
-    digest = hashlib.sha256()
-    total_bytes = 0
-    for path, metadata in sorted(
-        entries, key=lambda item: item[0].relative_to(root).as_posix()
-    ):
-        cached = None
-        if reuse_file_digests:
-            with _FILE_DIGEST_CACHE_LOCK:
-                cached = _FILE_DIGEST_CACHE.get(_file_identity(path, metadata))
-        if cached is not None:
-            size, file_sha256 = cached
-        else:
-            size, file_sha256, identity = _hash_regular_file(path)
-            if reuse_file_digests:
-                with _FILE_DIGEST_CACHE_LOCK:
-                    _FILE_DIGEST_CACHE[identity] = (size, file_sha256)
-                    _FILE_DIGEST_CACHE.move_to_end(identity)
-                    while len(_FILE_DIGEST_CACHE) > _FILE_DIGEST_CACHE_LIMIT:
-                        _FILE_DIGEST_CACHE.popitem(last=False)
-        relative = path.relative_to(root).as_posix()
-        digest.update(f"{relative}\0{size}\0{file_sha256}\n".encode())
-        total_bytes += size
-    return {
-        "tree_sha256": digest.hexdigest(),
-        "file_count": len(entries),
-        "total_bytes": total_bytes,
-    }
+    return entries
 
 
 def _hash_regular_file(path: Path) -> tuple[int, str, tuple]:

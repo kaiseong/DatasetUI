@@ -14,7 +14,7 @@ export type SegmentationPrompt = {
   target: SegmentationTarget;
   text: string;
   confidence_threshold?: number | null;
-  selected_candidates?: Array<{sample_id: string; candidate_id: string}>;
+  selected_candidates?: Array<{ sample_id: string; candidate_id: string }>;
   member_candidate_id?: string | null;
   points: SegmentationPoint[];
   box: [number, number, number, number] | null;
@@ -150,8 +150,12 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
       if (typeof body.detail === "string") message = body.detail;
       if (Array.isArray(body.detail)) {
         const messages = body.detail
-          .filter((item): item is { msg: string } =>
-            item !== null && typeof item === "object" && typeof item.msg === "string")
+          .filter(
+            (item): item is { msg: string } =>
+              item !== null &&
+              typeof item === "object" &&
+              typeof item.msg === "string",
+          )
           .map((item) => item.msg.replace(/^Value error, /, ""));
         if (messages.length) message = [...new Set(messages)].join("\n");
       }
@@ -529,13 +533,31 @@ export type SegmentationWorkspaceScope = {
   episode_index: number;
   video_key: string;
 };
-export function getSegmentationWorkspace(scope: SegmentationWorkspaceScope, signal?: AbortSignal) {
-  const query = new URLSearchParams({...scope, episode_index: String(scope.episode_index)});
-  return requestJson<SegmentationWorkspace>(`/api/v1/segmentation/workspace?${query}`, {signal});
+export function getSegmentationWorkspace(
+  scope: SegmentationWorkspaceScope,
+  signal?: AbortSignal,
+) {
+  const query = new URLSearchParams({
+    ...scope,
+    episode_index: String(scope.episode_index),
+  });
+  return requestJson<SegmentationWorkspace>(
+    `/api/v1/segmentation/workspace?${query}`,
+    { signal },
+  );
 }
-export function saveSegmentationWorkspace(scope: SegmentationWorkspaceScope, workspace: SegmentationWorkspace, objects: ConfirmedSegmentationObject[]) {
+export function saveSegmentationWorkspace(
+  scope: SegmentationWorkspaceScope,
+  workspace: SegmentationWorkspace,
+  objects: ConfirmedSegmentationObject[],
+) {
   return requestJson<SegmentationWorkspace>("/api/v1/segmentation/workspace", {
     method: "PUT",
-    body: JSON.stringify({...scope, expected_revision: workspace.revision, metadata_revision: workspace.metadata_revision, objects}),
+    body: JSON.stringify({
+      ...scope,
+      expected_revision: workspace.revision,
+      metadata_revision: workspace.metadata_revision,
+      objects,
+    }),
   });
 }

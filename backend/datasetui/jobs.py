@@ -285,13 +285,15 @@ def _validate_delivery_payload(payload: dict[str, Any], kind: str) -> dict[str, 
             raise ValueError("invalid NAS export name")
         result["output_name"] = name
     elif kind == "datasets.upload_hf":
+        from datasetui.huggingface import validate_dataset_name
+
         name = payload["repo_name"]
-        if (
-            not isinstance(name, str)
-            or not OUTPUT_NAME_PATTERN.fullmatch(name)
-            or ".." in name
-        ):
+        if not isinstance(name, str):
             raise ValueError("invalid Hugging Face repository name")
+        try:
+            name = validate_dataset_name(name)
+        except ValueError as exc:
+            raise ValueError("invalid Hugging Face repository name") from exc
         if payload["visibility"] not in {"private", "public"}:
             raise ValueError("invalid Hugging Face visibility")
         result.update(repo_name=name, visibility=payload["visibility"])

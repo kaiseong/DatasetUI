@@ -391,3 +391,101 @@ def test_hf_uncertain_upload_is_reported_without_attempting_delete(
         )
     assert captured.value.phase == "upload"
     assert deleted == []
+
+
+def test_pc_key_delivery_checks_lease_immediately_before_remote_rename(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings, database, dataset, profile, _ = _registered(tmp_path)
+    _pass_gate(database, dataset, profile)
+    known_hosts = tmp_path / "known_hosts"
+    known_hosts.write_text("test host key", encoding="utf-8")
+    private_key = tmp_path / "id_ed25519"
+    private_key.write_text("test private key", encoding="utf-8")
+    settings = replace(
+        settings,
+        ssh_known_hosts_path=known_hosts,
+        ssh_private_key_path=private_key,
+    )
+    payload = {
+        "dataset_id": dataset["id"],
+        "fingerprint": dataset["fingerprint"],
+        "storage_area": dataset["storage_area"],
+        "relative_path": dataset["relative_path"],
+        "host": "192.168.0.51",
+        "port": 22,
+        "username": "researcher",
+        "destination": "~/pick",
+    }
+    job, _ = database.create_job(
+        kind="datasets.copy_pc_key",
+        queue_name="io",
+        profile_id=profile["id"],
+        payload=payload,
+        idempotency_key="pc-key-lease",
+    )
+    database.claim_job(job["id"], worker_id="copy-worker", lease_seconds=120)
+
+    class FakeSftp:
+        renamed = False
+
+        def normalize(self, value):
+            return "/home/researcher"
+
+        def lstat(self, path):
+            raise FileNotFoundError(path)
+
+        def mkdir(self, path):
+            return None
+
+        def rename(self, source, target):
+            self.renamed = True
+
+        def listdir_attr(self, path):
+            return []
+
+        def rmdir(self, path):
+            return None
+
+        def close(self):
+            return None
+
+    fake_sftp = FakeSftp()
+
+    class FakeClient:
+        def load_host_keys(self, path):
+            return None
+
+        def set_missing_host_key_policy(self, policy):
+            return None
+
+        def connect(self, **kwargs):
+            return None
+
+        def open_sftp(self):
+            return fake_sftp
+
+        def close(self):
+            return None
+
+    monkeypatch.setitem(
+        sys.modules,
+        "paramiko",
+        SimpleNamespace(SSHClient=FakeClient, RejectPolicy=object),
+    )
+    monkeypatch.setattr(delivery_module, "_sftp_tree", lambda *args, **kwargs: (1, 10))
+    monkeypatch.setattr(
+        database,
+        "assert_job_lease",
+        lambda *args, **kwargs: (_ for _ in ()).throw(JobLeaseLostError(job["id"])),
+    )
+
+    with pytest.raises(JobLeaseLostError):
+        copy_to_pc_with_key(
+            database=database,
+            settings=settings,
+            payload=payload,
+            job_id=job["id"],
+            worker_id="copy-worker",
+        )
+    assert fake_sftp.renamed is False

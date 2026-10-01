@@ -94,7 +94,13 @@ export function updatePrompt(
   objectId?: number,
   memberCandidateId?: string,
 ): SegmentationDraft {
-  const current = promptFor(draft, frameIndex, target, objectId, memberCandidateId);
+  const current = promptFor(
+    draft,
+    frameIndex,
+    target,
+    objectId,
+    memberCandidateId,
+  );
   const next = update(current);
   const prompts = draft.prompts.filter(
     (item) =>
@@ -267,11 +273,21 @@ export function objectForInputTarget(
   reservedIds: number[],
 ): number | null {
   const annotations = [...draft.prompts, ...draft.corrections];
-  if (currentTarget === nextTarget || !annotations.some(item => (item.object_id ?? 1) === objectId)) {
+  if (
+    currentTarget === nextTarget ||
+    !annotations.some((item) => (item.object_id ?? 1) === objectId)
+  ) {
     return objectId;
   }
-  const used = new Set([objectId, ...reservedIds, ...annotations.map(item => item.object_id ?? 1)]);
-  return Array.from({length: 32}, (_, i) => i + 1).find(id => !used.has(id)) ?? null;
+  const used = new Set([
+    objectId,
+    ...reservedIds,
+    ...annotations.map((item) => item.object_id ?? 1),
+  ]);
+  return (
+    Array.from({ length: 32 }, (_, i) => i + 1).find((id) => !used.has(id)) ??
+    null
+  );
 }
 
 /** Merge only the object explicitly confirmed, never another object's draft. */
@@ -279,25 +295,53 @@ export function confirmedObjectDraft(
   draft: SegmentationDraft,
   objects: import("./segmentation-api").ConfirmedSegmentationObject[],
 ): SegmentationDraft {
-  return {...draft, prompts: objects.flatMap(o => o.prompts),
-    corrections: objects.flatMap(o => o.corrections), selected_candidate_ids: []};
-}
-
-/** Candidate preview uses the same object/frame guidance as the saved sample. */
-export function candidateGuidance(draft: SegmentationDraft, objectId: number, frameIndex: number) {
   return {
-    prompts: draft.prompts.filter(p => (p.object_id ?? 1) === objectId &&
-      (p.frame_index === frameIndex || !!p.text)).map(p => ({...p,
-        confidence_threshold: p.text ? (p.confidence_threshold ?? 0.5) : p.confidence_threshold})),
-    corrections: draft.corrections.filter(c => c.object_id === objectId && c.frame_index === frameIndex),
+    ...draft,
+    prompts: objects.flatMap((o) => o.prompts),
+    corrections: objects.flatMap((o) => o.corrections),
+    selected_candidate_ids: [],
   };
 }
 
-export function candidateGuidanceSignature(draft: SegmentationDraft, objectId: number, frameIndex: number) {
+/** Candidate preview uses the same object/frame guidance as the saved sample. */
+export function candidateGuidance(
+  draft: SegmentationDraft,
+  objectId: number,
+  frameIndex: number,
+) {
+  return {
+    prompts: draft.prompts
+      .filter(
+        (p) =>
+          (p.object_id ?? 1) === objectId &&
+          (p.frame_index === frameIndex || !!p.text),
+      )
+      .map((p) => ({
+        ...p,
+        confidence_threshold: p.text
+          ? (p.confidence_threshold ?? 0.5)
+          : p.confidence_threshold,
+      })),
+    corrections: draft.corrections.filter(
+      (c) => c.object_id === objectId && c.frame_index === frameIndex,
+    ),
+  };
+}
+
+export function candidateGuidanceSignature(
+  draft: SegmentationDraft,
+  objectId: number,
+  frameIndex: number,
+) {
   const guidance = candidateGuidance(draft, objectId, frameIndex);
-  return JSON.stringify([objectId, frameIndex, {
-    ...guidance, prompts: guidance.prompts.map(p => ({...p, selected_candidates: []})),
-  }]);
+  return JSON.stringify([
+    objectId,
+    frameIndex,
+    {
+      ...guidance,
+      prompts: guidance.prompts.map((p) => ({ ...p, selected_candidates: [] })),
+    },
+  ]);
 }
 
 /** An object has one Instruction; it lives on its detection frame. */
@@ -341,24 +385,42 @@ export function moveSemanticPromptToFrame(
 ): SegmentationDraft {
   const semantic = semanticPromptFor(draft, objectId, target, frameIndex);
   if (!semantic.text.trim() || semantic.frame_index === frameIndex) {
-    return updatePrompt(draft, frameIndex, target, (current) => ({
-      ...current,
-      selected_candidates: [],
-    }), objectId);
+    return updatePrompt(
+      draft,
+      frameIndex,
+      target,
+      (current) => ({
+        ...current,
+        selected_candidates: [],
+      }),
+      objectId,
+    );
   }
   const { text, confidence_threshold } = semantic;
-  let next = updatePrompt(draft, semantic.frame_index, target, (current) => ({
-    ...current,
-    text: "",
-    confidence_threshold: null,
-    selected_candidates: [],
-  }), objectId);
-  next = updatePrompt(next, frameIndex, target, (current) => ({
-    ...current,
-    text,
-    confidence_threshold,
-    selected_candidates: [],
-  }), objectId);
+  let next = updatePrompt(
+    draft,
+    semantic.frame_index,
+    target,
+    (current) => ({
+      ...current,
+      text: "",
+      confidence_threshold: null,
+      selected_candidates: [],
+    }),
+    objectId,
+  );
+  next = updatePrompt(
+    next,
+    frameIndex,
+    target,
+    (current) => ({
+      ...current,
+      text,
+      confidence_threshold,
+      selected_candidates: [],
+    }),
+    objectId,
+  );
   return next;
 }
 
@@ -369,13 +431,16 @@ export function objectsFromDraft(
 ): import("./segmentation-api").ConfirmedSegmentationObject[] {
   const ids = new Map<number, SegmentationTarget>();
   for (const item of [...draft.prompts, ...draft.corrections]) {
-    if (!ids.has(item.object_id ?? 1)) ids.set(item.object_id ?? 1, item.target);
+    if (!ids.has(item.object_id ?? 1))
+      ids.set(item.object_id ?? 1, item.target);
   }
   return [...ids.entries()]
     .sort(([left], [right]) => left - right)
     .map(([objectId, target]) => ({
       object_id: objectId,
-      name: saved.find((item) => item.object_id === objectId)?.name ?? `객체 ${objectId}`,
+      name:
+        saved.find((item) => item.object_id === objectId)?.name ??
+        `객체 ${objectId}`,
       target,
       prompts: draft.prompts
         .filter((item) => (item.object_id ?? 1) === objectId)
@@ -405,7 +470,10 @@ export function batchItemAttention(
   return gaps
     .map((entry) => {
       const [start, end] = entry.missing_ranges[0];
-      const more = entry.missing_ranges.length > 1 ? ` 외 ${entry.missing_ranges.length - 1}구간` : "";
+      const more =
+        entry.missing_ranges.length > 1
+          ? ` 외 ${entry.missing_ranges.length - 1}구간`
+          : "";
       return `객체 ${entry.object_id} 누락 ${entry.frame_count - entry.visible_frames}/${entry.frame_count}프레임 (${start}~${end}${more})`;
     })
     .join(" · ");
@@ -419,7 +487,12 @@ export function batchItemAttention(
 export function batchEstimate(
   items: import("./segmentation-api").SegmentationBatchItem[],
   nowMs: number,
-): { done: number; total: number; percent: number; remainingSeconds: number | null } {
+): {
+  done: number;
+  total: number;
+  percent: number;
+  remainingSeconds: number | null;
+} {
   const terminal = new Set(["succeeded", "failed", "cancelled", "interrupted"]);
   const durations: number[] = [];
   let done = 0;
@@ -451,6 +524,7 @@ export function batchEstimate(
     done,
     total,
     percent: total ? Math.floor((progressed / total) * 100) : 0,
-    remainingSeconds: perItem === null || done >= total ? null : perItem * (total - progressed),
+    remainingSeconds:
+      perItem === null || done >= total ? null : perItem * (total - progressed),
   };
 }

@@ -272,3 +272,77 @@ def test_v3_to_v21_conversion_rebuilds_layout_and_passes_export_gate(
     assert (output / "meta/tasks.jsonl").is_file()
     assert len(list((output / "data").rglob("episode_*.parquet"))) == 2
     assert result["validation"]["passed"] is True
+
+
+def test_validation_reports_malformed_numeric_parquet_as_structured_failure(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "dataset"
+    _write_v21(root)
+    path = root / "data/chunk-000/episode_000000.parquet"
+    frame = pd.read_parquet(path)
+    frame["timestamp"] = ["bad"] * len(frame)
+    frame.to_parquet(path, index=False)
+
+    result = validate_dataset_root(root, mode="quick")
+
+    assert result["passed"] is False
+    assert any(item["code"] == "feature_dtype_mismatch" for item in result["issues"])
+
+
+def test_v21_conversion_rejects_source_changed_during_job(
+    tmp_path: Path, monkeypatch
+) -> None:
+    import pytest
+
+    import datasetui.conversion as conversion
+    from datasetui.database import RecipeRevisionMismatchError
+
+    settings = _settings(tmp_path)
+    source = settings.nas_root / "raw/lab/v3"
+    _write_v3(source)
+    database = Database(settings.database_path)
+    database.initialize()
+    candidate = inspect_dataset(
+        area_root=settings.nas_root / "raw", storage_area="raw", relative_path="lab/v3"
+    )
+    generation = database.begin_dataset_scan("raw")
+    database.synchronize_datasets(
+        storage_area="raw", records=[candidate.as_record()], scan_generation=generation
+    )
+    dataset = database.list_datasets()[0]
+    profile = database.create_profile("Converter")
+    payload = {
+        "dataset_id": dataset["id"],
+        "fingerprint": dataset["fingerprint"],
+        "storage_area": dataset["storage_area"],
+        "relative_path": dataset["relative_path"],
+        "output_name": "converted-changed",
+    }
+    job, _ = database.create_job(
+        kind="datasets.convert_v21",
+        queue_name="converter-v21",
+        profile_id=profile["id"],
+        payload=payload,
+        idempotency_key="convert-changed",
+    )
+    database.claim_job(job["id"], worker_id="converter", lease_seconds=120)
+    original_inspect = conversion.inspect_dataset
+
+    def inspect_then_mutate(**kwargs):
+        # meta/info.json stays identical; only a data file is rewritten.
+        data_file = next((source / "data").rglob("*.parquet"))
+        data_file.write_bytes(data_file.read_bytes() + b"\0")
+        return original_inspect(**kwargs)
+
+    monkeypatch.setattr(conversion, "inspect_dataset", inspect_then_mutate)
+
+    with pytest.raises(RecipeRevisionMismatchError):
+        convert_dataset_to_v21(
+            database=database,
+            settings=settings,
+            payload=payload,
+            job_id=job["id"],
+            worker_id="converter",
+        )
+    assert not (settings.nas_root / "derived/converted-changed").exists()

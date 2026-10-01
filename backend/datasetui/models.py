@@ -9,6 +9,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
+from datasetui.huggingface import validate_dataset_name
+
 
 PROFILE_NAME_PATTERN = re.compile(r"^[^\x00-\x1f\x7f]+$")
 JobStatus = Literal[
@@ -678,11 +680,7 @@ class HuggingFaceRevision(StrictModel):
 
 class HuggingFaceImportCreate(StrictModel):
     profile_id: str
-    dataset_name: str = Field(
-        min_length=1,
-        max_length=96,
-        pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?$",
-    )
+    dataset_name: str = Field(min_length=1, max_length=96)
     requested_revision: str = Field(min_length=1, max_length=200)
     commit_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
     idempotency_key: str = Field(min_length=1, max_length=120)
@@ -690,9 +688,7 @@ class HuggingFaceImportCreate(StrictModel):
     @field_validator("dataset_name")
     @classmethod
     def reject_ambiguous_dataset_name(cls, value: str) -> str:
-        if ".." in value:
-            raise ValueError("invalid Hugging Face dataset name")
-        return value
+        return validate_dataset_name(value)
 
     @field_validator("requested_revision")
     @classmethod
@@ -802,20 +798,14 @@ class NasDeliveryCreate(StrictModel):
 
 class HuggingFaceDeliveryCreate(StrictModel):
     profile_id: str
-    repo_name: str = Field(
-        min_length=1,
-        max_length=96,
-        pattern=r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,94}[A-Za-z0-9])?$",
-    )
+    repo_name: str = Field(min_length=1, max_length=96)
     visibility: Literal["private", "public"] = "private"
     idempotency_key: str = Field(min_length=1, max_length=120)
 
     @field_validator("repo_name")
     @classmethod
     def safe_repo_name(cls, value: str) -> str:
-        if ".." in value:
-            raise ValueError("invalid repository name")
-        return value
+        return validate_dataset_name(value)
 
 
 def _validate_pc_target(host: str, destination: str) -> tuple[str, str]:

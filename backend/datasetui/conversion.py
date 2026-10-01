@@ -18,7 +18,9 @@ from datasetui.transforms import (
     _publish_output,
     _read_regular_bytes,
     _report_progress,
+    _assert_source_unchanged,
     _safe_dataset_root,
+    _source_tree_identity,
     _tree_manifest,
     _write_dataset,
     _write_json_atomic,
@@ -91,6 +93,7 @@ def convert_dataset_to_v21(
     source_root = _safe_dataset_root(
         settings.nas_root, record["storage_area"], record["relative_path"]
     )
+    source_identity = _source_tree_identity(source_root)
     raw = _read_regular_bytes(source_root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
     if hashlib.sha256(raw).hexdigest() != payload["fingerprint"]:
         raise RecipeRevisionMismatchError(payload["dataset_id"])
@@ -215,6 +218,7 @@ def convert_dataset_to_v21(
             unit="items",
             current_item="변환 결과 Export Gate 검사",
         )
+        _assert_source_unchanged(source_root, source_identity, payload["dataset_id"])
         database.assert_job_lease(job_id, worker_id=worker_id)
         manifest = _publish_output(
             database=database,
