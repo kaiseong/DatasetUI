@@ -30,7 +30,7 @@ def dispatch_registered_job(
         if job["kind"] in {"datasets.validate", "datasets.delivery_preflight"}
         else None
     )
-    if job["kind"] == "datasets.merge":
+    if job["kind"] in {"datasets.merge", "augment.joint_offset"}:
         timeout = settings.merge_timeout_seconds
     if job["kind"] == "curation.materialize":
         snapshot = database.get_curation_snapshot(job["payload"]["snapshot_id"])

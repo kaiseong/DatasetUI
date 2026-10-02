@@ -506,6 +506,34 @@ export function mergeDatasets(
   });
 }
 
+export type JointOffsetAugmentationRequest = {
+  ranges_deg: number[];
+  copies: number;
+  seed: number;
+  /** null augments every episode. */
+  episode_indices: number[] | null;
+  output_name: string;
+};
+
+export function createJointOffsetAugmentation(
+  profileId: string,
+  datasetId: string,
+  request: JointOffsetAugmentationRequest,
+  idempotencyKey: string,
+): Promise<Job> {
+  return requestJson(
+    `/api/v1/datasets/${encodeURIComponent(datasetId)}/joint-offset-augmentations`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        profile_id: profileId,
+        ...request,
+        idempotency_key: idempotencyKey,
+      }),
+    },
+  );
+}
+
 export function validateDataset(
   datasetId: string,
   profileId: string,

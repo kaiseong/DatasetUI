@@ -377,6 +377,10 @@ def validate_job_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         return _validate_curation_payload(payload)
     if kind == "datasets.merge":
         return _validate_merge_payload(payload)
+    if kind == "augment.joint_offset":
+        from datasetui.augmentation.joint_offset import validate_internal_payload
+
+        return validate_internal_payload(payload)
     if kind in {"datasets.validate", "datasets.delivery_preflight"}:
         return _validate_dataset_job_payload(payload)
     if kind == "datasets.convert_v21":
@@ -591,6 +595,24 @@ def run_registered_job(
             database=database,
             settings=settings,
             payload=_validate_merge_payload(payload),
+            job_id=job_id,
+            worker_id=worker_id,
+        )
+    if kind == "augment.joint_offset":
+        from datasetui.augmentation.joint_offset import (
+            augment_joint_offsets,
+            validate_internal_payload,
+        )
+
+        if job_id is None or worker_id is None:
+            raise ValueError("joint offset augmentation requires worker ownership")
+        settings = Settings.from_env()
+        database = Database(settings.database_path)
+        database.initialize()
+        return augment_joint_offsets(
+            database=database,
+            settings=settings,
+            payload=validate_internal_payload(payload),
             job_id=job_id,
             worker_id=worker_id,
         )

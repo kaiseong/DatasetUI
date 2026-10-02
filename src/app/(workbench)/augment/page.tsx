@@ -4,6 +4,7 @@ import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { LuSparkles } from "react-icons/lu";
 import SegmentationWorkflow from "@/components/workbench/segmentation-workflow";
+import JointOffsetAugmentation from "@/components/workbench/joint-offset-augmentation";
 import { useProfile } from "@/components/workbench/profile-context";
 import { listDatasets, type DatasetSummary } from "@/lib/workbench-api";
 import {
@@ -40,6 +41,7 @@ function AugmentContent() {
     useState<SegmentationCapabilities | null>(null);
   const [scope, setScope] = useState<SegmentationScope | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [mode, setMode] = useState<"segmentation" | "joint">("segmentation");
   const requestGenerationRef = useRef(0);
 
   useEffect(() => {
@@ -118,10 +120,11 @@ function AugmentContent() {
       <section className="workbench-page__heading">
         <div>
           <p className="workbench-eyebrow">AUGMENT</p>
-          <h1>작업 영역 Segmentation</h1>
+          <h1>데이터 증강</h1>
           <p>
-            SAM3.1로 보드·그리퍼·플러그 등 필요한 픽셀만 남깁니다. 검은 배경이
-            기본이며, 사진 배경은 선택 사항입니다.
+            Segmentation은 SAM3.1로 보드·그리퍼·플러그 등 필요한 픽셀만 남기고,
+            관절 오프셋은 로봇마다 다른 관절 틀어짐을 상태·행동에 더한 사본을
+            만듭니다.
           </p>
         </div>
         <LuSparkles className="h-8 w-8 text-cyan-300" aria-hidden />
@@ -167,38 +170,74 @@ function AugmentContent() {
         </p>
       )}
 
+      {selected && (
+        <div
+          className="augment-mode-tabs"
+          role="tablist"
+          aria-label="증강 종류"
+        >
+          {(
+            [
+              ["segmentation", "Segmentation"],
+              ["joint", "관절 오프셋"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={mode === value}
+              className={`workbench-button ${mode === value ? "workbench-button--primary" : ""}`}
+              onClick={() => setMode(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {!currentProfile && (
         <p className="workbench-live-message">
           미리보기와 Export는 현재 브라우저에서 선택한 사용자에게 귀속됩니다.
         </p>
       )}
-      {message && (
-        <p className="workbench-live-message" role="alert">
-          {message}
-        </p>
-      )}
-      {selected &&
-      scope &&
-      capabilities &&
-      scope.episodes.length > 0 &&
-      scope.video_keys.length > 0 ? (
-        <SegmentationWorkflow
-          key={`${currentProfile?.id ?? "no-profile"}:${selected.id}:${scope.fingerprint}`}
+      {selected && mode === "joint" ? (
+        <JointOffsetAugmentation
+          key={`${currentProfile?.id ?? "no-profile"}:${selected.id}`}
           datasetId={selected.id}
           datasetName={selected.name}
-          scope={scope}
-          capabilities={capabilities}
         />
-      ) : scope &&
-        (scope.episodes.length === 0 || scope.video_keys.length === 0) ? (
-        <p className="workbench-live-message" role="alert">
-          처리할 video episode 또는 camera key가 없습니다.
-        </p>
-      ) : confirmedId && !message && loading ? (
-        <p className="workbench-live-message" aria-live="polite">
-          원본 frame 범위를 불러오는 중…
-        </p>
-      ) : null}
+      ) : (
+        <>
+          {message && (
+            <p className="workbench-live-message" role="alert">
+              {message}
+            </p>
+          )}
+          {selected &&
+          scope &&
+          capabilities &&
+          scope.episodes.length > 0 &&
+          scope.video_keys.length > 0 ? (
+            <SegmentationWorkflow
+              key={`${currentProfile?.id ?? "no-profile"}:${selected.id}:${scope.fingerprint}`}
+              datasetId={selected.id}
+              datasetName={selected.name}
+              scope={scope}
+              capabilities={capabilities}
+            />
+          ) : scope &&
+            (scope.episodes.length === 0 || scope.video_keys.length === 0) ? (
+            <p className="workbench-live-message" role="alert">
+              처리할 video episode 또는 camera key가 없습니다.
+            </p>
+          ) : confirmedId && !message && loading ? (
+            <p className="workbench-live-message" aria-live="polite">
+              원본 frame 범위를 불러오는 중…
+            </p>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

@@ -155,8 +155,13 @@ def write_preserved_merge(
     source: Any,
     destination: Path,
     on_progress: ProgressCallback | None = None,
+    recompute_statistics: bool = False,
 ) -> dict[str, Any]:
-    """Write a merge while copying every source video bitstream unchanged."""
+    """Write a merge while copying every source video bitstream unchanged.
+
+    `recompute_statistics` is for sources whose episode values differ from the
+    files they point at (augmentation): source statistics are never reused.
+    """
     (destination / "meta").mkdir(parents=True)
     (destination / "data").mkdir()
     if source.video_keys:
@@ -230,9 +235,13 @@ def write_preserved_merge(
     from datasetui.statistics.deferred import preserve_deferred_statistics, read_deferred_statistics
 
     deferred_inputs = [read_deferred_statistics(item.root) for item in source.sources]
-    defer_statistics = any(deferred_inputs)
+    defer_statistics = any(deferred_inputs) and not recompute_statistics
     used_legacy_aggregate = False
-    legacy_aggregate_eligible = source.version in {"v2.0", "v2.1"} and not defer_statistics
+    legacy_aggregate_eligible = (
+        source.version in {"v2.0", "v2.1"}
+        and not defer_statistics
+        and not recompute_statistics
+    )
     if legacy_aggregate_eligible:
         from datasetui.official.operations import write_legacy_aggregated_statistics
 

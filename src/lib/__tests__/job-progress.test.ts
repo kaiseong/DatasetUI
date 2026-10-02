@@ -39,6 +39,7 @@ test("all registered operations have progress UI without unsupported labels", ()
     "hf.import",
     "curation.materialize",
     "datasets.merge",
+    "augment.joint_offset",
     "datasets.validate",
     "datasets.convert_v21",
     "datasets.export_nas",

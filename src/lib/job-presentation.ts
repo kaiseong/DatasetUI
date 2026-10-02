@@ -6,6 +6,7 @@ const LABELS: Record<string, string> = {
   "hf.import": "Hugging Face 원본 가져오기",
   "curation.materialize": "큐레이션 작업본 생성",
   "datasets.merge": "데이터셋 병합",
+  "augment.joint_offset": "관절 오프셋 증강",
   "datasets.validate": "데이터셋 검증",
   "datasets.convert_v21": "v2.1 작업본 변환",
   "datasets.export_nas": "NAS로 내보내기",
@@ -53,7 +54,9 @@ export function jobResultLinks(job: Pick<Job, "kind" | "status" | "result">) {
   }
   if (
     Array.isArray(job.result.outputs) ||
-    ["datasets.merge", "datasets.convert_v21"].includes(job.kind)
+    ["datasets.merge", "datasets.convert_v21", "augment.joint_offset"].includes(
+      job.kind,
+    )
   ) {
     links.push({ label: "생성된 데이터셋 목록", href: "/library" });
   }

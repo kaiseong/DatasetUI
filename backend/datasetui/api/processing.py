@@ -1,4 +1,4 @@
-"""Merge, validation runs and v2.1 conversion jobs."""
+"""Merge, joint offset augmentation, validation runs and v2.1 conversion jobs."""
 
 from __future__ import annotations
 
@@ -8,6 +8,10 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Response, status
 
 from datasetui.api.context import RouterContext
+from datasetui.augmentation.joint_offset import (
+    JointOffsetAugmentationCreate,
+    internal_payload as joint_offset_payload,
+)
 from datasetui.database import (
     DatasetNotFoundError,
     DatasetNotReadyError,
@@ -82,6 +86,62 @@ def register(router: APIRouter, ctx: RouterContext) -> None:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except Exception as exc:
             logger.exception("failed to dispatch dataset merge")
+            if "job" in locals():
+                database.record_dispatch_error(job["id"], "Unable to dispatch job")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Job queue unavailable",
+            ) from exc
+
+    @router.post(
+        "/datasets/{dataset_id}/joint-offset-augmentations",
+        response_model=Job,
+        status_code=status.HTTP_202_ACCEPTED,
+    )
+    def create_joint_offset_augmentation(
+        dataset_id: str, payload: JointOffsetAugmentationCreate, response: Response
+    ) -> dict[str, Any]:
+        try:
+            dataset = database.get_dataset(dataset_id)
+            if not dataset["available"] or dataset["readiness"] != "ready":
+                raise DatasetNotReadyError(dataset_id)
+            total = dataset.get("total_episodes")
+            if payload.episode_indices and isinstance(total, int) and (
+                payload.episode_indices[-1] >= total
+            ):
+                raise HTTPException(
+                    status_code=422,
+                    detail="선택한 에피소드가 원본 범위를 벗어났습니다.",
+                )
+            job, created = database.create_job(
+                kind="augment.joint_offset",
+                queue_name="cpu",
+                profile_id=payload.profile_id,
+                payload=joint_offset_payload(dataset, payload),
+                idempotency_key=payload.idempotency_key,
+            )
+            if not created and job["status"] != "queued":
+                response.status_code = status.HTTP_200_OK
+                return job
+            job = dispatch_job(job)
+            if not created:
+                response.status_code = status.HTTP_200_OK
+            return job
+        except HTTPException:
+            raise
+        except DatasetNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Dataset not found") from exc
+        except ProfileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Profile not found") from exc
+        except DatasetNotReadyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="The source dataset must be ready",
+            ) from exc
+        except IdempotencyConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except Exception as exc:
+            logger.exception("failed to dispatch joint offset augmentation")
             if "job" in locals():
                 database.record_dispatch_error(job["id"], "Unable to dispatch job")
             raise HTTPException(

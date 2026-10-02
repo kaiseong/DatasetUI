@@ -79,6 +79,7 @@ def run_job(job_id: str) -> dict[str, object]:
                 "datasets.validate",
                 "curation.materialize",
                 "datasets.merge",
+                "augment.joint_offset",
                 "datasets.convert_v21",
                 "datasets.export_nas",
                 "datasets.upload_hf",

@@ -5,6 +5,7 @@ describe("job results", () => {
   test("later phase jobs have specific labels", () => {
     for (const kind of [
       "datasets.merge",
+      "augment.joint_offset",
       "datasets.validate",
       "datasets.convert_v21",
       "datasets.upload_hf",
