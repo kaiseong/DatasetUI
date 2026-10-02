@@ -2,9 +2,10 @@ import hashlib
 
 import pytest
 
-from datasetui.lerobot_runtime import verify_source_tree
-from datasetui.official_operations import _inventory, _validate_destination, enabled
+from datasetui.official.operations import enabled, inventory, validate_destination
+from datasetui.official.runtime import verify_source_tree
 from datasetui.transform_errors import CurationTransformError
+
 
 
 def test_code_identity_rejects_modified_missing_and_extra_files(tmp_path):
@@ -27,17 +28,17 @@ def test_code_identity_rejects_modified_missing_and_extra_files(tmp_path):
 def test_inventory_rejects_links_before_reading_payload(tmp_path):
     (tmp_path / "link").symlink_to("/not/a/real/file")
     with pytest.raises(CurationTransformError):
-        _inventory(tmp_path)
+        inventory(tmp_path)
 
 
 def test_source_and_destination_must_not_overlap(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     with pytest.raises(CurationTransformError):
-        _validate_destination(source / "out", [source])
+        validate_destination(source / "out", [source])
     with pytest.raises(CurationTransformError):
-        _validate_destination(source, [source])
-    _validate_destination(tmp_path / "out", [source])
+        validate_destination(source, [source])
+    validate_destination(tmp_path / "out", [source])
 
 
 def test_unknown_engine_does_not_silently_fallback(monkeypatch):

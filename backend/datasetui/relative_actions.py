@@ -12,9 +12,10 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
-from datasetui.exact_statistics import _StableMoments, _exact_quantiles
-from datasetui.lerobot_runtime import UPSTREAM_COMMIT, require_runtime
+from datasetui.official.runtime import require_runtime, UPSTREAM_COMMIT
+from datasetui.statistics.exact import StableMoments, exact_quantiles
 from datasetui.transform_errors import CurationTransformError
+
 
 
 DEFAULT_CHUNK_SIZE = 50
@@ -288,7 +289,7 @@ def compute_relative_action_profile(
     official_to_relative_actions = _load_official_to_relative_actions()
     import torch
 
-    moments = _StableMoments(action_width)
+    moments = StableMoments(action_width)
     batch_chunks = max(1, TARGET_BATCH_VALUES // chunk_size)
     completed_chunks = 0
     aliases = [f"datasetui_dim_{index:04d}" for index in range(action_width)]
@@ -386,7 +387,7 @@ def compute_relative_action_profile(
                 )
             storage.flush()
             statistics = moments.finish()
-            statistics.update(_exact_quantiles(storage, value_count))
+            statistics.update(exact_quantiles(storage, value_count))
             serialized_statistics = {
                 key: np.asarray(values, dtype=np.float64).tolist()
                 for key, values in statistics.items()

@@ -1,19 +1,21 @@
 """Recompute new output statistics; never edit source/training normalization."""
 
+from __future__ import annotations
+
 from pathlib import Path
 
-from datasetui.episode_statistics import write_episode_statistics
-from datasetui.exact_statistics import recompute_numeric_statistics
+from datasetui.statistics.episode import write_episode_statistics
+from datasetui.statistics.exact import recompute_numeric_statistics
+from datasetui.statistics.visual import recompute_visual_statistics_with_episodes
 from datasetui.transform_errors import CurationTransformError
-from datasetui.visual_statistics import recompute_visual_statistics_with_episodes
 
 
 STATISTICS_POLICY = "exact-global-numeric-sampled-rgb-v1"
 
 
 def write_output_statistics(root: Path, *, on_progress=None) -> dict:
-    from datasetui.official_operations import enabled
-    from datasetui.deferred_statistics import clear_deferred_statistics
+    from datasetui.official.operations import enabled
+    from datasetui.statistics.deferred import clear_deferred_statistics
 
     clear_deferred_statistics(root)
 
@@ -33,7 +35,7 @@ def write_output_statistics(root: Path, *, on_progress=None) -> dict:
         visual_stats_by_episode=visual_stats_by_episode,
     )
     if enabled():
-        from datasetui.lerobot_runtime import require_runtime
+        from datasetui.official.runtime import require_runtime
 
         require_runtime()
         from lerobot.datasets.io_utils import write_stats

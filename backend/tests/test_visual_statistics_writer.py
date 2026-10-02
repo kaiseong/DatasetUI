@@ -1,8 +1,9 @@
 import numpy as np
 import pytest
 
-from datasetui.visual_statistics import histogram_statistics
+from datasetui.statistics.visual import histogram_statistics
 from datasetui.transform_errors import CurationTransformError
+
 
 
 def test_exact_rgb_quantiles_and_moments_match_independent_pixel_array():

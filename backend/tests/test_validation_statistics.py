@@ -11,6 +11,7 @@ from datasetui.validation.statistics import NumericStatisticsValidator
 
 
 
+
 def test_stats_writer_preserves_declared_tensor_shape(tmp_path: Path) -> None:
     from datasetui.dataset_io.stats import write_stats
 
@@ -283,7 +284,7 @@ def test_visual_stat_shape_and_count_are_validated(tmp_path: Path) -> None:
 
 
 def _bind_official_policy(root: Path, info: dict, *, operation="split_dataset") -> None:
-    from datasetui.official_operations import _bind_official_statistics
+    from datasetui.official.operations import _bind_official_statistics
 
     (root / "meta/info.json").write_text(json.dumps(info), encoding="utf-8")
     episodes = root / "meta/episodes/chunk-000"

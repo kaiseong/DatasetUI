@@ -42,6 +42,7 @@ from datasetui.validation.run import validate_dataset_root
 
 
 
+
 def export_preview(
     database: Database,
     settings: Settings,
@@ -219,16 +220,13 @@ def export_preview(
                 current_item="영상 통계 재계산",
                 force=True,
             )
-            from datasetui.deferred_statistics import (
-                preserve_deferred_statistics,
-                read_deferred_statistics,
-            )
+            from datasetui.statistics.deferred import preserve_deferred_statistics, read_deferred_statistics
 
             # Relative artifacts embed normalization data and cannot be deferred.
             relative_required = (destination / "meta/relative_action.json").exists()
             if recompute_statistics or relative_required:
                 if read_deferred_statistics(source_root):
-                    from datasetui.output_statistics import write_output_statistics
+                    from datasetui.statistics.output import write_output_statistics
 
                     write_output_statistics(destination)
                 else:

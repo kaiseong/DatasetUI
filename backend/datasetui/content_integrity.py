@@ -61,7 +61,7 @@ def dataset_content_manifest(
         if cached is not None:
             size, file_sha256 = cached
         else:
-            size, file_sha256, identity = _hash_regular_file(path)
+            size, file_sha256, identity = hash_regular_file(path)
             if reuse_file_digests:
                 with _FILE_DIGEST_CACHE_LOCK:
                     _FILE_DIGEST_CACHE[identity] = (size, file_sha256)
@@ -137,7 +137,7 @@ def _safe_entries(root: Path) -> list[tuple[Path, os.stat_result]]:
     return entries
 
 
-def _hash_regular_file(path: Path) -> tuple[int, str, tuple]:
+def hash_regular_file(path: Path) -> tuple[int, str, tuple]:
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
     except OSError as exc:

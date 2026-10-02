@@ -1,5 +1,7 @@
 """Fail-closed identity gate for the isolated, pinned processing runtime."""
 
+from __future__ import annotations
+
 import hashlib
 import importlib.util
 import json
@@ -9,6 +11,8 @@ from datasetui.transform_errors import CurationTransformError
 
 
 UPSTREAM_COMMIT = "30074f7f1358b3c015ae1750017200e86e9c4eb6"
+
+
 ENGINE_POLICY = "lerobot-v3-source-v1"
 
 

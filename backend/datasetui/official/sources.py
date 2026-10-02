@@ -1,13 +1,16 @@
 """Give upstream only private byte copies, never writable source hardlinks."""
 
-from contextlib import contextmanager
+from __future__ import annotations
+
 import hashlib
 import os
-from pathlib import Path
 import stat
 import tempfile
+from contextlib import contextmanager
+from pathlib import Path
 
 from datasetui.transform_errors import CurationTransformError
+
 
 
 def _identity(value):
@@ -71,14 +74,14 @@ def _copy_directory(descriptor, destination, manifest, relative, on_progress):
 
 @contextmanager
 def private_sources(roots: list[Path], parent: Path, *, on_progress=None):
-    from datasetui.official_operations import _inventory
+    from datasetui.official.operations import inventory
 
     with tempfile.TemporaryDirectory(
         prefix=".official-inputs-", dir=parent
     ) as temporary:
         copies, manifests = [], []
         for index, root in enumerate(roots):
-            before = _inventory(root)
+            before = inventory(root)
             copy = Path(temporary) / str(index)
             copy.mkdir()
             descriptor = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
@@ -87,7 +90,7 @@ def private_sources(roots: list[Path], parent: Path, *, on_progress=None):
                 _copy_directory(descriptor, copy, copied, "", on_progress)
             finally:
                 os.close(descriptor)
-            if copied != before or _inventory(root) != before:
+            if copied != before or inventory(root) != before:
                 raise CurationTransformError(
                     "Source changed during protected input capture"
                 )
@@ -96,7 +99,7 @@ def private_sources(roots: list[Path], parent: Path, *, on_progress=None):
         try:
             yield copies
         finally:
-            if manifests != [_inventory(root) for root in roots]:
+            if manifests != [inventory(root) for root in roots]:
                 raise CurationTransformError(
                     "Original source changed during processing; refuse publication"
                 )

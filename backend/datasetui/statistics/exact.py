@@ -1,3 +1,5 @@
+"""Exact per-feature moments and quantiles computed from parquet data."""
+
 from __future__ import annotations
 
 import json
@@ -18,8 +20,14 @@ from datasetui.transform_errors import CurationTransformError
 
 
 BATCH_ROWS = 4096
+
+
 MAX_INFO_BYTES = 16 * 1024 * 1024
+
+
 NON_NUMERIC_DTYPES = {"image", "language", "string", "video"}
+
+
 QUANTILES = {
     "q01": 0.01,
     "q10": 0.10,
@@ -27,11 +35,13 @@ QUANTILES = {
     "q90": 0.90,
     "q99": 0.99,
 }
+
+
 ProgressCallback = Callable[[dict[str, Any]], None]
 
 
 @dataclass
-class _StableMoments:
+class StableMoments:
     width: int
     count: int = 0
     mean: np.ndarray | None = None
@@ -96,7 +106,7 @@ def recompute_numeric_statistics(
     episode_indices: Sequence[int] | None = None,
 ) -> dict[str, Any]:
     root = Path(root)
-    info = _read_info(root / "meta" / "info.json")
+    info = read_info(root / "meta" / "info.json")
     total_frames = info.get("total_frames")
     if (
         isinstance(total_frames, bool)
@@ -108,7 +118,7 @@ def recompute_numeric_statistics(
     if not isinstance(features, dict):
         raise CurationTransformError("Dataset feature metadata is invalid")
     numeric_features = _numeric_features(features)
-    parquet_files = _parquet_files(root / "data")
+    parquet_files = list_parquet_files(root / "data")
     selected = _episode_selection(episode_indices)
     measured_frames = (
         total_frames
@@ -136,11 +146,11 @@ def recompute_numeric_statistics(
                 dtype=np.float64,
                 shape=(width, measured_frames),
             )
-            moments = _StableMoments(width)
+            moments = StableMoments(width)
             feature_count = 0
             try:
                 for path in parquet_files:
-                    with _open_parquet(path) as parquet:
+                    with open_parquet(path) as parquet:
                         _validate_physical_type(parquet.schema_arrow, name, descriptor)
                         columns = [name]
                         if selected is not None and name != "episode_index":
@@ -182,7 +192,7 @@ def recompute_numeric_statistics(
                     )
                 storage.flush()
                 statistics = moments.finish()
-                statistics.update(_exact_quantiles(storage, measured_frames))
+                statistics.update(exact_quantiles(storage, measured_frames))
                 results[name] = {
                     key: _reshape(values, shape) for key, values in statistics.items()
                 }
@@ -229,7 +239,7 @@ def _numeric_features(
     return result
 
 
-def _read_info(path: Path) -> dict[str, Any]:
+def read_info(path: Path) -> dict[str, Any]:
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
     except OSError as exc:
@@ -254,7 +264,7 @@ def _read_info(path: Path) -> dict[str, Any]:
     return value
 
 
-def _parquet_files(data_root: Path) -> list[Path]:
+def list_parquet_files(data_root: Path) -> list[Path]:
     if data_root.is_symlink() or not data_root.is_dir():
         raise CurationTransformError("Dataset data directory is unavailable")
     files: list[Path] = []
@@ -278,7 +288,7 @@ def _parquet_files(data_root: Path) -> list[Path]:
 
 
 @contextmanager
-def _open_parquet(path: Path) -> Iterator[pq.ParquetFile]:
+def open_parquet(path: Path) -> Iterator[pq.ParquetFile]:
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
     except OSError as exc:
@@ -372,7 +382,7 @@ def _selected_frame_count(
     all_count = 0
     seen: set[int] = set()
     for path in parquet_files:
-        with _open_parquet(path) as parquet:
+        with open_parquet(path) as parquet:
             index = parquet.schema_arrow.get_field_index("episode_index")
             if index < 0:
                 raise CurationTransformError(
@@ -457,7 +467,7 @@ def _numeric_batch(
     return np.stack(rows)
 
 
-def _exact_quantiles(storage: np.memmap, count: int) -> dict[str, np.ndarray]:
+def exact_quantiles(storage: np.memmap, count: int) -> dict[str, np.ndarray]:
     names = tuple(QUANTILES)
     probabilities = np.asarray(tuple(QUANTILES.values()), dtype=np.float64)
     positions = probabilities * (count - 1)

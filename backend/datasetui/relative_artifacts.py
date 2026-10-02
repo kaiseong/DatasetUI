@@ -10,13 +10,14 @@ from datasetui.transform_errors import CurationTransformError
 
 
 
+
 def load_relative_processors(dataset_root: Path, *, chunk_size: int):
     """Insert relative BEFORE normalization; paired absolute AFTER unnormalization.
 
     Replace existing relative/absolute steps, never apply the conversion twice.
     The caller must use this dataset's meta/stats.json for normalization.
     """
-    from datasetui.lerobot_runtime import require_runtime
+    from datasetui.official.runtime import require_runtime
     from datasetui.dataset_io.files import read_regular_bytes
 
     require_runtime()
@@ -321,7 +322,7 @@ def recompute_relative_artifact(
         if field not in actual or profile.get(field) != actual[field]:
             raise CurationTransformError(f"Relative action profile differs: {field}")
     _verify_processor_artifacts(root, profile)
-    from datasetui.exact_statistics import recompute_numeric_statistics
+    from datasetui.statistics.exact import recompute_numeric_statistics
 
     return actual["statistics"], recompute_numeric_statistics(
         root, on_progress=on_progress

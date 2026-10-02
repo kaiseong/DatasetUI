@@ -12,6 +12,7 @@ from datasetui.dataset_io.files import write_json
 from datasetui.job_progress import ProgressCallback, report_progress
 
 
+
 def write_stats(
     path: Path,
     episodes: list[pd.DataFrame],
@@ -20,7 +21,7 @@ def write_stats(
 ) -> None:
     root = path.parent.parent
     if (root / "meta/info.json").is_file():
-        from datasetui.output_statistics import write_output_statistics
+        from datasetui.statistics.output import write_output_statistics
 
         write_output_statistics(root, on_progress=on_progress)
         return

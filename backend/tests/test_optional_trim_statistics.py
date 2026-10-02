@@ -7,10 +7,11 @@ from test_transforms import _write_v21
 
 from datasetui.curation import writer
 from datasetui.dataset_io.source import DatasetSource
-from datasetui.deferred_statistics import read_deferred_statistics
 from datasetui.models import TrimConfig
-from datasetui.output_statistics import write_output_statistics
+from datasetui.statistics.deferred import read_deferred_statistics
+from datasetui.statistics.output import write_output_statistics
 from datasetui.validation.run import validate_dataset_root
+
 
 
 
@@ -164,7 +165,7 @@ def test_deferred_merge_does_not_aggregate_stale_statistics(
 
 
 def test_relative_statistics_are_still_required():
-    from datasetui.deferred_statistics import should_defer
+    from datasetui.statistics.deferred import should_defer
 
     assert not should_defer(
         {"enabled": True, "recompute_statistics": False}, {"enabled": True}

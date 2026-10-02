@@ -1,3 +1,5 @@
+"""Per-episode statistics and their aggregation into dataset statistics."""
+
 from __future__ import annotations
 
 import json
@@ -10,19 +12,21 @@ from typing import Any
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from datasetui.exact_statistics import (
-    _open_parquet,
-    _parquet_files,
-    _read_info,
+from datasetui.merge.schema import compression_policy, values_equal
+from datasetui.statistics.exact import (
+    list_parquet_files,
+    open_parquet,
+    read_info,
     recompute_numeric_statistics,
 )
-from datasetui.merge.schema import compression_policy, values_equal
+from datasetui.statistics.visual import recompute_visual_statistics_with_episodes
 from datasetui.transform_errors import CurationTransformError
-from datasetui.visual_statistics import recompute_visual_statistics_with_episodes
 
 
 
 EPISODE_STATISTICS_ENGINE = "datasetui-exact-episode-statistics-v1"
+
+
 STATISTIC_ORDER = (
     "min",
     "max",
@@ -41,7 +45,7 @@ def write_episode_statistics(
     root: Path, *, on_progress=None, visual_stats_by_episode=None
 ) -> dict[str, Any]:
     root = Path(root)
-    info = _read_info(root / "meta/info.json")
+    info = read_info(root / "meta/info.json")
     version = info.get("codebase_version")
     if version not in {"v2.0", "v2.1", "v3.0"}:
         raise CurationTransformError(
@@ -129,8 +133,8 @@ def _episode_indices(root: Path, version: str) -> list[int]:
         indices = [_episode_index(row) for row in rows]
     else:
         indices = []
-        for path in _parquet_files(root / "meta/episodes"):
-            with _open_parquet(path) as parquet:
+        for path in list_parquet_files(root / "meta/episodes"):
+            with open_parquet(path) as parquet:
                 if parquet.schema_arrow.get_field_index("episode_index") < 0:
                     raise CurationTransformError(
                         "Episode metadata is missing episode_index"
@@ -180,10 +184,10 @@ def _write_v2_episode_statistics(
 def _write_v3_episode_statistics(
     root: Path, stats_by_episode: dict[int, dict[str, Any]]
 ) -> list[Path]:
-    paths = _parquet_files(root / "meta/episodes")
+    paths = list_parquet_files(root / "meta/episodes")
     metadata_indices: set[int] = set()
     for path in paths:
-        with _open_parquet(path) as parquet:
+        with open_parquet(path) as parquet:
             for batch in parquet.iter_batches(columns=["episode_index"]):
                 metadata_indices.update(
                     _episode_index(value) for value in batch.column(0).to_pylist()
@@ -207,7 +211,7 @@ def _rewrite_v3_metadata_file(
     os.close(descriptor)
     temporary = Path(temporary_name)
     try:
-        with _open_parquet(path) as parquet:
+        with open_parquet(path) as parquet:
             compression = compression_policy(parquet)
             row_groups = [
                 _episode_table_with_stats(
@@ -328,8 +332,8 @@ def _verify_v3_metadata_rewrite(
     stats_by_episode: dict[int, dict[str, Any]],
 ) -> None:
     with (
-        _open_parquet(original_path) as original,
-        _open_parquet(candidate_path) as candidate,
+        open_parquet(original_path) as original,
+        open_parquet(candidate_path) as candidate,
     ):
         if original.metadata.num_row_groups != candidate.metadata.num_row_groups:
             raise CurationTransformError(

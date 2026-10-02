@@ -9,8 +9,9 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-import datasetui.exact_statistics as exact_statistics
-from datasetui.exact_statistics import recompute_numeric_statistics
+import datasetui.statistics.exact as exact_statistics
+
+from datasetui.statistics.exact import recompute_numeric_statistics
 from datasetui.transform_errors import CurationTransformError
 
 

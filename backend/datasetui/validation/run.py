@@ -15,7 +15,7 @@ from datasetui.dataset_io.files import read_regular_bytes, safe_dataset_root
 from datasetui.dataset_io.source import DatasetSource
 from datasetui.datasets import MAX_INFO_BYTES
 from datasetui.transform_errors import CurationTransformError
-from datasetui.validation.integrity import VALIDATOR_POLICY, validation_content_manifest
+from datasetui.validation.integrity import validation_content_manifest, VALIDATOR_POLICY
 from datasetui.validation.reporting import ProgressCallback, ValidationReporter
 from datasetui.validation.statistics import NumericStatisticsValidator
 from datasetui.validation.structure import (
@@ -25,6 +25,7 @@ from datasetui.validation.structure import (
     validate_metadata,
 )
 from datasetui.validation.video import VideoValidator
+
 
 
 class DatasetValidationError(CurationTransformError):
@@ -139,7 +140,7 @@ def validate_dataset_root(
         reporter.skip_pending("Metadata loading did not complete")
         return result()
     try:
-        from datasetui.deferred_statistics import read_deferred_statistics
+        from datasetui.statistics.deferred import read_deferred_statistics
 
         statistics_deferred = read_deferred_statistics(root)
     except (OSError, ValueError, CurationTransformError):

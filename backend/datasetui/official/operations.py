@@ -4,29 +4,32 @@ Registry authorization, lease assertions and atomic publication remain in the
 existing job boundary. Unsupported input is rejected, never silently converted.
 """
 
-from collections import Counter
+from __future__ import annotations
+
 import hashlib
 import json
 import os
-from pathlib import Path
 import shutil
 import stat
+from collections import Counter
+from pathlib import Path
 from types import SimpleNamespace
 
 import av
 import numpy as np
 import pandas as pd
 
-from datasetui.lerobot_runtime import ENGINE_POLICY, require_runtime, UPSTREAM_COMMIT
+from datasetui.official.runtime import ENGINE_POLICY, require_runtime, UPSTREAM_COMMIT
 from datasetui.transform_errors import CurationTransformError
 
 
-
 MERGE_STATISTICS_POLICY = "lerobot-official-aggregate-v1"
+
+
 OFFICIAL_STATISTICS_MARKER = "datasetui-official-statistics-v1"
 
 
-def _episode_metadata_digest(root: Path) -> str:
+def episode_metadata_digest(root: Path) -> str:
     digest = hashlib.sha256()
     episodes = root / "meta/episodes"
     legacy = root / "meta/episodes_stats.jsonl"
@@ -43,11 +46,11 @@ def _episode_metadata_digest(root: Path) -> str:
         relative = path.relative_to(root).as_posix().encode("utf-8")
         digest.update(len(relative).to_bytes(8, "big"))
         digest.update(relative)
-        digest.update(bytes.fromhex(_digest(path)))
+        digest.update(bytes.fromhex(file_digest(path)))
     return digest.hexdigest()
 
 
-def _video_digest(root: Path) -> str:
+def video_digest(root: Path) -> str:
     digest = hashlib.sha256()
     videos = root / "videos"
     if videos.is_symlink():
@@ -59,11 +62,11 @@ def _video_digest(root: Path) -> str:
         relative = path.relative_to(root).as_posix().encode("utf-8")
         digest.update(len(relative).to_bytes(8, "big"))
         digest.update(relative)
-        digest.update(bytes.fromhex(_digest(path)))
+        digest.update(bytes.fromhex(file_digest(path)))
     return digest.hexdigest()
 
 
-def _data_digest(root: Path) -> str:
+def data_digest(root: Path) -> str:
     digest = hashlib.sha256()
     data = root / "data"
     if data.is_symlink() or not data.is_dir():
@@ -77,7 +80,7 @@ def _data_digest(root: Path) -> str:
         relative = path.relative_to(root).as_posix().encode("utf-8")
         digest.update(len(relative).to_bytes(8, "big"))
         digest.update(relative)
-        digest.update(bytes.fromhex(_digest(path)))
+        digest.update(bytes.fromhex(file_digest(path)))
     return digest.hexdigest()
 
 
@@ -97,11 +100,11 @@ def _bind_official_statistics(root: Path, *, operation: str) -> None:
         "engine": ENGINE_POLICY,
         "upstream_commit": UPSTREAM_COMMIT,
         "official_function": operation,
-        "info_sha256": _digest(info),
-        "stats_sha256": _digest(stats),
-        "episodes_sha256": _episode_metadata_digest(root),
-        "videos_sha256": _video_digest(root),
-        "data_sha256": _data_digest(root),
+        "info_sha256": file_digest(info),
+        "stats_sha256": file_digest(stats),
+        "episodes_sha256": episode_metadata_digest(root),
+        "videos_sha256": video_digest(root),
+        "data_sha256": data_digest(root),
     }
     from datasetui.dataset_io.files import write_json_atomic
 
@@ -254,7 +257,7 @@ def enabled() -> bool:
 
 
 def provenance(operation: str) -> dict:
-    from datasetui.output_statistics import STATISTICS_POLICY
+    from datasetui.statistics.output import STATISTICS_POLICY
 
     return {
         "engine": ENGINE_POLICY,
@@ -272,13 +275,13 @@ def provenance(operation: str) -> dict:
     }
 
 
-def _digest(path: Path) -> str:
-    from datasetui.content_integrity import _hash_regular_file
+def file_digest(path: Path) -> str:
+    from datasetui.content_integrity import hash_regular_file
 
-    return _hash_regular_file(path)[1]
+    return hash_regular_file(path)[1]
 
 
-def _inventory(root: Path) -> dict[str, str]:
+def inventory(root: Path) -> dict[str, str]:
     if root.is_symlink() or not root.is_dir():
         raise CurationTransformError("Unsafe official operation source")
     result = {}
@@ -298,7 +301,7 @@ def _inventory(root: Path) -> dict[str, str]:
                 )
         for name in files:
             path = Path(current) / name
-            result[str(path.relative_to(root))] = _digest(path)
+            result[str(path.relative_to(root))] = file_digest(path)
     return result
 
 
@@ -404,11 +407,14 @@ def _built(lengths: list[int], source_ids: list[int], operation: str):
 def write_official_merge(
     *, sources, destination: Path, robot_type: str, on_progress=None
 ):
-    from datasetui.processing_sources import private_sources
-    from datasetui.merge.normalization import plan_merge_normalization, normalize_private_merge_sources
+    from datasetui.merge.normalization import (
+        normalize_private_merge_sources,
+        plan_merge_normalization,
+    )
+    from datasetui.official.sources import private_sources
 
     roots = [source.root for source in sources]
-    _validate_destination(destination, [root.resolve() for root in roots])
+    validate_destination(destination, [root.resolve() for root in roots])
     plan = plan_merge_normalization(roots, on_progress=on_progress)
     with private_sources(roots, destination.parent, on_progress=on_progress) as copies:
         normalize_private_merge_sources(copies, plan, on_progress=on_progress)
@@ -423,11 +429,14 @@ def write_official_merge(
 def _merge_private(*, sources, destination: Path, robot_type: str, on_progress=None):
     dataset_class, api = require_runtime()
     roots = [source.root.resolve() for source in sources]
-    _validate_destination(destination, roots)
+    validate_destination(destination, roots)
     _event(on_progress, "공식 Merge 원본 보존 검사")
-    before = [_inventory(root) for root in roots]
+    before = [inventory(root) for root in roots]
     loaded = [_load_source(root, dataset_class) for root in roots]
-    from datasetui.merge.schema import inspect_compatible_data_schema, restore_merged_data_schema
+    from datasetui.merge.schema import (
+        inspect_compatible_data_schema,
+        restore_merged_data_schema,
+    )
 
     inspect_compatible_data_schema(roots)
     if any(dataset.meta.robot_type != robot_type for dataset in loaded):
@@ -461,12 +470,12 @@ def _merge_private(*, sources, destination: Path, robot_type: str, on_progress=N
         for key, value in manifest.items()
         if key.endswith(".mp4")
     )
-    actual = Counter(_digest(path) for path in destination.rglob("*.mp4"))
+    actual = Counter(file_digest(path) for path in destination.rglob("*.mp4"))
     if expected != actual:
         raise CurationTransformError(
             "Official Merge did not preserve all source video file hashes"
         )
-    if before != [_inventory(root) for root in roots]:
+    if before != [inventory(root) for root in roots]:
         raise CurationTransformError(
             "Source changed during official Merge; result will not be published"
         )
@@ -489,7 +498,7 @@ def _merge_private(*, sources, destination: Path, robot_type: str, on_progress=N
     return built
 
 
-def _validate_destination(destination: Path, roots: list[Path]):
+def validate_destination(destination: Path, roots: list[Path]):
     if destination.exists() or destination.is_symlink():
         raise CurationTransformError("Official operation destination already exists")
     if any(
@@ -505,9 +514,9 @@ def _validate_destination(destination: Path, roots: list[Path]):
 def write_official_subset(
     *, source, destination: Path, source_indices: list[int], on_progress=None
 ):
-    from datasetui.processing_sources import private_sources
+    from datasetui.official.sources import private_sources
 
-    _validate_destination(destination, [source.root.resolve()])
+    validate_destination(destination, [source.root.resolve()])
     with private_sources(
         [source.root], destination.parent, on_progress=on_progress
     ) as copies:
@@ -524,7 +533,7 @@ def _subset_private(
 ):
     dataset_class, api = require_runtime()
     root = source.root.resolve()
-    _validate_destination(destination, [root])
+    validate_destination(destination, [root])
     if (
         not source_indices
         or any(type(index) is not int for index in source_indices)
@@ -534,7 +543,7 @@ def _subset_private(
             "Official subset requires nonempty, unique, ordered episode IDs"
         )
     _event(on_progress, "공식 Subset 원본·코덱 검사")
-    before = _inventory(root)
+    before = inventory(root)
     loaded = _load_source(root, dataset_class)
     if source_indices[0] < 0 or source_indices[-1] >= loaded.meta.total_episodes:
         raise CurationTransformError("Subset episode index is outside the dataset")
@@ -553,7 +562,7 @@ def _subset_private(
             raise CurationTransformError(
                 "Official Subset changed source codec, pixel format or FPS"
             )
-    if before != _inventory(root):
+    if before != inventory(root):
         raise CurationTransformError(
             "Source changed during official Subset; result will not be published"
         )

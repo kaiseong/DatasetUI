@@ -5,16 +5,17 @@ from types import ModuleType
 import numpy as np
 import pytest
 
+from test_relative_artifacts import relative_output as _relative_output
+
 from datasetui.relative_artifacts import load_relative_processors
 from datasetui.transform_errors import CurationTransformError
-from test_relative_artifacts import relative_output as _relative_output
 
 relative_output = _relative_output
 
 
 @pytest.fixture
 def fake_public_pipeline(monkeypatch):
-    import datasetui.lerobot_runtime as runtime
+    import datasetui.official.runtime as runtime
 
     gate_calls = []
     monkeypatch.setattr(runtime, "require_runtime", lambda: gate_calls.append(True))

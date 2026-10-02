@@ -6,14 +6,15 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from test_segmentation import DeterministicEngine, _registered, _spec
+
 from datasetui.content_integrity import dataset_content_fingerprint
-from datasetui.deferred_statistics import read_deferred_statistics
+from datasetui.segmentation.contract import SegmentationSpec
 from datasetui.segmentation.errors import SegmentationError
+from datasetui.segmentation.export import export_preview
 from datasetui.segmentation.media import iter_video_arrays
 from datasetui.segmentation.preview import create_preview
-from datasetui.segmentation.export import export_preview
-from datasetui.segmentation.contract import SegmentationSpec
-from test_segmentation import DeterministicEngine, _registered, _spec, _write_video
+from datasetui.statistics.deferred import read_deferred_statistics
 
 
 def make_preview(settings, database, profile, spec, *, engine=None):

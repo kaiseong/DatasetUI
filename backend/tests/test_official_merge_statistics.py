@@ -6,7 +6,8 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from datasetui import official_operations as operations
+from datasetui.official import operations
+
 
 
 
@@ -20,7 +21,8 @@ def test_only_merge_uses_official_aggregated_statistics():
 
 
 def test_merge_retains_official_global_and_episode_stats(tmp_path, monkeypatch):
-    from datasetui import output_metadata, output_statistics
+    from datasetui import output_metadata
+    from datasetui.statistics import output as output_statistics
     from datasetui.merge import schema as merge_schema
 
     sources = []
@@ -30,7 +32,7 @@ def test_merge_retains_official_global_and_episode_stats(tmp_path, monkeypatch):
         (root / "meta/info.json").write_text(json.dumps({"features": {}}))
         (root / "original.mp4").write_bytes(name.encode())
         sources.append(SimpleNamespace(root=root))
-    before = [operations._inventory(source.root) for source in sources]
+    before = [operations.inventory(source.root) for source in sources]
     destination = tmp_path / "merged"
     # Deliberately unlike exact merged quantiles: do not silently overwrite them.
     stats_bytes = b'{"action":{"q01":[-100],"q99":[100]}}\n'
@@ -95,6 +97,6 @@ def test_merge_retains_official_global_and_episode_stats(tmp_path, monkeypatch):
         (destination / "meta/datasetui_provenance.json").read_text(encoding="utf-8")
     )
     assert marker["official_function"] == "merge_datasets"
-    assert [operations._inventory(source.root) for source in sources] == before
+    assert [operations.inventory(source.root) for source in sources] == before
     assert result["processing"]["statistics_policy"] == "lerobot-official-aggregate-v1"
     assert len(result["lineage"]) == 2

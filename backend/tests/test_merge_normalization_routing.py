@@ -4,13 +4,14 @@ from types import SimpleNamespace
 import pytest
 
 from datasetui.merge.job import MergeCompatibilityError, _compatible_info
-from datasetui.official_operations import provenance, write_official_merge
+from datasetui.official.operations import provenance, write_official_merge
 from datasetui.transform_errors import CurationTransformError
 
 
 
+
 def test_incompatible_merge_fails_before_any_private_copy(tmp_path, monkeypatch):
-    from datasetui import processing_sources
+    from datasetui.official import sources as processing_sources
     from datasetui.merge import normalization as merge_normalization
 
     root = tmp_path / "original"

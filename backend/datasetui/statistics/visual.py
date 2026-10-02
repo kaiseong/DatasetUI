@@ -5,6 +5,8 @@ histogram, not the approximate episode-envelope aggregation. Native depth is
 not RGB and is deliberately rejected until a units-preserving path is verified.
 """
 
+from __future__ import annotations
+
 from collections import defaultdict
 from pathlib import Path
 
@@ -12,7 +14,6 @@ import av
 import numpy as np
 
 from datasetui.transform_errors import CurationTransformError
-
 
 
 _DECODE_PROGRESS_INTERVAL = 64
@@ -60,9 +61,9 @@ def histogram_statistics(histogram: np.ndarray, frame_count: int) -> dict:
 def recompute_visual_statistics(
     root: Path, *, on_progress=None, episode_indices=None
 ) -> dict:
-    from datasetui.dataset_io.source import DatasetSource
     from datasetui.dataset_io.files import read_json
-    from datasetui.official_operations import enabled
+    from datasetui.dataset_io.source import DatasetSource
+    from datasetui.official.operations import enabled
 
     info = read_json(root / "meta/info.json")
     if not any(
@@ -76,14 +77,14 @@ def recompute_visual_statistics(
         raise CurationTransformError("Unknown episode in visual statistics selection")
     use_official = enabled()
     if use_official:
-        from datasetui.lerobot_runtime import require_runtime
+        from datasetui.official.runtime import require_runtime
 
         require_runtime()
         from lerobot.datasets.compute_stats import (
-            sample_indices,
+            aggregate_stats,
             auto_downsample_height_width,
             get_feature_stats,
-            aggregate_stats,
+            sample_indices,
         )
     else:
         # v2.1 converter Python 3.10 cannot import the pinned v3 Python >=3.12
@@ -214,9 +215,9 @@ def recompute_visual_statistics_with_episodes(
     an overlapping physical sample contributes once globally and once to every
     episode that selected it.
     """
-    from datasetui.dataset_io.source import DatasetSource
     from datasetui.dataset_io.files import read_json
-    from datasetui.official_operations import enabled
+    from datasetui.dataset_io.source import DatasetSource
+    from datasetui.official.operations import enabled
 
     info = read_json(root / "meta/info.json")
     source = DatasetSource(root, info)
@@ -227,7 +228,7 @@ def recompute_visual_statistics_with_episodes(
 
     use_official = enabled()
     if use_official:
-        from datasetui.lerobot_runtime import require_runtime
+        from datasetui.official.runtime import require_runtime
 
         require_runtime()
         from lerobot.datasets.compute_stats import (

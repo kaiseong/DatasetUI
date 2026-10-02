@@ -24,6 +24,7 @@ from datasetui.dataset_io.tables import (
 from datasetui.job_progress import report_progress
 from datasetui.transform_errors import CurationTransformError
 
+
 ProgressCallback = Callable[[dict[str, Any]], None]
 
 
@@ -226,19 +227,14 @@ def write_preserved_merge(
         _write_v2_preserved(
             source, destination, episodes, tasks, language_types, on_progress
         )
-    from datasetui.deferred_statistics import (
-        preserve_deferred_statistics,
-        read_deferred_statistics,
-    )
+    from datasetui.statistics.deferred import preserve_deferred_statistics, read_deferred_statistics
 
     deferred_inputs = [read_deferred_statistics(item.root) for item in source.sources]
     defer_statistics = any(deferred_inputs)
     used_legacy_aggregate = False
     legacy_aggregate_eligible = source.version in {"v2.0", "v2.1"} and not defer_statistics
     if legacy_aggregate_eligible:
-        from datasetui.official_operations import (
-            write_legacy_aggregated_statistics,
-        )
+        from datasetui.official.operations import write_legacy_aggregated_statistics
 
         used_legacy_aggregate = write_legacy_aggregated_statistics(
             destination,

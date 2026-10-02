@@ -10,17 +10,18 @@ import pandas as pd
 import pyarrow.parquet as pq
 import pytest
 
-from datasetui.episode_statistics import (
+from test_transforms import _write_v21
+from test_validation_conversion import _add_shared_v3_video, _write_v3
+
+from datasetui.statistics.episode import (
     EPISODE_STATISTICS_ENGINE,
     write_episode_statistics,
 )
-from datasetui.transform_errors import CurationTransformError
-from datasetui.visual_statistics import (
+from datasetui.statistics.visual import (
     recompute_visual_statistics,
     recompute_visual_statistics_with_episodes,
 )
-from test_transforms import _write_v21
-from test_validation_conversion import _add_shared_v3_video, _write_v3
+from datasetui.transform_errors import CurationTransformError
 
 
 def _hashes(root: Path) -> dict[str, str]:

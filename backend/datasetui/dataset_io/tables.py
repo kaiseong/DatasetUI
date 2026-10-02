@@ -14,6 +14,7 @@ import pyarrow.parquet as pq
 from datasetui.dataset_io.files import require_regular_file
 from datasetui.transform_errors import CurationTransformError
 
+
 LANGUAGE_PERSISTENT = "language_persistent"
 
 
@@ -112,11 +113,11 @@ def write_parquet(
 
 
 def write_v3_tasks(root: Path, tasks: list[dict[str, Any]]) -> None:
-    from datasetui.official_operations import enabled
+    from datasetui.official.operations import enabled
 
     frame = pd.DataFrame(tasks, columns=["task_index", "task"]).set_index("task")
     if enabled():
-        from datasetui.lerobot_runtime import require_runtime
+        from datasetui.official.runtime import require_runtime
 
         require_runtime()
         from lerobot.datasets.io_utils import write_tasks

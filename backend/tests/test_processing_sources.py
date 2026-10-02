@@ -1,7 +1,8 @@
 import pytest
 
-from datasetui.processing_sources import private_sources
+from datasetui.official.sources import private_sources
 from datasetui.transform_errors import CurationTransformError
+
 
 
 def test_upstream_only_receives_independent_copies_even_on_failure(tmp_path):

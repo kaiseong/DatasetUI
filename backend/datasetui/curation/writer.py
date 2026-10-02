@@ -45,6 +45,7 @@ from datasetui.job_progress import ProgressCallback, report_progress
 from datasetui.transform_errors import CurationTransformError
 
 
+
 SAY_TOOL_SCHEMA = {
     "type": "function",
     "function": {
@@ -68,9 +69,9 @@ def curation_processing(
     version, trim_config, annotations, relative_action, output_version=None,
     *, source_statistics_deferred=False,
 ):
-    from datasetui.deferred_statistics import POLICY, should_defer
-    from datasetui.official_operations import enabled, provenance
-    from datasetui.output_statistics import STATISTICS_POLICY
+    from datasetui.statistics.deferred import POLICY, should_defer
+    from datasetui.official.operations import enabled, provenance
+    from datasetui.statistics.output import STATISTICS_POLICY
 
     if should_defer(trim_config, relative_action, inherited=source_statistics_deferred):
         return {"engine": "datasetui-custom-extension-v5", "statistics_policy": POLICY,
@@ -104,12 +105,8 @@ def write_dataset(
     video_codec_policy: str = "source",
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
-    from datasetui.deferred_statistics import (
-        preserve_deferred_statistics,
-        read_deferred_statistics,
-        should_defer,
-    )
-    from datasetui.official_operations import write_official_subset
+    from datasetui.statistics.deferred import preserve_deferred_statistics, read_deferred_statistics, should_defer
+    from datasetui.official.operations import write_official_subset
     from datasetui.relative_artifacts import reject_relative_profile
 
     if not (relative_action or {}).get("enabled", False):
@@ -144,13 +141,13 @@ def write_dataset(
     ):
         # Relative is a training transform, not a video or row rewrite. Preserve
         # every original data/video byte when the whole dataset is selected.
-        from datasetui.exact_statistics import recompute_numeric_statistics
-        from datasetui.official_operations import _validate_destination
-        from datasetui.processing_sources import private_sources
+        from datasetui.statistics.exact import recompute_numeric_statistics
+        from datasetui.official.operations import validate_destination
+        from datasetui.official.sources import private_sources
         from datasetui.relative_artifacts import DatasetEpisodes
-        from datasetui.visual_statistics import recompute_visual_statistics
+        from datasetui.statistics.visual import recompute_visual_statistics
 
-        _validate_destination(destination, [source.root.resolve()])
+        validate_destination(destination, [source.root.resolve()])
         with private_sources(
             [source.root], destination.parent, on_progress=on_progress
         ) as copies:
@@ -342,9 +339,7 @@ def write_dataset(
         and not (relative_action or {}).get("enabled", False)
     )
     if legacy_aggregate_eligible:
-        from datasetui.official_operations import (
-            write_legacy_aggregated_statistics,
-        )
+        from datasetui.official.operations import write_legacy_aggregated_statistics
 
         used_legacy_aggregate = write_legacy_aggregated_statistics(
             destination,

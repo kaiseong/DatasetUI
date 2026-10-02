@@ -27,12 +27,10 @@ from datasetui.dataset_io.publish import (
     write_run_manifest,
 )
 from datasetui.dataset_io.source import DatasetSource
-from datasetui.datasets import MAX_INFO_BYTES, inspect_dataset
-from datasetui.job_progress import (
-    JobProgressReporter,
-    report_progress,
-)
+from datasetui.datasets import inspect_dataset, MAX_INFO_BYTES
+from datasetui.job_progress import JobProgressReporter, report_progress
 from datasetui.transform_errors import CurationTransformError
+
 
 CURATION_PROCESSING_POLICY = "official-preferred-source-relative-v2"
 
@@ -98,7 +96,7 @@ def materialize_curation_recipe(
         if snapshot["include_annotations"]
         else {}
     )
-    from datasetui.deferred_statistics import read_deferred_statistics
+    from datasetui.statistics.deferred import read_deferred_statistics
 
     processing = curation_processing(
         version, snapshot["trim_config"], annotations, snapshot["relative_action"],

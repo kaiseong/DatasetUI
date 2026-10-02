@@ -1,16 +1,26 @@
 """Explicitly inherited statistics for outputs normalized later by training."""
 
+from __future__ import annotations
+
 import json
 from pathlib import Path
 
-from datasetui.content_integrity import _hash_regular_file
+from datasetui.content_integrity import hash_regular_file
 from datasetui.transform_errors import CurationTransformError
 
 
 POLICY = "datasetui-distribution-statistics-deferred-v1"
+
+
 INFO_KEY = "datasetui_statistics_status"
+
+
 MARKER = "datasetui_statistics.json"
+
+
 NOTICE_START = "<!-- datasetui-deferred-statistics -->"
+
+
 NOTICE_END = "<!-- /datasetui-deferred-statistics -->"
 
 
@@ -42,7 +52,7 @@ def _metadata_hashes(root: Path) -> dict[str, str]:
                 raise CurationTransformError("Deferred episode metadata is unsafe")
             if not path.is_dir():
                 paths.append(path)
-    return {str(path.relative_to(root)): _hash_regular_file(path)[1] for path in paths}
+    return {str(path.relative_to(root)): hash_regular_file(path)[1] for path in paths}
 
 
 def read_deferred_statistics(root: Path) -> bool:

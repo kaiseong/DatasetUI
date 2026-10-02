@@ -13,6 +13,7 @@ import pandas as pd
 
 from datasetui.transform_errors import CurationTransformError
 
+
 IssueCallback = Callable[[str, str, str, int | None], None]
 
 
@@ -43,15 +44,8 @@ def _official_policy(root: Path, issue: IssueCallback) -> str | None:
         ):
             raise ValueError("unsafe provenance file")
         marker = json.loads(marker_path.read_bytes())
-        from datasetui.lerobot_runtime import ENGINE_POLICY, UPSTREAM_COMMIT
-        from datasetui.official_operations import (
-            MERGE_STATISTICS_POLICY,
-            OFFICIAL_STATISTICS_MARKER,
-            _data_digest,
-            _digest,
-            _episode_metadata_digest,
-            _video_digest,
-        )
+        from datasetui.official.runtime import ENGINE_POLICY, UPSTREAM_COMMIT
+        from datasetui.official.operations import MERGE_STATISTICS_POLICY, OFFICIAL_STATISTICS_MARKER, data_digest, file_digest, episode_metadata_digest, video_digest
 
         required = {
             "schema",
@@ -78,11 +72,11 @@ def _official_policy(root: Path, issue: IssueCallback) -> str | None:
         ):
             raise ValueError("unsupported provenance policy")
         hashes = {
-            "info_sha256": _digest(root / "meta/info.json"),
-            "stats_sha256": _digest(root / "meta/stats.json"),
-            "episodes_sha256": _episode_metadata_digest(root),
-            "videos_sha256": _video_digest(root),
-            "data_sha256": _data_digest(root),
+            "info_sha256": file_digest(root / "meta/info.json"),
+            "stats_sha256": file_digest(root / "meta/stats.json"),
+            "episodes_sha256": episode_metadata_digest(root),
+            "videos_sha256": video_digest(root),
+            "data_sha256": data_digest(root),
         }
         if any(
             not isinstance(marker[key], str)

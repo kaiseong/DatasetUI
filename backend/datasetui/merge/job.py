@@ -27,12 +27,13 @@ from datasetui.dataset_io.publish import (
     tree_manifest,
 )
 from datasetui.dataset_io.source import DatasetSource
-from datasetui.datasets import MAX_INFO_BYTES, inspect_dataset, scan_storage_area
-from datasetui.merge.writer import write_preserved_merge
+from datasetui.datasets import inspect_dataset, MAX_INFO_BYTES, scan_storage_area
 from datasetui.job_progress import JobProgressReporter
-from datasetui.official_operations import enabled, provenance, write_official_merge
-from datasetui.output_statistics import STATISTICS_POLICY
+from datasetui.merge.writer import write_preserved_merge
+from datasetui.official.operations import enabled, provenance, write_official_merge
+from datasetui.statistics.output import STATISTICS_POLICY
 from datasetui.transform_errors import CurationTransformError
+
 
 
 class MergeCompatibilityError(CurationTransformError):
@@ -168,7 +169,7 @@ def merge_datasets(
                 "current_item": f"원본 {source_number} 확인",
             }
         )
-    from datasetui.deferred_statistics import POLICY, read_deferred_statistics
+    from datasetui.statistics.deferred import POLICY, read_deferred_statistics
 
     deferred_inputs = [read_deferred_statistics(source.root) for source in sources]
     has_deferred_statistics = any(deferred_inputs)

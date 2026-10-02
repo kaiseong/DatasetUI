@@ -17,6 +17,7 @@ from datasetui.transform_errors import CurationTransformError
 
 
 
+
 VIDEO_KEY = "observation.images.top"
 
 
@@ -235,7 +236,7 @@ def test_progress_failure_aborts_current_video_copy(tmp_path: Path) -> None:
 def test_v21_merge_prefers_episode_statistics_without_full_recompute(
     tmp_path: Path, monkeypatch
 ) -> None:
-    from datasetui import official_operations
+    from datasetui.official import operations as official_operations
 
     source = _FakeMergedSource(tmp_path, version="v2.1")
     destination = tmp_path / "output"
