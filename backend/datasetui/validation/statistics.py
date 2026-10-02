@@ -14,6 +14,7 @@ import pandas as pd
 from datasetui.transform_errors import CurationTransformError
 
 
+
 IssueCallback = Callable[[str, str, str, int | None], None]
 
 
@@ -234,10 +235,7 @@ class NumericStatisticsValidator:
         relative_expected = None
         relative_invalid = False
         try:
-            from datasetui.relative_artifacts import (
-                read_relative_profile,
-                recompute_relative_artifact,
-            )
+            from datasetui.relative.artifacts import read_relative_profile, recompute_relative_artifact
             from datasetui.transform_errors import CurationTransformError
 
             relative_profile = read_relative_profile(root)

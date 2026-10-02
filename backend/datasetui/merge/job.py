@@ -36,6 +36,7 @@ from datasetui.transform_errors import CurationTransformError
 
 
 
+
 class MergeCompatibilityError(CurationTransformError):
     pass
 
@@ -153,7 +154,7 @@ def merge_datasets(
         raw = read_regular_bytes(root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
         if hashlib.sha256(raw).hexdigest() != requested["fingerprint"]:
             raise RecipeRevisionMismatchError(requested["id"])
-        from datasetui.relative_artifacts import reject_relative_profile
+        from datasetui.relative.artifacts import reject_relative_profile
 
         reject_relative_profile(root, operation="Merge")
         info = json.loads(raw)

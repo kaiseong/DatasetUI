@@ -9,9 +9,10 @@ from test_transforms import _write_v21
 from datasetui.curation.writer import write_dataset
 from datasetui.dataset_io.source import DatasetSource
 from datasetui.models import RelativeActionConfig
-from datasetui.relative_artifacts import read_relative_profile
+from datasetui.relative.artifacts import read_relative_profile
 from datasetui.transform_errors import CurationTransformError
 from datasetui.validation.run import validate_dataset_root
+
 
 
 
@@ -74,7 +75,7 @@ def _fake_profile(info, episodes, config, *, on_progress=None):
 
 @pytest.fixture
 def relative_output(tmp_path, monkeypatch):
-    import datasetui.relative_actions as relative_actions
+    import datasetui.relative.actions as relative_actions
 
     monkeypatch.setattr(
         relative_actions, "compute_relative_action_profile", _fake_profile
@@ -205,7 +206,7 @@ def test_relative_only_preserves_all_data_files_byte_for_byte(relative_output):
 
 def test_relative_source_cannot_silently_lose_profile(relative_output, tmp_path):
     _, root, _ = relative_output
-    from datasetui.relative_artifacts import reject_relative_profile
+    from datasetui.relative.artifacts import reject_relative_profile
 
     for operation in ("Merge", "v2.1 conversion"):
         with pytest.raises(CurationTransformError, match="discard"):

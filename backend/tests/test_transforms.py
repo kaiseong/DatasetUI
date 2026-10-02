@@ -23,6 +23,7 @@ from datasetui.transform_errors import CurationTransformError
 
 
 
+
 def _settings(tmp_path: Path) -> Settings:
     nas = tmp_path / "nas"
     for name in ("raw", "derived", "exports", "manifests"):
@@ -595,7 +596,7 @@ def test_vqa_annotations_require_and_land_on_an_available_camera_frame() -> None
 def test_relative_action_profile_delegates_to_official_chunk_adapter(
     monkeypatch,
 ) -> None:
-    import datasetui.relative_actions as relative_actions
+    import datasetui.relative.actions as relative_actions
 
     info = {
         "features": {

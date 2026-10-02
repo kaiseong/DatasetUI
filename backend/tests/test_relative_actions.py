@@ -8,12 +8,13 @@ import pandas as pd
 import pytest
 import torch
 
-from datasetui import relative_actions
-from datasetui.relative_actions import (
+from datasetui.relative import actions as relative_actions
+from datasetui.relative.actions import (
     compute_relative_action_profile,
     dimension_options,
 )
 from datasetui.transform_errors import CurationTransformError
+
 
 
 def _info(

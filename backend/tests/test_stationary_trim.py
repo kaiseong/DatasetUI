@@ -9,8 +9,9 @@ import pandas as pd
 import pytest
 
 from datasetui.curation import trim, writer
-from datasetui.stationary_trim import stationary_trim_bounds
+from datasetui.curation.stationary import stationary_trim_bounds
 from datasetui.transform_errors import CurationTransformError
+
 
 
 

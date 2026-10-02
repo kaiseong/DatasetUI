@@ -31,6 +31,7 @@ from datasetui.validation.run import validate_dataset_root
 
 
 
+
 CONVERSION_ENGINE_ID = "datasetui-v3-to-v21-source-codec-exact-stats-v2"
 VIDEO_CODEC_POLICY = "source"
 
@@ -100,7 +101,7 @@ def convert_dataset_to_v21(
     raw = read_regular_bytes(source_root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
     if hashlib.sha256(raw).hexdigest() != payload["fingerprint"]:
         raise RecipeRevisionMismatchError(payload["dataset_id"])
-    from datasetui.relative_artifacts import reject_relative_profile
+    from datasetui.relative.artifacts import reject_relative_profile
 
     reject_relative_profile(source_root, operation="v2.1 conversion")
     info = json.loads(raw)

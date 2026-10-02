@@ -1,5 +1,7 @@
 """Read and verify explicit mixed relative/absolute training artifacts."""
 
+from __future__ import annotations
+
 import hashlib
 import json
 import tempfile
@@ -10,21 +12,20 @@ from datasetui.transform_errors import CurationTransformError
 
 
 
-
 def load_relative_processors(dataset_root: Path, *, chunk_size: int):
     """Insert relative BEFORE normalization; paired absolute AFTER unnormalization.
 
     Replace existing relative/absolute steps, never apply the conversion twice.
     The caller must use this dataset's meta/stats.json for normalization.
     """
-    from datasetui.official.runtime import require_runtime
     from datasetui.dataset_io.files import read_regular_bytes
+    from datasetui.official.runtime import require_runtime
 
     require_runtime()
     from lerobot.processor import (
+        AbsoluteActionsProcessorStep,
         DataProcessorPipeline,
         RelativeActionsProcessorStep,
-        AbsoluteActionsProcessorStep,
     )
 
     root = Path(dataset_root)
@@ -34,7 +35,7 @@ def load_relative_processors(dataset_root: Path, *, chunk_size: int):
     info = json.loads(
         read_regular_bytes(root / "meta/info.json", max_bytes=16 * 1024 * 1024)
     )
-    from datasetui.relative_actions import dimension_options
+    from datasetui.relative.actions import dimension_options
 
     compatible_names = set(dimension_options(info))
     if not set(profile["dimensions"]).issubset(compatible_names):
@@ -205,7 +206,7 @@ does not automatically modify any training project or policy configuration.
 
 ```python
 from pathlib import Path
-from datasetui.relative_artifacts import load_relative_processors
+from datasetui.relative.artifacts import load_relative_processors
 
 root = Path("/path/to/this/dataset")
 relative_step, absolute_step = load_relative_processors(
@@ -290,8 +291,8 @@ def read_relative_profile(root: Path) -> dict | None:
 def recompute_relative_artifact(
     root: Path, info: dict, profile: dict, *, on_progress=None
 ) -> tuple[dict, dict]:
-    from datasetui.relative_actions import compute_relative_action_profile
     from datasetui.dataset_io.source import DatasetSource
+    from datasetui.relative.actions import compute_relative_action_profile
 
     source = DatasetSource(root, info)
     episodes = DatasetEpisodes(source)

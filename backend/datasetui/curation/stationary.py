@@ -18,6 +18,7 @@ import pandas as pd
 from datasetui.transform_errors import CurationTransformError
 
 
+
 def stationary_trim_bounds(
     data: pd.DataFrame,
     *,

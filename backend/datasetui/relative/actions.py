@@ -17,13 +17,24 @@ from datasetui.statistics.exact import StableMoments, exact_quantiles
 from datasetui.transform_errors import CurationTransformError
 
 
-
 DEFAULT_CHUNK_SIZE = 50
+
+
 MIN_CHUNK_SIZE = 1
+
+
 MAX_CHUNK_SIZE = 1024
+
+
 TARGET_BATCH_VALUES = 65_536
+
+
 DEFAULT_MAX_SCRATCH_BYTES = 16 * 1024**3
+
+
 MIN_FREE_SPACE_MARGIN_BYTES = 64 * 1024**2
+
+
 ProgressCallback = Callable[[dict[str, Any]], None]
 
 

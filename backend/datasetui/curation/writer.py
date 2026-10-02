@@ -46,6 +46,7 @@ from datasetui.transform_errors import CurationTransformError
 
 
 
+
 SAY_TOOL_SCHEMA = {
     "type": "function",
     "function": {
@@ -107,7 +108,7 @@ def write_dataset(
 ) -> dict[str, Any]:
     from datasetui.statistics.deferred import preserve_deferred_statistics, read_deferred_statistics, should_defer
     from datasetui.official.operations import write_official_subset
-    from datasetui.relative_artifacts import reject_relative_profile
+    from datasetui.relative.artifacts import reject_relative_profile
 
     if not (relative_action or {}).get("enabled", False):
         reject_relative_profile(source.root, operation="Curation without Relative")
@@ -144,7 +145,7 @@ def write_dataset(
         from datasetui.statistics.exact import recompute_numeric_statistics
         from datasetui.official.operations import validate_destination
         from datasetui.official.sources import private_sources
-        from datasetui.relative_artifacts import DatasetEpisodes
+        from datasetui.relative.artifacts import DatasetEpisodes
         from datasetui.statistics.visual import recompute_visual_statistics
 
         validate_destination(destination, [source.root.resolve()])
@@ -407,7 +408,7 @@ def _write_relative_profile(destination: Path, relative_profile: dict) -> None:
             destination / "meta/relative_action.json",
             {"format_version": 1, **relative_profile},
         )
-        from datasetui.relative_artifacts import write_training_instructions
+        from datasetui.relative.artifacts import write_training_instructions
 
         write_training_instructions(destination)
 
@@ -419,7 +420,7 @@ def _relative_action_profile(
     *,
     on_progress: ProgressCallback | None = None,
 ) -> dict[str, Any]:
-    from datasetui.relative_actions import compute_relative_action_profile
+    from datasetui.relative.actions import compute_relative_action_profile
 
     return compute_relative_action_profile(
         info, episodes, config, on_progress=on_progress

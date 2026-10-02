@@ -11,6 +11,7 @@ import pandas as pd
 from datasetui.transform_errors import CurationTransformError
 
 
+
 def trim_bounds(
     data: pd.DataFrame,
     info: dict[str, Any],
@@ -31,7 +32,7 @@ def trim_bounds(
 
     method = config.get("method", "legacy_motion")
     if method == "stationary":
-        from datasetui.stationary_trim import stationary_trim_bounds
+        from datasetui.curation.stationary import stationary_trim_bounds
 
         return stationary_trim_bounds(
             data, fps=fps, config=config, episode_index=episode_index

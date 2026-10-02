@@ -7,8 +7,9 @@ import pytest
 
 from test_relative_artifacts import relative_output as _relative_output
 
-from datasetui.relative_artifacts import load_relative_processors
+from datasetui.relative.artifacts import load_relative_processors
 from datasetui.transform_errors import CurationTransformError
+
 
 relative_output = _relative_output
 
