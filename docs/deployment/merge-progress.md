@@ -26,4 +26,3 @@ Queued, running, complete, failed/interrupted, and delayed status connection are
 ## Deployment
 
 Deploy only this feature's scoped files from the server-compatible staging tree; do not copy unrelated main-tree SAM/integrity changes. Back up SQLite and changed source files first. Rebuild API/web and workers, and restart workers only when no queued/running jobs remain. Verify migration 13, health, the deployed browser flow, and the isolated real video merge.
-

@@ -37,13 +37,13 @@ Enable `DATASETUI_ADAPTIVE_ENABLED=1` on the API and route CPU jobs using
 Compose file exposes it under the `adaptive` profile. Its queue list must include
 that exact name. IO/converter release routing remains independent.
 
-| Setting | Default |
-| --- | --- |
-| `DATASETUI_PARALLEL_MAX_JOBS` | 3 (1–8) |
-| `DATASETUI_RESOURCE_RESERVE_PERCENT` | 30 (30–90) |
-| `DATASETUI_PARALLEL_JOB_CPUS` | 4 |
-| `DATASETUI_PARALLEL_JOB_MEMORY_GIB` | 8 |
-| Controller container limit | 12 CPUs / 48 GiB |
+| Setting                              | Default          |
+| ------------------------------------ | ---------------- |
+| `DATASETUI_PARALLEL_MAX_JOBS`        | 3 (1–8)          |
+| `DATASETUI_RESOURCE_RESERVE_PERCENT` | 30 (30–90)       |
+| `DATASETUI_PARALLEL_JOB_CPUS`        | 4                |
+| `DATASETUI_PARALLEL_JOB_MEMORY_GIB`  | 8                |
+| Controller container limit           | 12 CPUs / 48 GiB |
 
 The API reads the controller's atomic `/data/jobs/adaptive-pool.json` snapshot.
 Missing, malformed, or older-than-25-second status is reported unavailable, never

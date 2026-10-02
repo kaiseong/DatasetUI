@@ -2,19 +2,19 @@
 
 기능별 패키지로 정리했다. 각 패키지 안에서는 위 계층이 아래 계층만 가져다 쓴다.
 
-| 패키지 | 모듈 | 역할 |
-|---|---|---|
-| `dataset_io/` | `files`, `tables`, `source`, `video`, `stats`, `publish` | 여러 기능이 같이 쓰는 데이터셋 읽기·쓰기·공개 도구 (심볼릭 링크 차단 읽기, parquet, `DatasetSource`, 영상 코덱·구간 자르기, stats.json, derived 공개와 원본 변경 감지) |
-| `curation/` | `materialize` → `writer` → `language`, `trim` → `stationary` | 레시피를 새 데이터셋으로 만드는 작업 (정지 구간 자르기 포함) |
-| `merge/` | `job`, `schema`, `normalization`, `writer` | 여러 데이터셋 합치기 |
-| `delivery/` | `transfer`, `workflow` | NAS 내보내기, HF 업로드, PC 복사 |
-| `validation/` | `run`, `structure`, `video`, `statistics`, `integrity`, `reporting` | 검증과 Export Gate |
-| `statistics/` | `exact`, `episode`, `visual`, `deferred`, `output` | 새 출력의 통계(stats.json): 정확 통계, 에피소드별 집계, RGB 영상 통계, 상속 통계, 출력 통계 재계산 |
-| `official/` | `runtime`, `sources`, `operations` | 고정된 공식 LeRobot 런타임 어댑터 (런타임 신원 확인, 원본 사본 제공, 공식 v3 연산). `lerobot_source_lock.json`도 여기 있음 |
-| `relative/` | `actions`, `artifacts` | relative action 학습용 통계와 산출물 |
-| `segmentation/` | (기존) | SAM 3.1 세그멘테이션 |
-| `database/` | `core` + `profiles`, `jobs`, `huggingface`, `datasets`, `curation`, `validation` / `errors`, `schema` | SQLite 레지스트리. `Database`는 영역별 mixin을 합친 클래스라 `from datasetui.database import Database`는 그대로. 마이그레이션은 `schema.MIGRATIONS`, 실행은 `core` |
-| `api/` | `system`, `profiles`, `jobs`, `huggingface`, `trash`, `datasets`, `curation`, `processing`, `delivery` | HTTP 라우트. 각 모듈이 `register(router, ctx)`로 등록, 공유 값은 `context.RouterContext` |
+| 패키지          | 모듈                                                                                                   | 역할                                                                                                                                                                   |
+| --------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dataset_io/`   | `files`, `tables`, `source`, `video`, `stats`, `publish`                                               | 여러 기능이 같이 쓰는 데이터셋 읽기·쓰기·공개 도구 (심볼릭 링크 차단 읽기, parquet, `DatasetSource`, 영상 코덱·구간 자르기, stats.json, derived 공개와 원본 변경 감지) |
+| `curation/`     | `materialize` → `writer` → `language`, `trim` → `stationary`                                           | 레시피를 새 데이터셋으로 만드는 작업 (정지 구간 자르기 포함)                                                                                                           |
+| `merge/`        | `job`, `schema`, `normalization`, `writer`                                                             | 여러 데이터셋 합치기                                                                                                                                                   |
+| `delivery/`     | `transfer`, `workflow`                                                                                 | NAS 내보내기, HF 업로드, PC 복사                                                                                                                                       |
+| `validation/`   | `run`, `structure`, `video`, `statistics`, `integrity`, `reporting`                                    | 검증과 Export Gate                                                                                                                                                     |
+| `statistics/`   | `exact`, `episode`, `visual`, `deferred`, `output`                                                     | 새 출력의 통계(stats.json): 정확 통계, 에피소드별 집계, RGB 영상 통계, 상속 통계, 출력 통계 재계산                                                                     |
+| `official/`     | `runtime`, `sources`, `operations`                                                                     | 고정된 공식 LeRobot 런타임 어댑터 (런타임 신원 확인, 원본 사본 제공, 공식 v3 연산). `lerobot_source_lock.json`도 여기 있음                                             |
+| `relative/`     | `actions`, `artifacts`                                                                                 | relative action 학습용 통계와 산출물                                                                                                                                   |
+| `segmentation/` | (기존)                                                                                                 | SAM 3.1 세그멘테이션                                                                                                                                                   |
+| `database/`     | `core` + `profiles`, `jobs`, `huggingface`, `datasets`, `curation`, `validation` / `errors`, `schema`  | SQLite 레지스트리. `Database`는 영역별 mixin을 합친 클래스라 `from datasetui.database import Database`는 그대로. 마이그레이션은 `schema.MIGRATIONS`, 실행은 `core`     |
+| `api/`          | `system`, `profiles`, `jobs`, `huggingface`, `trash`, `datasets`, `curation`, `processing`, `delivery` | HTTP 라우트. 각 모듈이 `register(router, ctx)`로 등록, 공유 값은 `context.RouterContext`                                                                               |
 
 - 진행률 보고는 `job_progress` (`JobProgressReporter`, `report_progress`).
 - 옛 모듈(`transforms`, `merge_writer`, `delivery_workflow`, `validation_*`, `merge_progress`)은 없다. RQ 작업은 `datasetui.tasks.run_job`으로 들어오므로 대기 중 작업에 영향 없음.

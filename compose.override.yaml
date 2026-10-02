@@ -27,7 +27,16 @@ services:
       file: compose.yaml
       service: worker-cpu
     image: datasetui-processor:release-20261002-core-v1
-    command: [rq, worker, --url, "redis://redis:6379/0", --serializer, rq.serializers.JSONSerializer, cpu-relative-v1]
+    command:
+      [
+        rq,
+        worker,
+        --url,
+        "redis://redis:6379/0",
+        --serializer,
+        rq.serializers.JSONSerializer,
+        cpu-relative-v1,
+      ]
     cpus: 4.0
     mem_limit: 32g
     environment:
@@ -43,7 +52,16 @@ services:
       file: compose.yaml
       service: worker-io
     image: datasetui-api:release-20261002-core-v1
-    command: [rq, worker, --url, "redis://redis:6379/0", --serializer, rq.serializers.JSONSerializer, io-relative-v1]
+    command:
+      [
+        rq,
+        worker,
+        --url,
+        "redis://redis:6379/0",
+        --serializer,
+        rq.serializers.JSONSerializer,
+        io-relative-v1,
+      ]
     cpus: 1.0
     mem_limit: 4g
   worker-converter-relative:
@@ -51,7 +69,16 @@ services:
       file: compose.yaml
       service: worker-converter-v21
     image: datasetui-converter:release-20261002-core-v1
-    command: [rq, worker, --url, "redis://redis:6379/0", --serializer, rq.serializers.JSONSerializer, converter-v21-relative-v1]
+    command:
+      [
+        rq,
+        worker,
+        --url,
+        "redis://redis:6379/0",
+        --serializer,
+        rq.serializers.JSONSerializer,
+        converter-v21-relative-v1,
+      ]
     cpus: 2.0
     mem_limit: 8g
   worker-adaptive:

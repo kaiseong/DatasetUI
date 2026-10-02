@@ -18,6 +18,7 @@ import { FrameCanvas } from "./segmentation/frame-canvas";
 import { FrameTimeline } from "./segmentation/frame-timeline";
 import { InstructionPanel } from "./segmentation/instruction-panel";
 import { LabelingPanel } from "./segmentation/labeling-panel";
+import { MemberPicker } from "./segmentation/member-picker";
 import { ObjectChips } from "./segmentation/object-chips";
 import { PreviewReview } from "./segmentation/preview-review";
 import { SampleResult } from "./segmentation/sample-result";
@@ -133,7 +134,11 @@ export default function SegmentationEditor({
     useState<SegmentationSampleResult | null>(null);
   const [candidateBusy, setCandidateBusy] = useState(false);
   const [candidateJob, setCandidateJob] = useState<Job | null>(null);
-  const [memberCandidate, setMemberCandidate] = useState("");
+  // Member a group correction refines. A single candidate needs no choice:
+  // its corrections stay unassigned and bind to it at inference.
+  const [chosenMember, setChosenMember] = useState("");
+  const [memberAttention, setMemberAttention] = useState(0);
+  const memberPickerRef = useRef<HTMLDivElement>(null);
   const candidateGeneration = useRef(0);
   const [confirmed, setConfirmed] = useState<SegmentationDraft>(
     initialDraft ?? emptySegmentationDraft,
@@ -242,6 +247,22 @@ export default function SegmentationEditor({
     scope.episodes.find((item) => item.episode_index === episodeIndex) ??
     firstEpisode;
   const maxFrame = Math.max(0, (selection?.length ?? episode?.length ?? 1) - 1);
+  // One Instruction per object, shown on every frame; candidates belong to
+  // the frame it was detected on.
+  const instructionPrompt = semanticPromptFor(
+    draft,
+    objectId,
+    target,
+    frameIndex,
+  );
+  const memberIds = (instructionPrompt.selected_candidates ?? []).map(
+    (ref) => ref.candidate_id,
+  );
+  const memberCandidate =
+    memberIds.length > 1 && memberIds.includes(chosenMember)
+      ? chosenMember
+      : "";
+  const memberRequired = memberIds.length > 1 && !memberCandidate;
   const prompt = useMemo(
     () =>
       promptFor(
@@ -252,14 +273,6 @@ export default function SegmentationEditor({
         memberCandidate || undefined,
       ),
     [draft, frameIndex, target, objectId, memberCandidate],
-  );
-  // One Instruction per object, shown on every frame; candidates belong to
-  // the frame it was detected on.
-  const instructionPrompt = semanticPromptFor(
-    draft,
-    objectId,
-    target,
-    frameIndex,
   );
   const corrections = draft.corrections.filter(
     (item) =>
@@ -397,7 +410,7 @@ export default function SegmentationEditor({
         );
         ++candidateGeneration.current;
         setCandidateSample(null);
-        setMemberCandidate("");
+        setChosenMember("");
         setBoxPreview(null);
         if (nextId !== undefined) {
           setObjectId(nextId);
@@ -574,7 +587,7 @@ export default function SegmentationEditor({
   function beginObject(id: number, item?: ConfirmedSegmentationObject) {
     if (dirty && !window.confirm("미저장 편집을 버릴까요?")) return;
     setCandidateSample(null);
-    setMemberCandidate("");
+    setChosenMember("");
     setDraft(confirmed);
     setObjectId(id);
     setObjectName(item?.name ?? `객체 ${id}`);
@@ -701,8 +714,13 @@ export default function SegmentationEditor({
       !workspace
     )
       return;
-    if (instructionPrompt.selected_candidates?.length && !memberCandidate) {
+    if (memberRequired) {
       setMessage("먼저 보정할 후보를 선택하세요.");
+      setMemberAttention((value) => value + 1);
+      memberPickerRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
       return;
     }
     event.currentTarget.setPointerCapture(event.pointerId);
@@ -1149,6 +1167,11 @@ export default function SegmentationEditor({
               frameIndex={frameIndex}
               setFrameAspect={setFrameAspect}
               frameAspect={frameAspect}
+              blockedHint={
+                memberRequired && editingObject
+                  ? "보정할 후보를 먼저 고르세요"
+                  : null
+              }
               handlePointerDown={handlePointerDown}
               handlePointerMove={handlePointerMove}
               handlePointerUp={handlePointerUp}
@@ -1299,21 +1322,16 @@ export default function SegmentationEditor({
             >
               최신 설정 불러오기 · 초안 유지
             </button>
-            {!!instructionPrompt.selected_candidates?.length && (
-              <label>
-                보정할 그룹 내 후보
-                <select
-                  value={memberCandidate}
-                  onChange={(event) => setMemberCandidate(event.target.value)}
-                >
-                  <option value="">후보 선택</option>
-                  {instructionPrompt.selected_candidates.map((ref) => (
-                    <option key={ref.candidate_id} value={ref.candidate_id}>
-                      {ref.candidate_id}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            {memberIds.length > 0 && (
+              <MemberPicker
+                ref={memberPickerRef}
+                candidates={instructionPrompt.selected_candidates ?? []}
+                value={memberIds.length === 1 ? memberIds[0] : memberCandidate}
+                onChange={setChosenMember}
+                candidateSample={candidateSample}
+                profileId={currentProfile?.id ?? ""}
+                attention={memberAttention}
+              />
             )}
             <div
               role="tablist"

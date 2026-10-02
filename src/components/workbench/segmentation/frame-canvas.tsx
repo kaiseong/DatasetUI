@@ -23,6 +23,8 @@ type Props = {
   frameIndex: number;
   setFrameAspect: (aspect: number) => void;
   frameAspect: number;
+  /** When set, clicks are refused until the user makes the named choice. */
+  blockedHint: string | null;
   handlePointerDown: (event: ReactPointerEvent<HTMLDivElement>) => void;
   handlePointerMove: (event: ReactPointerEvent<HTMLDivElement>) => void;
   handlePointerUp: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -45,6 +47,7 @@ export function FrameCanvas({
   frameIndex,
   setFrameAspect,
   frameAspect,
+  blockedHint,
   handlePointerDown,
   handlePointerMove,
   handlePointerUp,
@@ -72,7 +75,9 @@ export function FrameCanvas({
           로딩 재시도
         </button>
       )}
-      <div className="relative overflow-hidden rounded-lg border border-white/15 bg-slate-950">
+      <div
+        className={`relative overflow-hidden rounded-lg border ${blockedHint ? "border-cyan-300/70" : "border-white/15"} bg-slate-950`}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element -- authenticated same-origin frame endpoint */}
         <img
           key={frameUrl}
@@ -89,7 +94,7 @@ export function FrameCanvas({
           }}
         />
         <div
-          className={`absolute inset-0 cursor-crosshair touch-none ${!frameSource || frameLoading ? "pointer-events-none hidden" : ""}`}
+          className={`absolute inset-0 touch-none ${blockedHint ? "cursor-not-allowed" : "cursor-crosshair"} ${!frameSource || frameLoading ? "pointer-events-none hidden" : ""}`}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
           onPointerUp={handlePointerUp}
@@ -159,6 +164,14 @@ export function FrameCanvas({
             </span>
           ))}
         </div>
+        {blockedHint && frameSource && !frameLoading && (
+          <p
+            role="status"
+            className="pointer-events-none absolute inset-x-0 top-3 mx-auto w-fit rounded-full border border-cyan-300/70 bg-slate-950/85 px-4 py-1.5 text-sm text-cyan-100 shadow-lg"
+          >
+            {blockedHint}
+          </p>
+        )}
       </div>
     </>
   );
