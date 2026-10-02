@@ -11,11 +11,9 @@ from pathlib import Path
 
 import pytest
 
-from datasetui.database import (
-    Database,
-    JobCancellationConflictError,
-    JobLeaseLostError,
-)
+from test_curation_api import _register
+
+from datasetui.database import Database, JobCancellationConflictError, JobLeaseLostError
 from datasetui.job_cancellation import (
     JobCancellationRequested,
     _children,
@@ -23,7 +21,6 @@ from datasetui.job_cancellation import (
     cancellation_monitor,
 )
 from datasetui.tasks import run_job
-from test_curation_api import _register
 
 
 def _running_job(database: Database, *, key: str = "running-cancel"):
@@ -400,7 +397,7 @@ def test_failure_cancellation_completion_lease_race_returns_current_status(
 
 
 def test_schema_13_adds_running_cancellation_columns(tmp_path: Path, monkeypatch):
-    import datasetui.database as database_module
+    import datasetui.database.core as database_module
 
     path = tmp_path / "schema-13.sqlite3"
     migrations = database_module.MIGRATIONS

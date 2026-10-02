@@ -8,10 +8,12 @@ from pathlib import Path
 
 import pytest
 
-import datasetui.database as database_module
+import datasetui.database.core as database_module
+
 from datasetui.database import (
     Database,
     JobCancellationConflictError,
+    JobLeaseLostError,
     JobOwnershipError,
 )
 
@@ -235,7 +237,7 @@ def test_expired_worker_is_requeued_without_allowing_stale_completion(
         == "running"
     )
 
-    with pytest.raises(database_module.JobLeaseLostError):
+    with pytest.raises(JobLeaseLostError):
         database.succeed_job(job["id"], {"stale": True}, worker_id="worker-old")
     assert (
         database.succeed_job(job["id"], {"ok": True}, worker_id="worker-new")["status"]
