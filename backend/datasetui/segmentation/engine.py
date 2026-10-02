@@ -202,6 +202,7 @@ class Sam3Engine:
                         shutdown()
                     except Exception:
                         logger.error("failed to shut down the SAM 3.1 predictor")
+            _release_cached_gpu_memory()
 
     def _verified_checkpoint(self, check_lease: Callable[[], None]) -> tuple[Path, str]:
         checkpoint = self.settings.sam3_checkpoint
@@ -262,6 +263,26 @@ class Sam3Engine:
             _VERIFIED_CHECKPOINTS[identity] = actual
         check_lease()
         return checkpoint, actual
+
+
+def _release_cached_gpu_memory() -> None:
+    """Return a finished job's cached CUDA blocks: an idle worker keeps only the model.
+
+    The caching allocator otherwise holds the largest job's peak (tens of GB)
+    for the life of the worker process.
+    """
+    try:
+        import torch
+    except (ImportError, OSError):
+        return
+    try:
+        if torch.cuda.is_available():
+            import gc
+
+            gc.collect()
+            torch.cuda.empty_cache()
+    except Exception:
+        logger.error("failed to release cached SAM 3.1 GPU memory")
 
 
 def _build_predictor(checkpoint: Path) -> Any:

@@ -792,3 +792,48 @@ def test_grounding_snapshot_is_not_mutated_by_refinement():
     saved = sam3_engine._grounding_masks(response, 1)
     response['outputs']['out_binary_masks'][:] = True
     assert np.array_equal(saved[7], mask)
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_finished_jobs_return_cached_gpu_memory(tmp_path, monkeypatch, fails):
+    checkpoint = tmp_path / "sam3.pt"
+    checkpoint.write_bytes(b"test checkpoint")
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"test clip")
+    mask = np.asarray([[1, 0], [0, 0]], dtype=bool)
+    predictor = FakePredictor([[_frame(0, mask), _frame(1, mask)]])
+    built = []
+
+    def build(_):
+        built.append(True)
+        return predictor
+
+    monkeypatch.setattr(sam3_engine, "_build_predictor", build)
+    released = []
+    fake_torch = ModuleType("torch")
+    fake_torch.cuda = SimpleNamespace(
+        is_available=lambda: True, empty_cache=lambda: released.append(True)
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake_torch)
+
+    def lease():
+        # Fail mid-inference, after the predictor holds GPU memory.
+        if fails and built:
+            raise RuntimeError("lease lost")
+
+    run = lambda: Sam3Engine(_settings(checkpoint)).propagate(  # noqa: E731
+        video_path=video,
+        prompts=[
+            {"object_id": 1, "frame_index": 0, "target": "protect",
+             "points": [{"x": 0.1, "y": 0.1}]},
+        ],
+        frame_count=2,
+        output_dir=tmp_path / "masks",
+        check_lease=lease,
+    )
+    if fails:
+        with pytest.raises(RuntimeError):
+            run()
+    else:
+        run()
+    assert released == [True]

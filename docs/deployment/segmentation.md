@@ -247,3 +247,9 @@ docker compose stop worker-gpu
   - "전체 승인"은 모든 카메라 결과가 승인 가능할 때만 켜지고, 카메라별 승인 버튼은 숨긴다. 일괄 검토 화면은 이전과 같다.
 - GPU 병렬 측정(합성 영상, RTX PRO 6000 98GB): 모델 상주 약 5GB, 작업 최대 사용량 300프레임 8GB · 900프레임 13GB · 1800프레임 20GB(해상도 영향 작음). 900프레임 작업 1개 105초, 3개 동시 각 약 300초로 GPU 연산이 포화되어 총 처리량은 늘지 않았다.
 - 검증: 프론트 294 통과, `smoke_segmentation_cameras.py`(공통 적용 1개, 두 카메라 동시 적용·여유 전달, 빈 카메라 건너뜀, 전체 승인), `smoke_segmentation_confirm.py`, `smoke_segmentation_member.py` 통과.
+
+### 2026-10-02 GPU 캐시 반납 (`release-20261002-gpurelease-v1`)
+
+- SAM 작업이 끝나면(성공·실패 모두) `gc.collect()` 후 `torch.cuda.empty_cache()`로 캐시된 VRAM을 반납한다(`engine._release_cached_gpu_memory`). 모델은 계속 올려 두므로 다음 작업 속도는 같다.
+- 이전에는 쉬는 GPU 작업자가 가장 큰 작업의 최대치(관측 약 49GB)를 계속 잡고 있었다. 이제 쉬는 동안 약 5GB(모델)만 쓴다.
+- GPU 작업자는 1개 그대로다. 측정상 SAM 추론이 GPU 연산을 포화시켜 작업자를 늘려도 처리량이 늘지 않는다(위 측정 참고).
