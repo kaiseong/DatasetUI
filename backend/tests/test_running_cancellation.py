@@ -292,15 +292,19 @@ from pathlib import Path
 
 ready, spawned, spawned_ready = map(Path, sys.argv[1:])
 
+def ignore_term():
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+
 def terminate(_signum, _frame):
+    # Ignore SIGTERM from exec onwards: cleanup signals every descendant at
+    # once, and a child still starting up must not die before it is ready.
     child = subprocess.Popen([
         sys.executable,
         "-c",
-        "import signal,sys,time; from pathlib import Path; "
-        "signal.signal(signal.SIGTERM, signal.SIG_IGN); "
+        "import sys,time; from pathlib import Path; "
         "Path(sys.argv[1]).write_text('ready'); time.sleep(30)",
         str(spawned_ready),
-    ])
+    ], preexec_fn=ignore_term)
     while not spawned_ready.exists():
         time.sleep(0.01)
     spawned.write_text(str(child.pid))

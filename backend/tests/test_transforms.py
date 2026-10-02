@@ -302,11 +302,12 @@ def test_materialize_v3_rebuilds_shards_and_episode_offsets(tmp_path: Path) -> N
         "fps": 10,
         "splits": {"train": "0:2"},
         "features": {
-            "action": {"dtype": "float32", "shape": [1], "names": ["joint_0"]},
+            # Two joints: official LeRobot reads shape [1] features as scalars.
+            "action": {"dtype": "float32", "shape": [2], "names": ["joint_0", "joint_1"]},
             "observation.state": {
                 "dtype": "float32",
-                "shape": [1],
-                "names": ["joint_0"],
+                "shape": [2],
+                "names": ["joint_0", "joint_1"],
             },
             "timestamp": {"dtype": "float32", "shape": [1], "names": None},
             "frame_index": {"dtype": "int64", "shape": [1], "names": None},
@@ -316,8 +317,9 @@ def test_materialize_v3_rebuilds_shards_and_episode_offsets(tmp_path: Path) -> N
         },
     }
     (source / "meta" / "info.json").write_text(json.dumps(info), encoding="utf-8")
-    pd.DataFrame([{"task_index": 0, "task": "pick"}]).to_parquet(
-        source / "meta" / "tasks.parquet", index=False
+    # Official v3 layout: the task string is the parquet index.
+    pd.DataFrame([{"task_index": 0, "task": "pick"}]).set_index("task").to_parquet(
+        source / "meta" / "tasks.parquet"
     )
     pd.DataFrame(
         [
@@ -327,6 +329,8 @@ def test_materialize_v3_rebuilds_shards_and_episode_offsets(tmp_path: Path) -> N
                 "length": 4,
                 "data/chunk_index": 0,
                 "data/file_index": 0,
+                "meta/episodes/chunk_index": 0,
+                "meta/episodes/file_index": 0,
                 "dataset_from_index": index * 4,
                 "dataset_to_index": index * 4 + 4,
             }
@@ -335,9 +339,11 @@ def test_materialize_v3_rebuilds_shards_and_episode_offsets(tmp_path: Path) -> N
     ).to_parquet(source / "meta" / "episodes" / "chunk-000" / "file-000.parquet")
     pd.DataFrame(
         {
-            "action": [np.asarray([value], dtype=np.float32) for value in range(8)],
+            "action": [
+                np.asarray([value, -value], dtype=np.float32) for value in range(8)
+            ],
             "observation.state": [
-                np.asarray([value], dtype=np.float32) for value in range(8)
+                np.asarray([value, -value], dtype=np.float32) for value in range(8)
             ],
             "timestamp": np.asarray([0, 0.1, 0.2, 0.3] * 2, dtype=np.float32),
             "frame_index": [0, 1, 2, 3] * 2,
