@@ -335,6 +335,7 @@ def _instantiate_camera(camera: dict, payload: BatchCreate, episode_index: int) 
             "video_key": camera["video_key"],
             "mode": camera["mode"],
             "camera_mode": camera["camera_mode"],
+            "edge_margin_px": camera.get("edge_margin_px", 0),
             "render_mode": "black",
             "prompts": prompts,
             "corrections": corrections,

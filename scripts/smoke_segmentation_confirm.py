@@ -115,6 +115,8 @@ def main():
         expect(editor.locator('input[type=file]')).to_have_count(1)
         page.get_by_label('출력 배경').select_option('black')
         expect(editor.locator('input[type=file]')).to_have_count(0)
+        page.get_by_label('경계 여유 (px)').fill('6')
+        expect(page.get_by_label('경계 여유 (px)')).to_have_value('6')
         assert workspace['revision']==3
         expect(editor.get_by_label('객체 이름')).to_have_value('객체 4')
         expect(editor.get_by_role('region',name='저장된 객체',exact=True)).to_have_count(0)
@@ -126,6 +128,7 @@ def main():
         editor.get_by_role('button',name='취소',exact=True).click()
         page.get_by_role('button',name='선택 에피소드 전체 적용',exact=True).click()
         expect(page.get_by_role('region',name='에피소드 영상 결과')).to_be_visible()
+        assert [data for path,data in posts if path.endswith('/previews')][-1]['spec']['edge_margin_px']==6
         expect(page.get_by_role('region',name='보존할 객체 후보 선택')).to_have_count(0)
         chip.click()
         editor.get_by_label('객체 이름').fill('보드')
@@ -145,7 +148,7 @@ def main():
         page.screenshot(path=str(out/'mobile.png'),full_page=True)
         assert not errors,errors
         (out/'report.json').write_text(json.dumps(dict(confirmed_only=True,restore=True,group_selection=True,errors=errors),indent=2))
-        print('PASS: confirm, isolation, restore, score and group selection, desktop/mobile')
+        print('PASS: confirm, isolation, restore, score and group selection, edge margin, desktop/mobile')
         browser.close()
 
 

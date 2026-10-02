@@ -833,6 +833,7 @@ def write_segmented_videos(
                     read_mask(current["root"], "protect", relative, width, height),
                     read_mask(current["root"], "replace", relative, width, height),
                     has_keep=has_keep_objects(manifest["spec"]),
+                    margin_px=manifest["spec"].get("edge_margin_px", 0),
                 )
                 if current["writer"] is None:
                     current["writer"] = _EpisodeWriter(

@@ -42,6 +42,14 @@ export function emptySegmentationDraft(): SegmentationDraft {
   };
 }
 
+export const MAX_EDGE_MARGIN_PX = 64;
+
+export function clampEdgeMargin(value: number): number {
+  return Number.isFinite(value)
+    ? Math.min(MAX_EDGE_MARGIN_PX, Math.max(0, Math.round(value)))
+    : 0;
+}
+
 export function clampNormalized(value: number): number {
   return Math.min(1, Math.max(0, Number.isFinite(value) ? value : 0));
 }
@@ -219,6 +227,7 @@ export function draftFromSegmentationSpec(
     render_mode:
       spec.render_mode ?? (spec.background_base64 ? "image" : "black"),
     camera_mode: spec.camera_mode ?? "fixed",
+    edge_margin_px: spec.edge_margin_px ?? 0,
     background_base64: spec.background_base64 ?? "",
     prompts: spec.prompts,
     corrections: spec.corrections,

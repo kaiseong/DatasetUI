@@ -9,7 +9,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from PIL import Image
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_serializer, model_validator
 
 from datasetui.segmentation.errors import SegmentationGuidanceError
 
@@ -17,6 +17,21 @@ Coordinate = Annotated[float, Field(ge=0, le=1, allow_inf_nan=False)]
 
 
 FrameIndex = Annotated[int, Field(ge=0, le=999_999, strict=True)]
+
+
+MAX_EDGE_MARGIN_PX = 64
+
+
+# Pixels the selected objects grow by when the output is composed. It never
+# changes SAM inference, so cached masks are reused when only this changes.
+EdgeMargin = Annotated[int, Field(ge=0, le=MAX_EDGE_MARGIN_PX, strict=True)]
+
+
+def omit_zero_edge_margin(data: dict) -> dict:
+    """Specs without a margin keep the recipe hash they had before the field existed."""
+    if not data.get("edge_margin_px"):
+        data.pop("edge_margin_px", None)
+    return data
 
 
 class StrictModel(BaseModel):
@@ -106,11 +121,16 @@ class SegmentationSpec(StrictModel):
         default=None, min_length=4, max_length=14_000_000
     )
     camera_mode: Literal["fixed", "wrist"] = "fixed"
+    edge_margin_px: EdgeMargin = 0
     manual_regions: list[ManualRegion] = Field(default_factory=list, max_length=100)
     source_preview_id: UUID | None = None
     selected_candidate_ids: list[str] = Field(default_factory=list, max_length=256)
     prompts: list[RegionPrompt] = Field(default_factory=list, max_length=32)
     corrections: list[Correction] = Field(default_factory=list, max_length=100)
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        return omit_zero_edge_margin(handler(self))
 
     @model_validator(mode="before")
     @classmethod

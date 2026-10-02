@@ -332,6 +332,7 @@ def create_preview(
             lease,
             on_progress=progress,
             has_keep=has_keep_objects(parsed),
+            margin_px=parsed.edge_margin_px,
         )
         report_progress(
             progress,
@@ -440,6 +441,7 @@ def _render_preview(
     *,
     on_progress: Callable[[dict[str, Any]], None] | None = None,
     has_keep: bool = True,
+    margin_px: int = 0,
 ) -> None:
     composite, composite_stream = open_video_writer(
         root / "composite.mp4", fps, width, height
@@ -464,7 +466,9 @@ def _render_preview(
                 break
             replace = read_mask(root, "replace", frame_index, width, height)
             protect = read_mask(root, "protect", frame_index, width, height)
-            selected = ~retained_mask(mode, protect, replace, has_keep=has_keep)
+            selected = ~retained_mask(
+                mode, protect, replace, has_keep=has_keep, margin_px=margin_px
+            )
             output = np.where(selected[:, :, None], background_array, original)
             mask_rgb = np.repeat(
                 (selected.astype(np.uint8) * 255)[:, :, None], 3, axis=2

@@ -309,6 +309,7 @@ def create_sample(database, settings, *, job_id, worker_id, spec, engine=None):
             read_mask(staging, "protect", 0, width, height),
             read_mask(staging, "replace", 0, width, height),
             has_keep=has_keep_objects(guidance),
+            margin_px=parsed.edge_margin_px,
         )
         mask_image = Image.fromarray(mask.astype("uint8") * 255)
         mask_image.save(staging / "mask.png")

@@ -118,6 +118,7 @@ def mask_inputs(spec: dict) -> dict:
             "background_sha256",
             "source_preview_id",
             "selected_candidate_ids",
+            "edge_margin_px",
         }
     }
 
@@ -421,6 +422,7 @@ def review_signals(
                 read_mask(root, "protect", index, width, height),
                 read_mask(root, "replace", index, width, height),
                 has_keep=has_keep,
+                margin_px=parsed.edge_margin_px,
             )
             # Removal-only reviews measure the removed region, not retained background.
             if not has_keep:
@@ -438,14 +440,47 @@ def review_signals(
 
 
 
-def retained_mask(mode, protect, remove, *, has_keep=True):
+def retained_mask(mode, protect, remove, *, has_keep=True, margin_px=0):
     if mode == OBJECT_SELECTION:
-        return (protect if has_keep else np.ones_like(protect, dtype=bool)) & ~remove
-    if mode == "protect_foreground":
-        return protect
-    if mode == "replace_background":
-        return protect | ~remove
-    raise ValueError("Unknown segmentation mode")
+        keep = (protect if has_keep else np.ones_like(protect, dtype=bool)) & ~remove
+    elif mode == "protect_foreground":
+        keep = protect
+    elif mode == "replace_background":
+        keep = protect | ~remove
+    else:
+        raise ValueError("Unknown segmentation mode")
+    if margin_px <= 0:
+        return keep
+    # Margins only claim pixels no object owns; where a keep margin meets a
+    # remove margin, removal wins (the same precedence as the objects).
+    owned = protect | remove
+    grown_remove = grow_mask(remove, margin_px) & ~owned
+    grown_keep = grow_mask(protect, margin_px) & ~owned & ~grown_remove
+    return (keep | grown_keep) & ~grown_remove
+
+
+def grow_mask(mask: np.ndarray, radius: int) -> np.ndarray:
+    """Dilate a boolean mask by a disk of `radius` pixels (row-wise prefix sums)."""
+    if radius <= 0 or not mask.any():
+        return mask
+    height, width = mask.shape
+    counts = np.zeros((height, width + 1), dtype=np.int32)
+    np.cumsum(mask, axis=1, out=counts[:, 1:])
+    columns = np.arange(width)
+    spans: dict[int, np.ndarray] = {}
+    result = np.zeros_like(mask, dtype=bool)
+    for dy in range(-min(radius, height - 1), min(radius, height - 1) + 1):
+        reach = math.isqrt(radius * radius - dy * dy)
+        if reach not in spans:
+            low = np.clip(columns - reach, 0, width)
+            high = np.clip(columns + reach + 1, 0, width)
+            spans[reach] = (counts[:, high] - counts[:, low]) > 0
+        span = spans[reach]
+        if dy >= 0:
+            result[dy:] |= span[: height - dy]
+        else:
+            result[:dy] |= span[-dy:]
+    return result
 
 
 def has_keep_objects(spec):

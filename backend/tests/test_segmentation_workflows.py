@@ -889,3 +889,31 @@ def test_text_redetection_keeps_source_episode_and_reports_dropped_objects(conte
         {"cameras": [camera]},
         {**payload.model_dump(mode="json"), "same_camera_setup_confirmed": True},
     )
+
+
+def test_template_edge_margin_reaches_every_batch_spec(context):
+    _, _, _, dataset, profile, _ = context
+    template = {
+        "video_key": "observation.images.top",
+        "camera_mode": "wrist",
+        "mode": "object_selection",
+        "prompts": [{"object_id": 1, "frame_index": 0, "target": "protect", "text": "arm"}],
+    }
+    payload = BatchCreate.model_validate(
+        {
+            "profile_id": profile["id"],
+            "idempotency_key": "margin",
+            "template_id": str(uuid4()),
+            "dataset_id": dataset["id"],
+            "fingerprint": dataset["fingerprint"],
+            "episode_indices": [0],
+            "video_keys": ["observation.images.top"],
+        }
+    )
+    plain = CameraTemplate.model_validate(template).model_dump(mode="json")
+    assert "edge_margin_px" not in plain
+    assert "edge_margin_px" not in workflow._instantiate_camera(plain, payload, 0)
+    wide = CameraTemplate.model_validate({**template, "edge_margin_px": 5}).model_dump(
+        mode="json"
+    )
+    assert workflow._instantiate_camera(wide, payload, 0)["edge_margin_px"] == 5

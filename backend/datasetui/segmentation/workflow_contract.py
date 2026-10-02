@@ -5,14 +5,16 @@ from __future__ import annotations
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import Field, model_validator
+from pydantic import Field, model_serializer, model_validator
 
 from datasetui.segmentation.contract import (
     Correction,
+    EdgeMargin,
     FrameIndex,
     ManualRegion,
     RegionPrompt,
     StrictModel,
+    omit_zero_edge_margin,
 )
 
 Fingerprint = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
@@ -44,6 +46,11 @@ class CameraTemplate(StrictModel):
     prompts: list[RegionPrompt] = Field(default_factory=list, max_length=32)
     corrections: list[Correction] = Field(default_factory=list, max_length=100)
     manual_regions: list[ManualRegion] = Field(default_factory=list, max_length=32)
+    edge_margin_px: EdgeMargin = 0
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        return omit_zero_edge_margin(handler(self))
 
     @model_validator(mode="after")
     def reusable_prompts(self):

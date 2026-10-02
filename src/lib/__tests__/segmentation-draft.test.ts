@@ -5,6 +5,7 @@ import {
   candidateGuidanceSignature,
   setObjectTarget,
   objectForInputTarget,
+  clampEdgeMargin,
   clampNormalized,
   clearFrameCorrections,
   emptySegmentationDraft,
@@ -99,6 +100,7 @@ describe("segmentation draft", () => {
         ...draft,
         render_mode: "image",
         background_base64: "new-image",
+        edge_margin_px: 8,
         selected_candidate_ids: ["1-1"],
       }),
     ).toBe(signature);
@@ -139,6 +141,24 @@ describe("segmentation draft", () => {
         render_mode: "image",
       }).selected_candidate_ids,
     ).toEqual(["1-1"]);
+  });
+
+  test("edge margin is a bounded whole pixel count that survives reload", () => {
+    expect(clampEdgeMargin(3.6)).toBe(4);
+    expect(clampEdgeMargin(-2)).toBe(0);
+    expect(clampEdgeMargin(500)).toBe(64);
+    expect(clampEdgeMargin(Number.NaN)).toBe(0);
+    const spec = {
+      ...emptySegmentationDraft(),
+      dataset_id: "source",
+      fingerprint: "hash",
+      episode_index: 1,
+      video_key: "top",
+    };
+    expect(draftFromSegmentationSpec(spec).edge_margin_px).toBe(0);
+    expect(
+      draftFromSegmentationSpec({ ...spec, edge_margin_px: 6 }).edge_margin_px,
+    ).toBe(6);
   });
 
   test("loaded drafts cannot leak stale source-preview cache identifiers", () => {

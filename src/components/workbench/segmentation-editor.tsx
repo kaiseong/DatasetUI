@@ -43,10 +43,12 @@ import {
   candidateGuidanceSignature,
   setObjectTarget,
   confirmedObjectDraft,
+  clampEdgeMargin,
   clampNormalized,
   emptySegmentationDraft,
   hasSegmentationGuidance,
   invalidateChangedMaskSelection,
+  MAX_EDGE_MARGIN_PX,
   moveSemanticPromptToFrame,
   normalizeSegmentationBox,
   objectsFromDraft,
@@ -1414,6 +1416,32 @@ export default function SegmentationEditor({
               <option value="image">사진 배경 · 선택 사항</option>
             </select>
           </label>
+          <label className="text-xs text-slate-300">
+            <span className="mb-1 block">경계 여유 (px)</span>
+            <input
+              type="number"
+              min={0}
+              max={MAX_EDGE_MARGIN_PX}
+              step={1}
+              aria-describedby="edge-margin-help"
+              className="w-24 rounded border border-white/15 bg-slate-950 px-3 py-2 text-sm"
+              value={draft.edge_margin_px ?? 0}
+              onChange={(event) =>
+                editRender((current) => ({
+                  ...current,
+                  edge_margin_px: clampEdgeMargin(event.target.valueAsNumber),
+                }))
+              }
+            />
+          </label>
+          <p
+            id="edge-margin-help"
+            className="basis-full text-xs text-slate-400"
+          >
+            경계 여유: 남길 객체는 이만큼 더 넓게 남기고 제거할 객체는 더 넓게
+            지웁니다. 두 여유가 겹치면 제거가 우선이며, 객체 자체는 깎지
+            않습니다. SAM을 다시 돌리지 않고 저장된 마스크로 다시 렌더링합니다.
+          </p>
           {draft.render_mode === "image" && (
             <label className="min-w-72 flex-1 text-xs text-slate-300">
               <span className="mb-1 block">

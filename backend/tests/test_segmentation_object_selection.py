@@ -30,6 +30,66 @@ def test_legacy_composition_is_unchanged():
     ]
 
 
+def test_grow_mask_is_a_disk_dilation():
+    from datasetui.segmentation.selection import grow_mask
+
+    mask = np.zeros((40, 50), dtype=bool)
+    mask[3, 4] = mask[20, 25] = mask[39, 49] = True
+    mask[10:13, 30:45] = True
+    ys, xs = np.mgrid[:40, :50]
+    for radius in (1, 3, 7):
+        expected = np.zeros_like(mask)
+        for y, x in zip(*np.nonzero(mask)):
+            expected |= (ys - y) ** 2 + (xs - x) ** 2 <= radius * radius
+        assert np.array_equal(grow_mask(mask, radius), expected)
+    assert grow_mask(mask, 0) is mask
+
+
+def test_edge_margin_only_claims_unowned_pixels_and_removal_wins():
+    keep = np.zeros((1, 12), dtype=bool)
+    remove = np.zeros((1, 12), dtype=bool)
+    keep[0, 2:5] = True
+    remove[0, 5:7] = True
+    remove[0, 10] = True
+    grown = retained_mask("object_selection", keep, remove, margin_px=2)
+    # The kept object grows left only: its right side touches the removal,
+    # whose own margin (7-8) wins over the keep margin; the removal never
+    # eats into the kept object itself.
+    assert np.nonzero(grown[0])[0].tolist() == [0, 1, 2, 3, 4]
+    replaced = retained_mask("replace_background", keep, remove, margin_px=1)
+    assert np.nonzero(~replaced[0])[0].tolist() == [5, 6, 7, 9, 10, 11]
+    assert np.array_equal(
+        retained_mask("protect_foreground", keep, remove, margin_px=1)[0],
+        np.isin(np.arange(12), [1, 2, 3, 4]),
+    )
+
+
+def test_edge_margin_is_render_only_and_keeps_old_recipe_hashes():
+    from uuid import uuid4
+    from datasetui.segmentation.contract import SegmentationSpec
+    from datasetui.segmentation.selection import mask_inputs
+
+    base = {
+        "dataset_id": str(uuid4()),
+        "fingerprint": "a" * 64,
+        "episode_index": 0,
+        "video_key": "cam",
+        "mode": "object_selection",
+        "prompts": [{"object_id": 1, "target": "protect", "frame_index": 0, "text": "arm"}],
+    }
+    plain = SegmentationSpec.model_validate(base).model_dump(mode="json")
+    assert "edge_margin_px" not in plain
+    assert "edge_margin_px" not in SegmentationSpec.model_validate(
+        {**base, "edge_margin_px": 0}
+    ).model_dump(mode="json")
+    wide = SegmentationSpec.model_validate({**base, "edge_margin_px": 6})
+    assert wide.model_dump(mode="json")["edge_margin_px"] == 6
+    assert mask_inputs(wide.model_dump(mode="json")) == mask_inputs(plain)
+    for bad in (-1, 65, 2.5):
+        with pytest.raises(ValueError):
+            SegmentationSpec.model_validate({**base, "edge_margin_px": bad})
+
+
 def test_brush_hints_are_bounded_radius_aware_and_have_correct_polarity():
     stroke = Correction.model_validate(
         {
@@ -51,8 +111,9 @@ def test_brush_hints_are_bounded_radius_aware_and_have_correct_polarity():
     assert brush_hints(stroke, 640, 480) == hints
 
 
+@pytest.mark.parametrize("margin", [0, 2])
 @pytest.mark.parametrize("keep,remove", [(True, False), (False, True), (True, True)])
-def test_sample_video_and_export_use_identical_selection(tmp_path, keep, remove):
+def test_sample_video_and_export_use_identical_selection(tmp_path, keep, remove, margin):
     import shutil
     from PIL import Image
     from datasetui.segmentation.preview import create_preview, read_manifest
@@ -93,6 +154,7 @@ def test_sample_video_and_export_use_identical_selection(tmp_path, keep, remove)
         "mode": "object_selection",
         "frame_token": selection["frame_token"],
         "prompts": prompts,
+        "edge_margin_px": margin,
     }
 
     class Engine:
@@ -161,7 +223,9 @@ def test_sample_video_and_export_use_identical_selection(tmp_path, keep, remove)
     r = np.zeros((16, 16), dtype=bool)
     if remove:
         r[:, 4:12] = True
-    expected = retained_mask("object_selection", k, r, has_keep=keep)
+    expected = retained_mask("object_selection", k, r, has_keep=keep, margin_px=margin)
+    if margin and keep and not remove:
+        assert expected[:, :10].all() and not expected[:, 10:].any()
     assert np.array_equal(np.asarray(Image.open(sample / "mask.png")) > 0, expected)
     original = np.asarray(Image.open(sample / "original.png"))
     assert np.array_equal(

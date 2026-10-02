@@ -39,6 +39,8 @@ export type SegmentationSpec = {
   mode: "replace_background" | "protect_foreground" | "object_selection";
   render_mode?: "black" | "image";
   camera_mode?: "fixed" | "wrist";
+  /** Pixels the selected objects grow by in the output; render-only. */
+  edge_margin_px?: number;
   background_base64: string;
   manual_regions?: SegmentationManualRegion[];
   selected_candidate_ids?: string[];
@@ -268,6 +270,7 @@ export type SegmentationCameraTemplate = {
   mode?: SegmentationSpec["mode"];
   video_key: string;
   camera_mode: "fixed" | "wrist";
+  edge_margin_px?: number;
   prompts: SegmentationPrompt[];
   corrections: SegmentationCorrection[];
   manual_regions: SegmentationManualRegion[];
