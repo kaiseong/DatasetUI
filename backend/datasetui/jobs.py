@@ -10,6 +10,7 @@ from datasetui.datasets import scan_storage_area
 from datasetui.job_progress import JobProgressReporter
 
 
+
 JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
 UUID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -563,7 +564,7 @@ def run_registered_job(
             worker_id=worker_id,
         )
     if kind == "curation.materialize":
-        from datasetui.transforms import materialize_curation_recipe
+        from datasetui.curation.materialize import materialize_curation_recipe
 
         if job_id is None or worker_id is None:
             raise ValueError("curation materialization requires worker ownership")

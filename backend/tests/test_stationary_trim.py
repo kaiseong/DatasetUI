@@ -8,9 +8,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from datasetui import transforms
+from datasetui.curation import trim, writer
 from datasetui.stationary_trim import stationary_trim_bounds
 from datasetui.transform_errors import CurationTransformError
+
 
 
 VIDEO_KEY = "observation.images.top"
@@ -127,7 +128,7 @@ def test_v3_stationary_trim_copies_shared_shard_once_without_encoding(
     (destination / "data").mkdir()
     (destination / "videos").mkdir()
     monkeypatch.setattr(
-        transforms,
+        writer,
         "slice_video",
         lambda *args, **kwargs: pytest.fail("stationary trim must not encode video"),
     )
@@ -137,7 +138,7 @@ def test_v3_stationary_trim_copies_shared_shard_once_without_encoding(
     ]
     progress = []
 
-    transforms._write_v3(
+    writer._write_v3(
         source,
         destination,
         episodes,
@@ -192,7 +193,7 @@ def test_v3_stationary_trim_copy_honors_cancellation_callback(tmp_path: Path) ->
             raise RuntimeError("lease lost")
 
     with pytest.raises(RuntimeError, match="lease lost"):
-        transforms._write_v3(
+        writer._write_v3(
             source,
             destination,
             [(_frame(0, 4), _metadata(10, 0.5, 1.5), 2, 6)],
@@ -214,7 +215,7 @@ def test_stationary_trim_rejects_v2_before_writing(tmp_path: Path) -> None:
         },
     )()
     with pytest.raises(CurationTransformError, match="only v3.0 to v3.0"):
-        transforms._write_dataset(
+        writer.write_dataset(
             source=source,
             destination=tmp_path / "output",
             source_indices=[0],
@@ -232,7 +233,7 @@ def test_missing_method_keeps_legacy_motion_trim() -> None:
     values = [[float(value)] for value in np.r_[0, np.cumsum(increments)]]
     data = pd.DataFrame({"action": values, "observation.state": values})
 
-    assert transforms._trim_bounds(
+    assert trim.trim_bounds(
         data,
         {},
         10,

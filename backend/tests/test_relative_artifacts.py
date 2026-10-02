@@ -6,12 +6,13 @@ import pytest
 
 from test_transforms import _write_v21
 
+from datasetui.curation.writer import write_dataset
 from datasetui.dataset_io.source import DatasetSource
 from datasetui.models import RelativeActionConfig
 from datasetui.relative_artifacts import read_relative_profile
 from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import _write_dataset
 from datasetui.validation import validate_dataset_root
+
 
 
 @pytest.mark.parametrize("horizon", [0, -1, 1025, True, 1.5, "50"])
@@ -86,7 +87,7 @@ def relative_output(tmp_path, monkeypatch):
     }
     info = json.loads((source / "meta/info.json").read_text())
     destination = tmp_path / "relative"
-    built = _write_dataset(
+    built = write_dataset(
         source=DatasetSource(source, info),
         destination=destination,
         source_indices=[0, 1],
@@ -210,7 +211,7 @@ def test_relative_source_cannot_silently_lose_profile(relative_output, tmp_path)
             reject_relative_profile(root, operation=operation)
     info = json.loads((root / "meta/info.json").read_text())
     with pytest.raises(CurationTransformError, match="discard"):
-        _write_dataset(
+        write_dataset(
             source=DatasetSource(root, info),
             destination=tmp_path / "invalid",
             source_indices=[0],

@@ -7,19 +7,20 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import datasetui.transforms as transforms
+import datasetui.curation.materialize as materialize
 
 from datasetui.config import Settings
+from datasetui.curation.language import replace_language_columns
+from datasetui.curation.materialize import (
+    _output_selections,
+    materialize_curation_recipe,
+)
+from datasetui.curation.writer import _relative_action_profile
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.dataset_io.video import slice_video
 from datasetui.datasets import inspect_dataset
 from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import (
-    _output_selections,
-    _relative_action_profile,
-    _replace_language_columns,
-    materialize_curation_recipe,
-)
+
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -559,7 +560,7 @@ def test_vqa_annotations_require_and_land_on_an_available_camera_frame() -> None
         "tool_calls": None,
     }
 
-    persistent, events = _replace_language_columns(
+    persistent, events = replace_language_columns(
         output,
         source_data=source,
         atoms=[atom],
@@ -574,7 +575,7 @@ def test_vqa_annotations_require_and_land_on_an_available_camera_frame() -> None
     assert output["language_events"].iloc[1][0]["camera"] == "observation.images.top"
 
     with pytest.raises(CurationTransformError, match="unavailable camera"):
-        _replace_language_columns(
+        replace_language_columns(
             source.copy(),
             source_data=source,
             atoms=[atom],
@@ -677,7 +678,7 @@ def test_materialize_rejects_changed_parquet_with_unchanged_info(
         idempotency_key="changed-data-run",
     )
     database.claim_job(job["id"], worker_id="guard-worker", lease_seconds=120)
-    original_write_dataset = transforms._write_dataset
+    original_write_dataset = materialize.write_dataset
 
     def write_then_mutate(**kwargs):
         result = original_write_dataset(**kwargs)
@@ -687,7 +688,7 @@ def test_materialize_rejects_changed_parquet_with_unchanged_info(
         frame.to_parquet(data_path, index=False)
         return result
 
-    monkeypatch.setattr(transforms, "_write_dataset", write_then_mutate)
+    monkeypatch.setattr(materialize, "write_dataset", write_then_mutate)
 
     with pytest.raises(RecipeRevisionMismatchError):
         materialize_curation_recipe(

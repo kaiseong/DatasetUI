@@ -3,13 +3,14 @@ import json
 import pandas as pd
 import pytest
 
-from datasetui import transforms
+from test_transforms import _write_v21
+
+from datasetui.curation import writer
 from datasetui.dataset_io.source import DatasetSource
 from datasetui.deferred_statistics import read_deferred_statistics
 from datasetui.models import TrimConfig
 from datasetui.output_statistics import write_output_statistics
 from datasetui.validation import validate_dataset_root
-from test_transforms import _write_v21
 
 
 @pytest.fixture
@@ -24,7 +25,7 @@ def source(tmp_path, monkeypatch):
 
 
 def build(source, destination, *, recompute=False, trim=True):
-    return transforms._write_dataset(
+    return writer.write_dataset(
         source=source,
         destination=destination,
         source_indices=[0],
@@ -46,7 +47,7 @@ def test_skip_avoids_recomputation_preserves_source_and_updates_structure(
         if p.is_file()
     }
     monkeypatch.setattr(
-        transforms, "write_stats", lambda *a, **k: pytest.fail("statistics recomputed")
+        writer, "write_stats", lambda *a, **k: pytest.fail("statistics recomputed")
     )
     output = tmp_path / "trimmed"
     result = build(source, output)
@@ -122,7 +123,7 @@ def test_deferred_state_survives_selection_and_can_be_recomputed(
     )
     with monkeypatch.context() as patch:
         patch.setattr(
-            transforms,
+            writer,
             "write_stats",
             lambda *a, **k: pytest.fail("selection recomputed statistics"),
         )
@@ -183,15 +184,15 @@ def test_stationary_v3_skip_preserves_video_bytes_and_segment_ranges(
     )
     source_videos = sorted(p.read_bytes() for p in (root / "videos").rglob("*.mp4"))
     monkeypatch.setattr(
-        transforms, "write_stats", lambda *a, **k: pytest.fail("statistics recomputed")
+        writer, "write_stats", lambda *a, **k: pytest.fail("statistics recomputed")
     )
     monkeypatch.setattr(
-        transforms,
+        writer,
         "slice_video",
         lambda *a, **k: pytest.fail("stationary video reencoded"),
     )
     destination = tmp_path / "trimmed"
-    transforms._write_dataset(
+    writer.write_dataset(
         source=source,
         destination=destination,
         source_indices=[0],

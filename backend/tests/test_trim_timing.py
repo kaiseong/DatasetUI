@@ -3,8 +3,9 @@ import pandas as pd
 import pytest
 from pydantic import ValidationError
 
+from datasetui.curation.trim import trim_bounds
 from datasetui.models import TrimConfig
-from datasetui.transforms import _trim_bounds
+
 
 
 def bounds(**changes):
@@ -17,7 +18,7 @@ def bounds(**changes):
     config = TrimConfig(
         enabled=True, threshold=0.01, hold_time_s=0.1, margin_s=0, **changes
     ).model_dump()
-    return _trim_bounds(data, {}, 10, config, 0)
+    return trim_bounds(data, {}, 10, config, 0)
 
 
 def test_legacy_symmetric_timing():

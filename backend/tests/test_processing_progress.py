@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from datasetui.conversion import convert_dataset_to_v21
-from datasetui.database import Database, JobLeaseLostError
-from datasetui.datasets import inspect_dataset
-from datasetui.transforms import materialize_curation_recipe
 from test_transforms import _settings, _write_v21
 from test_validation_conversion import _write_v3
+
+from datasetui.conversion import convert_dataset_to_v21
+from datasetui.curation.materialize import materialize_curation_recipe
+from datasetui.database import Database, JobLeaseLostError
+from datasetui.datasets import inspect_dataset
 
 
 def _capture_progress(database: Database, monkeypatch) -> list[dict]:

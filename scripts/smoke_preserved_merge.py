@@ -9,7 +9,7 @@ import av
 import numpy as np
 import pandas as pd
 
-import datasetui.transforms as transforms
+import datasetui.curation.writer as curation_writer
 
 from datasetui.config import Settings
 from datasetui.database import Database
@@ -17,6 +17,7 @@ from datasetui.dataset_io.source import DatasetSource
 from datasetui.datasets import inspect_dataset
 from datasetui.merge import merge_datasets
 from datasetui.validation import validate_dataset_root
+
 
 
 def digest(path):
@@ -221,7 +222,7 @@ for version in ("v2.1", "v3.0"):
         def forbidden(*args, **kwargs):
             raise AssertionError("Merge must never enter the video transcoder")
 
-        transforms.slice_video = forbidden
+        curation_writer.slice_video = forbidden
         result = merge_datasets(
             database=database,
             settings=settings,

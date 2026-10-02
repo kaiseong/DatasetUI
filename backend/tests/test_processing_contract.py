@@ -4,13 +4,14 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import (
-    _curation_processing,
-    _remap_tasks,
+from datasetui.curation.language import remap_tasks
+from datasetui.curation.materialize import (
     CURATION_PROCESSING_POLICY,
     reuse_published_outputs,
 )
+from datasetui.curation.writer import curation_processing
+from datasetui.transform_errors import CurationTransformError
+
 
 
 
@@ -50,8 +51,8 @@ def test_cache_never_accepts_wrong_engine_path_or_snapshot(tmp_path, change):
 
 def test_routing_identity_distinguishes_official_subset_and_custom_trim(monkeypatch):
     monkeypatch.setenv("DATASETUI_PROCESSOR_ENGINE", "lerobot-v3")
-    official = _curation_processing("v3.0", {}, {}, {})
-    custom = _curation_processing("v3.0", {"enabled": True}, {}, {})
+    official = curation_processing("v3.0", {}, {}, {})
+    custom = curation_processing("v3.0", {"enabled": True}, {}, {})
     assert official["official_function"] == "split_dataset"
     assert "official_function" not in custom
     assert official != custom
@@ -61,4 +62,4 @@ def test_routing_identity_distinguishes_official_subset_and_custom_trim(monkeypa
 
 def test_missing_task_is_not_replaced_by_invented_text():
     with pytest.raises(CurationTransformError, match="7"):
-        _remap_tasks([(pd.DataFrame({"task_index": [7]}), {}, 0, 1)], {})
+        remap_tasks([(pd.DataFrame({"task_index": [7]}), {}, 0, 1)], {})

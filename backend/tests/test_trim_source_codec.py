@@ -12,14 +12,15 @@ import pytest
 
 from test_transforms import _settings, _write_v21
 
-from datasetui import transforms
-from datasetui.dataset_io import video as dataset_video
+from datasetui.curation import writer
+from datasetui.curation.materialize import materialize_curation_recipe
 from datasetui.database import Database
+from datasetui.dataset_io import video as dataset_video
 from datasetui.dataset_io.source import DatasetSource
 from datasetui.datasets import inspect_dataset
 from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import materialize_curation_recipe
 from datasetui.validation import validate_dataset_root
+
 
 
 CAMERAS = {"observation.images.front": "av1", "observation.images.left": "h264"}
@@ -283,7 +284,7 @@ def test_trim_metadata_updates_all_supported_codec_locations():
             }
         }
     }
-    updated = transforms._updated_info(info, [], {}, {key: "av1"})["features"][key]
+    updated = writer._updated_info(info, [], {}, {key: "av1"})["features"][key]
     assert updated["info"]["video.codec"] == "av1"
     assert updated["video_info"]["video.codec"] == "av1"
     assert updated["video"]["codec"] == "av1"

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from datasetui.config import Settings
+from datasetui.curation.writer import write_dataset
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.dataset_io.files import (
     read_regular_bytes,
@@ -21,11 +22,11 @@ from datasetui.dataset_io.publish import (
     tree_manifest,
 )
 from datasetui.dataset_io.source import DatasetSource
-from datasetui.datasets import MAX_INFO_BYTES, inspect_dataset, scan_storage_area
+from datasetui.datasets import inspect_dataset, MAX_INFO_BYTES, scan_storage_area
 from datasetui.job_progress import JobProgressReporter, report_progress
 from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import _write_dataset
 from datasetui.validation import validate_dataset_root
+
 
 
 
@@ -172,7 +173,7 @@ def convert_dataset_to_v21(
     try:
         destination = staging_root / payload["output_name"]
         source = DatasetSource(source_root, info)
-        built = _write_dataset(
+        built = write_dataset(
             source=source,
             destination=destination,
             source_indices=list(range(int(info["total_episodes"]))),
