@@ -14,6 +14,7 @@ import numpy as np
 from datasetui.transform_errors import CurationTransformError
 
 
+
 _DECODE_PROGRESS_INTERVAL = 64
 
 
@@ -59,15 +60,16 @@ def histogram_statistics(histogram: np.ndarray, frame_count: int) -> dict:
 def recompute_visual_statistics(
     root: Path, *, on_progress=None, episode_indices=None
 ) -> dict:
-    from datasetui.transforms import _DatasetSource, _read_json
+    from datasetui.dataset_io.source import DatasetSource
+    from datasetui.dataset_io.files import read_json
     from datasetui.official_operations import enabled
 
-    info = _read_json(root / "meta/info.json")
+    info = read_json(root / "meta/info.json")
     if not any(
         feature.get("dtype") == "video" for feature in info["features"].values()
     ):
         return {}
-    source = _DatasetSource(root, info)
+    source = DatasetSource(root, info)
     if episode_indices is not None and not set(episode_indices).issubset(
         source.episode_metadata
     ):
@@ -212,11 +214,12 @@ def recompute_visual_statistics_with_episodes(
     an overlapping physical sample contributes once globally and once to every
     episode that selected it.
     """
-    from datasetui.transforms import _DatasetSource, _read_json
+    from datasetui.dataset_io.source import DatasetSource
+    from datasetui.dataset_io.files import read_json
     from datasetui.official_operations import enabled
 
-    info = _read_json(root / "meta/info.json")
-    source = _DatasetSource(root, info)
+    info = read_json(root / "meta/info.json")
+    source = DatasetSource(root, info)
     episode_indices = sorted(source.episode_metadata)
     per_episode: dict[int, dict] = {index: {} for index in episode_indices}
     if not source.video_keys:

@@ -17,8 +17,9 @@ import av
 import numpy as np
 import pandas as pd
 
-from datasetui.lerobot_runtime import ENGINE_POLICY, UPSTREAM_COMMIT, require_runtime
+from datasetui.lerobot_runtime import ENGINE_POLICY, require_runtime, UPSTREAM_COMMIT
 from datasetui.transform_errors import CurationTransformError
+
 
 MERGE_STATISTICS_POLICY = "lerobot-official-aggregate-v1"
 OFFICIAL_STATISTICS_MARKER = "datasetui-official-statistics-v1"
@@ -101,9 +102,9 @@ def _bind_official_statistics(root: Path, *, operation: str) -> None:
         "videos_sha256": _video_digest(root),
         "data_sha256": _data_digest(root),
     }
-    from datasetui.transforms import _write_json_atomic
+    from datasetui.dataset_io.files import write_json_atomic
 
-    _write_json_atomic(root / "meta/datasetui_provenance.json", marker)
+    write_json_atomic(root / "meta/datasetui_provenance.json", marker)
 
 
 def write_legacy_aggregated_statistics(
@@ -122,12 +123,12 @@ def write_legacy_aggregated_statistics(
             return False
         if path.is_symlink() or not path.is_file():
             raise CurationTransformError("Legacy episode statistics are unsafe")
-        from datasetui.transforms import MAX_METADATA_BYTES, _read_regular_bytes
+        from datasetui.dataset_io.files import MAX_METADATA_BYTES, read_regular_bytes
 
         try:
             rows = [
                 json.loads(line)
-                for line in _read_regular_bytes(
+                for line in read_regular_bytes(
                     path, max_bytes=MAX_METADATA_BYTES
                 )
                 .decode("utf-8")
@@ -183,9 +184,9 @@ def write_legacy_aggregated_statistics(
     from lerobot.datasets.io_utils import write_stats
 
     write_stats(aggregate_stats(output_stats), destination)
-    from datasetui.transforms import _write_json_lines
+    from datasetui.dataset_io.files import write_json_lines
 
-    _write_json_lines(
+    write_json_lines(
         destination / "meta/episodes_stats.jsonl",
         [
             {"episode_index": index, "stats": _statistics_to_json(stats)}
@@ -453,12 +454,12 @@ def _merge_private(*, sources, destination: Path, robot_type: str, on_progress=N
     # constructs output metadata. Copied Parquet remains lossless float64.
     canonical_info = json.loads((roots[0] / "meta/info.json").read_text())
     if "timestamp" in canonical_info["features"]:
-        from datasetui.transforms import _write_json_atomic
+        from datasetui.dataset_io.files import write_json_atomic
 
         output_info_path = destination / "meta/info.json"
         output_info = json.loads(output_info_path.read_text())
         output_info["features"]["timestamp"] = canonical_info["features"]["timestamp"]
-        _write_json_atomic(output_info_path, output_info)
+        write_json_atomic(output_info_path, output_info)
     expected = Counter(
         value
         for manifest in before

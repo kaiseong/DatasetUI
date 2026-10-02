@@ -12,19 +12,20 @@ from typing import Any
 
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
-from datasetui.huggingface import HF_NAMESPACE, validate_dataset_name
-from datasetui.validation_integrity import (
-    ContentIntegrityError,
-    VALIDATOR_POLICY,
-    validation_content_manifest,
+from datasetui.dataset_io.files import (
+    real_directory,
+    safe_dataset_root,
+    write_json_atomic,
 )
+from datasetui.huggingface import HF_NAMESPACE, validate_dataset_name
 from datasetui.job_progress import JobProgressReporter
 from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import (
-    _real_directory,
-    _safe_dataset_root,
-    _write_json_atomic,
+from datasetui.validation_integrity import (
+    ContentIntegrityError,
+    validation_content_manifest,
+    VALIDATOR_POLICY,
 )
+
 
 
 class ExportGateRequiredError(CurationTransformError):
@@ -76,7 +77,7 @@ def _source(
         raise ExportGateRequiredError(
             "A successful export gate is required for this exact dataset revision"
         )
-    source = _safe_dataset_root(
+    source = safe_dataset_root(
         settings.nas_root, record["storage_area"], record["relative_path"]
     )
     try:
@@ -121,7 +122,7 @@ def export_to_nas(
         current_item="내보낼 데이터셋 확인",
     )
     record, source, source_manifest = _source(database, settings, payload)
-    exports = _real_directory(settings.nas_root / "exports")
+    exports = real_directory(settings.nas_root / "exports")
     final = exports / payload["output_name"]
     if final.exists():
         if (
@@ -722,6 +723,6 @@ def _delivery_result(
 def _write_delivery_manifest(
     settings: Settings, job_id: str, result: dict[str, Any]
 ) -> None:
-    root = _real_directory(settings.nas_root / "manifests") / "delivery"
+    root = real_directory(settings.nas_root / "manifests") / "delivery"
     root.mkdir(parents=True, exist_ok=True)
-    _write_json_atomic(root / f"{job_id}.json", {"schema_version": 1, **result})
+    write_json_atomic(root / f"{job_id}.json", {"schema_version": 1, **result})

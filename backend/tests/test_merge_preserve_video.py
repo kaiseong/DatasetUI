@@ -15,6 +15,7 @@ from datasetui.merge_writer import write_preserved_merge
 from datasetui.transform_errors import CurationTransformError
 
 
+
 VIDEO_KEY = "observation.images.top"
 
 
@@ -107,7 +108,7 @@ class _FakeMergedSource:
 
 @pytest.fixture(autouse=True)
 def _avoid_video_decode(monkeypatch):
-    monkeypatch.setattr(merge_writer, "_write_stats", lambda *args, **kwargs: None)
+    monkeypatch.setattr(merge_writer, "write_stats", lambda *args, **kwargs: None)
 
 
 def _sha(path: Path) -> str:
@@ -120,7 +121,7 @@ def test_v3_copies_each_shared_source_shard_once_and_preserves_offsets(
     source = _FakeMergedSource(tmp_path, version="v3.0")
     destination = tmp_path / "output"
     monkeypatch.setattr(
-        "datasetui.transforms._slice_video",
+        "datasetui.dataset_io.video.slice_video",
         lambda *args, **kwargs: pytest.fail("merge must not invoke the video encoder"),
     )
 
@@ -248,7 +249,7 @@ def test_v21_merge_prefers_episode_statistics_without_full_recompute(
     )
     monkeypatch.setattr(
         merge_writer,
-        "_write_stats",
+        "write_stats",
         lambda *args, **kwargs: pytest.fail("must not fully recompute statistics"),
     )
 

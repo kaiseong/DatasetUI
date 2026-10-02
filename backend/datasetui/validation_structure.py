@@ -8,12 +8,13 @@ from pathlib import Path
 
 import numpy as np
 
-from datasetui.transforms import (
-    _read_json_lines,
-    _read_parquet,
-    _safe_parquet_files,
-    _task_rows_from_frame,
+from datasetui.dataset_io.files import read_json_lines
+from datasetui.dataset_io.tables import (
+    read_parquet,
+    safe_parquet_files,
+    task_rows_from_frame,
 )
+
 
 
 def integer(value):
@@ -141,14 +142,14 @@ def validate_metadata(source, issue) -> None:
             task_path = root / "meta/tasks.parquet"
             if task_path.is_symlink():
                 raise ValueError("Unsafe task metadata")
-            tasks = _task_rows_from_frame(_read_parquet(task_path))
-            paths = _safe_parquet_files(root / "meta/episodes")
+            tasks = task_rows_from_frame(read_parquet(task_path))
+            paths = safe_parquet_files(root / "meta/episodes")
             episodes = [
-                row for path in paths for row in _read_parquet(path).to_dict("records")
+                row for path in paths for row in read_parquet(path).to_dict("records")
             ]
         else:
-            tasks = _read_json_lines(root / "meta/tasks.jsonl")
-            episodes = _read_json_lines(root / "meta/episodes.jsonl")
+            tasks = read_json_lines(root / "meta/tasks.jsonl")
+            episodes = read_json_lines(root / "meta/episodes.jsonl")
     except (OSError, ValueError, KeyError, TypeError) as exc:
         issue(
             "FAIL",

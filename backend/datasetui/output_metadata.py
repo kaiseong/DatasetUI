@@ -6,8 +6,9 @@ from pathlib import Path
 from datasetui.transform_errors import CurationTransformError
 
 
+
 def copy_modality_metadata(roots: list[Path], destination: Path) -> None:
-    from datasetui.transforms import _read_regular_bytes, _write_json
+    from datasetui.dataset_io.files import read_regular_bytes, write_json
 
     values = []
     for root in roots:
@@ -15,7 +16,7 @@ def copy_modality_metadata(roots: list[Path], destination: Path) -> None:
         if not path.exists() and not path.is_symlink():
             values.append(None)
             continue
-        value = json.loads(_read_regular_bytes(path, max_bytes=1024 * 1024))
+        value = json.loads(read_regular_bytes(path, max_bytes=1024 * 1024))
         if not isinstance(value, dict):
             raise CurationTransformError("Consumer modality metadata must be an object")
         values.append(value)
@@ -24,7 +25,7 @@ def copy_modality_metadata(roots: list[Path], destination: Path) -> None:
             "Merge consumer modality mappings differ or are missing in some sources"
         )
     if values and values[0] is not None:
-        _write_json(destination / "meta/modality.json", values[0])
+        write_json(destination / "meta/modality.json", values[0])
     elif values:
         # Explicit, versioned RBY1 contract from the actual GR00T consumer,
         # not a guess based only on vector width. Other robots get no mapping.
@@ -34,7 +35,7 @@ def copy_modality_metadata(roots: list[Path], destination: Path) -> None:
             return
         infos = [
             json.loads(
-                _read_regular_bytes(root / "meta/info.json", max_bytes=16 * 1024 * 1024)
+                read_regular_bytes(root / "meta/info.json", max_bytes=16 * 1024 * 1024)
             )
             for root in [*roots, destination]
         ]
@@ -62,8 +63,8 @@ def copy_modality_metadata(roots: list[Path], destination: Path) -> None:
                     "human.task_description": {"original_key": "task_index"}
                 },
             }
-            _write_json(destination / "meta/modality.json", mapping)
-            _write_json(
+            write_json(destination / "meta/modality.json", mapping)
+            write_json(
                 destination / "meta/datasetui_consumer_mapping.json",
                 {
                     "policy": "rby1-gr00t-explicit-columns-v1",

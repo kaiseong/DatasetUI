@@ -4,12 +4,14 @@ import json
 import numpy as np
 import pytest
 
+from test_transforms import _write_v21
+
+from datasetui.dataset_io.source import DatasetSource
 from datasetui.models import RelativeActionConfig
 from datasetui.relative_artifacts import read_relative_profile
 from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import _DatasetSource, _write_dataset
+from datasetui.transforms import _write_dataset
 from datasetui.validation import validate_dataset_root
-from test_transforms import _write_v21
 
 
 @pytest.mark.parametrize("horizon", [0, -1, 1025, True, 1.5, "50"])
@@ -85,7 +87,7 @@ def relative_output(tmp_path, monkeypatch):
     info = json.loads((source / "meta/info.json").read_text())
     destination = tmp_path / "relative"
     built = _write_dataset(
-        source=_DatasetSource(source, info),
+        source=DatasetSource(source, info),
         destination=destination,
         source_indices=[0, 1],
         trim_config={"enabled": False},
@@ -105,8 +107,8 @@ def test_materialization_preserves_absolute_rows_and_writes_relative_training_st
 ):
     source, destination, built = relative_output
     info = json.loads((source / "meta/info.json").read_text())
-    original = _DatasetSource(source, info)
-    output = _DatasetSource(
+    original = DatasetSource(source, info)
+    output = DatasetSource(
         destination, json.loads((destination / "meta/info.json").read_text())
     )
     for episode in range(2):
@@ -209,7 +211,7 @@ def test_relative_source_cannot_silently_lose_profile(relative_output, tmp_path)
     info = json.loads((root / "meta/info.json").read_text())
     with pytest.raises(CurationTransformError, match="discard"):
         _write_dataset(
-            source=_DatasetSource(root, info),
+            source=DatasetSource(root, info),
             destination=tmp_path / "invalid",
             source_indices=[0],
             trim_config={},

@@ -13,6 +13,7 @@ from datasetui.transforms import (
 )
 
 
+
 def _frame():
     return pd.DataFrame({"timestamp": [0.0, 0.1, 0.2, 0.3], "frame_index": range(4)})
 
@@ -117,7 +118,7 @@ def test_trim_events_obey_half_open_interval_and_leave_source_unchanged():
 def test_v21_conversion_rejects_rich_language_before_writing(tmp_path, name):
     from datasetui.conversion import convert_dataset_to_v21
     from datasetui.datasets import inspect_dataset
-    from datasetui.transforms import _tree_manifest
+    from datasetui.dataset_io.publish import tree_manifest
     from test_conversion_source_codec import _conversion_context
 
     settings, source, database, payload, job_id = _conversion_context(
@@ -135,7 +136,7 @@ def test_v21_conversion_rejects_rich_language_before_writing(tmp_path, name):
         storage_area="raw", records=[candidate.as_record()], scan_generation=generation
     )
     payload["fingerprint"] = database.list_datasets()[0]["fingerprint"]
-    before = _tree_manifest(source)
+    before = tree_manifest(source)
     with pytest.raises(CurationTransformError, match="rich language or VQA"):
         convert_dataset_to_v21(
             database=database,
@@ -144,7 +145,7 @@ def test_v21_conversion_rejects_rich_language_before_writing(tmp_path, name):
             job_id=job_id,
             worker_id="converter",
         )
-    assert _tree_manifest(source) == before
+    assert tree_manifest(source) == before
     assert not (settings.nas_root / "derived/unsupported").exists()
 
 

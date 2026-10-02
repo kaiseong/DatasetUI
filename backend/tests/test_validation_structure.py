@@ -6,10 +6,11 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from datasetui.validation import validate_dataset_root
-from datasetui.transforms import _DatasetSource
 from test_transforms import _write_v21
 from test_validation_conversion import _write_v3
+
+from datasetui.dataset_io.source import DatasetSource
+from datasetui.validation import validate_dataset_root
 
 
 @pytest.mark.parametrize(
@@ -133,7 +134,7 @@ def test_v3_task_descriptions_can_be_stored_in_string_index(tmp_path: Path) -> N
     result = validate_dataset_root(root, mode="quick")
 
     assert result["passed"] is True
-    source = _DatasetSource(
+    source = DatasetSource(
         root, json.loads((root / "meta/info.json").read_text(encoding="utf-8"))
     )
     assert source.tasks == {0: task_text}

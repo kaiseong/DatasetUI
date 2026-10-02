@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from datasetui import transforms
+from datasetui.dataset_io.source import DatasetSource
 from datasetui.deferred_statistics import read_deferred_statistics
 from datasetui.models import TrimConfig
 from datasetui.output_statistics import write_output_statistics
@@ -17,7 +18,7 @@ def source(tmp_path, monkeypatch):
     root = tmp_path / "source"
     _write_v21(root)
     write_output_statistics(root)
-    return transforms._DatasetSource(
+    return DatasetSource(
         root, json.loads((root / "meta/info.json").read_text())
     )
 
@@ -45,7 +46,7 @@ def test_skip_avoids_recomputation_preserves_source_and_updates_structure(
         if p.is_file()
     }
     monkeypatch.setattr(
-        transforms, "_write_stats", lambda *a, **k: pytest.fail("statistics recomputed")
+        transforms, "write_stats", lambda *a, **k: pytest.fail("statistics recomputed")
     )
     output = tmp_path / "trimmed"
     result = build(source, output)
@@ -116,13 +117,13 @@ def test_deferred_state_survives_selection_and_can_be_recomputed(
 ):
     output = tmp_path / "trimmed"
     build(source, output)
-    inherited = transforms._DatasetSource(
+    inherited = DatasetSource(
         output, json.loads((output / "meta/info.json").read_text())
     )
     with monkeypatch.context() as patch:
         patch.setattr(
             transforms,
-            "_write_stats",
+            "write_stats",
             lambda *a, **k: pytest.fail("selection recomputed statistics"),
         )
         selected = tmp_path / "selected"
@@ -144,12 +145,12 @@ def test_deferred_merge_does_not_aggregate_stale_statistics(
 
     output = tmp_path / "trimmed"
     build(source, output)
-    inherited = transforms._DatasetSource(
+    inherited = DatasetSource(
         output, json.loads((output / "meta/info.json").read_text())
     )
     merged = _MergedSource([inherited, source], "rby1")
     monkeypatch.setattr(
-        "datasetui.merge_writer._write_stats",
+        "datasetui.merge_writer.write_stats",
         lambda *a, **k: pytest.fail("merge recomputed statistics"),
     )
     destination = tmp_path / "merged"
@@ -177,16 +178,16 @@ def test_stationary_v3_skip_preserves_video_bytes_and_segment_ranges(
     root = tmp_path / "source"
     _source(root, "v3.0")
     write_output_statistics(root)
-    source = transforms._DatasetSource(
+    source = DatasetSource(
         root, json.loads((root / "meta/info.json").read_text())
     )
     source_videos = sorted(p.read_bytes() for p in (root / "videos").rglob("*.mp4"))
     monkeypatch.setattr(
-        transforms, "_write_stats", lambda *a, **k: pytest.fail("statistics recomputed")
+        transforms, "write_stats", lambda *a, **k: pytest.fail("statistics recomputed")
     )
     monkeypatch.setattr(
         transforms,
-        "_slice_video",
+        "slice_video",
         lambda *a, **k: pytest.fail("stationary video reencoded"),
     )
     destination = tmp_path / "trimmed"

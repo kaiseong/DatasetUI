@@ -11,15 +11,16 @@ import pandas as pd
 import pytest
 from PIL import Image
 
-from datasetui.database import Database
-from datasetui.content_integrity import dataset_content_fingerprint
-from datasetui.datasets import inspect_dataset
-from datasetui.segmentation.errors import SegmentationError
-from datasetui.segmentation.preview import create_preview
-from datasetui.segmentation.source import dataset_scope, source_frame
-from datasetui.segmentation.export import export_preview
 from test_transforms import _settings
 from test_validation_conversion import _write_v3
+
+from datasetui.content_integrity import dataset_content_fingerprint
+from datasetui.database import Database
+from datasetui.datasets import inspect_dataset
+from datasetui.segmentation.errors import SegmentationError
+from datasetui.segmentation.export import export_preview
+from datasetui.segmentation.preview import create_preview
+from datasetui.segmentation.source import dataset_scope, source_frame
 
 
 class DeterministicEngine:
@@ -159,8 +160,8 @@ def _dataset(root: Path) -> None:
         [(100, 100, 100)] * 4,
     )
     (root / "README.md").write_text("preserve me\n", encoding="utf-8")
-    from datasetui.transforms import _write_stats
-    _write_stats(root / "meta/stats.json", [frame])
+    from datasetui.dataset_io.stats import write_stats
+    write_stats(root / "meta/stats.json", [frame])
 
 
 def _registered(tmp_path: Path):

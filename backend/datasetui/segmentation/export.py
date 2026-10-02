@@ -23,25 +23,22 @@ from datasetui.content_integrity import (
     dataset_content_manifest,
 )
 from datasetui.database import Database, RecipeRevisionMismatchError
+from datasetui.dataset_io.files import read_regular_bytes, write_json_atomic
+from datasetui.dataset_io.source import DatasetSource
 from datasetui.datasets import inspect_dataset, scan_storage_area
-from datasetui.job_progress import JobProgressReporter
+from datasetui.job_progress import JobProgressReporter, report_progress
 from datasetui.segmentation.errors import SegmentationError
 from datasetui.segmentation.media import iter_video_arrays
 from datasetui.segmentation.paths import output_lock
 from datasetui.segmentation.preview import (
-    MAX_MANIFEST_BYTES,
     canonical_hash,
+    MAX_MANIFEST_BYTES,
     read_manifest,
 )
 from datasetui.segmentation.selection import has_keep_objects, retained_mask
 from datasetui.segmentation.source import load_source
-from datasetui.transforms import (
-    _DatasetSource,
-    _read_regular_bytes,
-    _report_progress,
-    _write_json_atomic,
-)
 from datasetui.validation import validate_dataset_root
+
 
 
 def export_preview(
@@ -64,7 +61,7 @@ def export_preview(
         worker_id=worker_id,
         output_name=output_name,
     )
-    _report_progress(
+    report_progress(
         progress,
         stage="preparing",
         completed=0,
@@ -138,7 +135,7 @@ def export_preview(
     source_root, _ = load_source(
         database, settings, dataset_id, manifest["fingerprint"]
     )
-    _report_progress(
+    report_progress(
         progress,
         stage="preparing",
         completed=1,
@@ -165,7 +162,7 @@ def export_preview(
                 recipe_hash=export_recipe_hash,
                 artifact_fingerprint=artifact_fingerprint,
             )
-            _report_progress(
+            report_progress(
                 progress,
                 stage="complete",
                 completed=1,
@@ -184,7 +181,7 @@ def export_preview(
         destination = staging / output_name
         try:
             database.assert_job_lease(job_id, worker_id=worker_id)
-            _report_progress(
+            report_progress(
                 progress,
                 stage="publish",
                 completed=0,
@@ -212,7 +209,7 @@ def export_preview(
                 lease,
                 on_progress=progress,
             )
-            _report_progress(
+            report_progress(
                 progress,
                 stage="statistics",
                 completed=0,
@@ -243,7 +240,7 @@ def export_preview(
                 statistics = {"status": "recomputed"}
             else:
                 statistics = preserve_deferred_statistics(source_root, destination)
-            _report_progress(
+            report_progress(
                 progress,
                 stage="statistics",
                 completed=1,
@@ -254,7 +251,7 @@ def export_preview(
                 else "분포 통계 미재계산 표시",
                 force=True,
             )
-            _report_progress(
+            report_progress(
                 progress,
                 stage="validate",
                 completed=0,
@@ -264,7 +261,7 @@ def export_preview(
                 force=True,
             )
             full_gate = validate_dataset_root(destination, mode="full")
-            _report_progress(
+            report_progress(
                 progress,
                 stage="validate",
                 completed=1,
@@ -275,7 +272,7 @@ def export_preview(
             export_gate = validate_dataset_root(destination, mode="export_gate")
             if not full_gate["passed"] or not export_gate["passed"]:
                 raise SegmentationError("Segmented dataset failed the export gate")
-            _report_progress(
+            report_progress(
                 progress,
                 stage="validate",
                 completed=2,
@@ -307,11 +304,11 @@ def export_preview(
                 "video_policy": POLICY,
                 "segmented_videos": written_videos,
             }
-            _write_json_atomic(provenance_path, provenance)
+            write_json_atomic(provenance_path, provenance)
             database.assert_job_lease(job_id, worker_id=worker_id)
             if final.exists() or final.is_symlink():
                 raise SegmentationError("Segmentation output name already exists")
-            _report_progress(
+            report_progress(
                 progress,
                 stage="publish",
                 completed=0,
@@ -322,7 +319,7 @@ def export_preview(
             )
             database.begin_job_finalization(job_id, worker_id=worker_id)
             destination.rename(final)
-            _report_progress(
+            report_progress(
                 progress,
                 stage="publish",
                 completed=1,
@@ -333,7 +330,7 @@ def export_preview(
         finally:
             shutil.rmtree(staging, ignore_errors=True)
 
-    _report_progress(
+    report_progress(
         progress,
         stage="register",
         completed=0,
@@ -343,7 +340,7 @@ def export_preview(
         force=True,
     )
     result = _register_export(database, settings, output_name, output_manifest)
-    _report_progress(
+    report_progress(
         progress,
         stage="register",
         completed=1,
@@ -351,7 +348,7 @@ def export_preview(
         unit="items",
         current_item="라이브러리 갱신",
     )
-    _report_progress(
+    report_progress(
         progress,
         stage="complete",
         completed=1,
@@ -365,7 +362,7 @@ def export_preview(
 
 def _update_image_statistics(root: Path, video_key: str, episode_index: int) -> None:
     info = json.loads((root / "meta/info.json").read_text(encoding="utf-8"))
-    source = _DatasetSource(root, info)
+    source = DatasetSource(root, info)
     paths: dict[Path, list[tuple[int, int]]] = {}
     for index in range(int(info["total_episodes"])):
         data, metadata = source.episode(index)
@@ -386,7 +383,7 @@ def _update_image_statistics(root: Path, video_key: str, episode_index: int) -> 
     if not isinstance(stats, dict):
         raise SegmentationError("Dataset statistics are invalid")
     stats[video_key] = global_stats
-    _write_json_atomic(stats_path, stats)
+    write_json_atomic(stats_path, stats)
 
     episode_stats_path = root / "meta/episodes_stats.jsonl"
     if episode_stats_path.is_file():
@@ -584,7 +581,7 @@ def _reuse_export(
     if final.is_symlink() or not final.is_dir() or not provenance_path.is_file():
         raise SegmentationError("Segmentation output name already exists")
     provenance = json.loads(
-        _read_regular_bytes(provenance_path, max_bytes=MAX_MANIFEST_BYTES)
+        read_regular_bytes(provenance_path, max_bytes=MAX_MANIFEST_BYTES)
     )
     if (
         provenance.get("job_id") != job_id
@@ -662,7 +659,7 @@ def _high_quality_options(encoder: str, gop: int) -> dict[str, str]:
 def _source_stream(path: Path) -> tuple[str, str]:
     import av
 
-    from datasetui.transforms import _normalize_video_codec
+    from datasetui.dataset_io.video import normalize_video_codec
 
     with av.open(str(path)) as container:
         if not container.streams.video:
@@ -673,16 +670,16 @@ def _source_stream(path: Path) -> tuple[str, str]:
             if stream.codec_context.format is not None
             else "yuv420p"
         )
-        return _normalize_video_codec(stream.codec_context.name), pixel_format
+        return normalize_video_codec(stream.codec_context.name), pixel_format
 
 
 class _EpisodeWriter:
     def __init__(self, path: Path, codec: str, pixel_format: str, fps: float, width: int, height: int, gop: int):
         import av
 
-        from datasetui.transforms import _compatible_pixel_format, _video_encoder
+        from datasetui.dataset_io.video import compatible_pixel_format, video_encoder
 
-        self.encoder = _video_encoder(
+        self.encoder = video_encoder(
             codec, width=width, height=height, pixel_format=pixel_format
         )
         self.path = path
@@ -690,7 +687,7 @@ class _EpisodeWriter:
         rate = Fraction(str(fps)).limit_denominator(1_000_000)
         self.stream = self.container.add_stream(self.encoder, rate=rate)
         self.stream.width, self.stream.height = width, height
-        self.stream.pix_fmt = _compatible_pixel_format(self.encoder, pixel_format)
+        self.stream.pix_fmt = compatible_pixel_format(self.encoder, pixel_format)
         self.stream.options = _high_quality_options(self.encoder, gop)
         self.stream.thread_count = max(1, min(4, os.cpu_count() or 1))
         self.time_base = 1 / rate
@@ -758,7 +755,7 @@ def write_segmented_videos(
     from datasetui.segmentation.media import iter_video_arrays, video_frame_count
     from datasetui.segmentation.paths import safe_regular_path
     from datasetui.segmentation.selection import read_mask
-    from datasetui.transforms import _report_progress
+    from datasetui.job_progress import report_progress
 
     info = json.loads((destination / "meta/info.json").read_text(encoding="utf-8"))
     version = str(info.get("codebase_version"))
@@ -845,7 +842,7 @@ def write_segmented_videos(
                     )
                 current["writer"].write(np.where(keep[:, :, None], array, current["background"]))
                 done += 1
-                _report_progress(
+                report_progress(
                     on_progress,
                     stage="video",
                     completed=done,

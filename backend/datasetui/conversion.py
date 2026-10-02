@@ -9,23 +9,24 @@ from typing import Any
 
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
-from datasetui.datasets import inspect_dataset, scan_storage_area
-from datasetui.job_progress import JobProgressReporter
-from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import (
-    MAX_INFO_BYTES,
-    _DatasetSource,
-    _publish_output,
-    _read_regular_bytes,
-    _report_progress,
-    _assert_source_unchanged,
-    _safe_dataset_root,
-    _source_tree_identity,
-    _tree_manifest,
-    _write_dataset,
-    _write_json_atomic,
+from datasetui.dataset_io.files import (
+    read_regular_bytes,
+    safe_dataset_root,
+    write_json_atomic,
 )
+from datasetui.dataset_io.publish import (
+    assert_source_unchanged,
+    publish_output,
+    source_tree_identity,
+    tree_manifest,
+)
+from datasetui.dataset_io.source import DatasetSource
+from datasetui.datasets import MAX_INFO_BYTES, inspect_dataset, scan_storage_area
+from datasetui.job_progress import JobProgressReporter, report_progress
+from datasetui.transform_errors import CurationTransformError
+from datasetui.transforms import _write_dataset
 from datasetui.validation import validate_dataset_root
+
 
 
 CONVERSION_ENGINE_ID = "datasetui-v3-to-v21-source-codec-exact-stats-v2"
@@ -72,7 +73,7 @@ def convert_dataset_to_v21(
         worker_id=worker_id,
         output_name=payload["output_name"],
     )
-    _report_progress(
+    report_progress(
         progress,
         stage="preparing",
         completed=0,
@@ -90,11 +91,11 @@ def convert_dataset_to_v21(
         or record["relative_path"] != payload["relative_path"]
     ):
         raise RecipeRevisionMismatchError(payload["dataset_id"])
-    source_root = _safe_dataset_root(
+    source_root = safe_dataset_root(
         settings.nas_root, record["storage_area"], record["relative_path"]
     )
-    source_identity = _source_tree_identity(source_root)
-    raw = _read_regular_bytes(source_root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
+    source_identity = source_tree_identity(source_root)
+    raw = read_regular_bytes(source_root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
     if hashlib.sha256(raw).hexdigest() != payload["fingerprint"]:
         raise RecipeRevisionMismatchError(payload["dataset_id"])
     from datasetui.relative_artifacts import reject_relative_profile
@@ -113,7 +114,7 @@ def convert_dataset_to_v21(
         raise CurationTransformError(
             "v2.1 conversion does not support rich language or VQA annotations"
         )
-    _report_progress(
+    report_progress(
         progress,
         stage="preparing",
         completed=1,
@@ -121,7 +122,7 @@ def convert_dataset_to_v21(
         unit="items",
         current_item="원본 데이터셋 확인",
     )
-    _report_progress(
+    report_progress(
         progress,
         stage="validate",
         completed=0,
@@ -135,7 +136,7 @@ def convert_dataset_to_v21(
     )
     if not source_gate["passed"]:
         raise CurationTransformError("Source dataset failed the export gate")
-    _report_progress(
+    report_progress(
         progress,
         stage="validate",
         completed=1,
@@ -151,10 +152,10 @@ def convert_dataset_to_v21(
         output = settings.nas_root / "derived" / result["output"]["relative_path"]
         if (
             output.is_dir()
-            and _tree_manifest(output)["tree_sha256"]
+            and tree_manifest(output)["tree_sha256"]
             == result["output"]["manifest_sha256"]
         ):
-            _report_progress(
+            report_progress(
                 progress,
                 stage="complete",
                 completed=1,
@@ -170,7 +171,7 @@ def convert_dataset_to_v21(
     staging_root = Path(tempfile.mkdtemp(prefix=f"{job_id}-", dir=staging_parent))
     try:
         destination = staging_root / payload["output_name"]
-        source = _DatasetSource(source_root, info)
+        source = DatasetSource(source_root, info)
         built = _write_dataset(
             source=source,
             destination=destination,
@@ -181,7 +182,7 @@ def convert_dataset_to_v21(
             video_codec_policy=VIDEO_CODEC_POLICY,
             on_progress=progress,
         )
-        _report_progress(
+        report_progress(
             progress,
             stage="validate",
             completed=1,
@@ -199,7 +200,7 @@ def convert_dataset_to_v21(
             raise CurationTransformError(
                 "Converted dataset failed structural validation"
             )
-        _report_progress(
+        report_progress(
             progress,
             stage="validate",
             completed=2,
@@ -210,7 +211,7 @@ def convert_dataset_to_v21(
         output_gate = validate_dataset_root(destination, mode="export_gate")
         if not output_gate["passed"]:
             raise CurationTransformError("Converted dataset failed the export gate")
-        _report_progress(
+        report_progress(
             progress,
             stage="validate",
             completed=3,
@@ -218,9 +219,9 @@ def convert_dataset_to_v21(
             unit="items",
             current_item="변환 결과 Export Gate 검사",
         )
-        _assert_source_unchanged(source_root, source_identity, payload["dataset_id"])
+        assert_source_unchanged(source_root, source_identity, payload["dataset_id"])
         database.assert_job_lease(job_id, worker_id=worker_id)
-        manifest = _publish_output(
+        manifest = publish_output(
             database=database,
             settings=settings,
             job_id=job_id,
@@ -247,8 +248,8 @@ def convert_dataset_to_v21(
             "reused": False,
         }
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_json_atomic(manifest_path, {"schema_version": 1, **result})
-        _report_progress(
+        write_json_atomic(manifest_path, {"schema_version": 1, **result})
+        report_progress(
             progress,
             stage="register",
             completed=0,
@@ -265,7 +266,7 @@ def convert_dataset_to_v21(
             ),
             scan_generation=generation,
         )
-        _report_progress(
+        report_progress(
             progress,
             stage="register",
             completed=1,
@@ -273,7 +274,7 @@ def convert_dataset_to_v21(
             unit="items",
             current_item="라이브러리 갱신",
         )
-        _report_progress(
+        report_progress(
             progress,
             stage="complete",
             completed=1,

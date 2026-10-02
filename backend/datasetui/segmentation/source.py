@@ -15,14 +15,12 @@ from datasetui.content_integrity import (
     dataset_content_fingerprint,
 )
 from datasetui.database import Database, RecipeRevisionMismatchError
+from datasetui.dataset_io.files import read_regular_bytes, safe_dataset_root
+from datasetui.dataset_io.source import DatasetSource
 from datasetui.segmentation.errors import SegmentationError
-from datasetui.segmentation.media import MAX_IMAGE_PIXELS, decode_frame
+from datasetui.segmentation.media import decode_frame, MAX_IMAGE_PIXELS
 from datasetui.segmentation.paths import safe_directory_path, safe_regular_path
-from datasetui.transforms import (
-    _DatasetSource,
-    _read_regular_bytes,
-    _safe_dataset_root,
-)
+
 
 
 def load_source(
@@ -32,14 +30,14 @@ def load_source(
     fingerprint: str | None = None,
     *,
     verify_content: bool = True,
-) -> tuple[Path, _DatasetSource]:
+) -> tuple[Path, DatasetSource]:
     record = database.get_dataset(str(dataset_id))
     # Segmentation approvals bind full content independently of older registry
     # deployments whose fingerprint intentionally covers only meta/info.json.
     expected = fingerprint
     if not record["available"] or record["readiness"] != "ready":
         raise RecipeRevisionMismatchError(str(dataset_id))
-    root = _safe_dataset_root(
+    root = safe_dataset_root(
         settings.nas_root, record["storage_area"], record["relative_path"]
     )
     if verify_content:
@@ -52,10 +50,10 @@ def load_source(
     try:
         info_path = safe_regular_path(root, root / "meta/info.json")
         safe_directory_path(root, root / "data")
-        info = json.loads(_read_regular_bytes(info_path, max_bytes=2 * 1024 * 1024))
+        info = json.loads(read_regular_bytes(info_path, max_bytes=2 * 1024 * 1024))
         if not isinstance(info, dict):
             raise ValueError
-        source = _DatasetSource(root, info)
+        source = DatasetSource(root, info)
         if verify_content:
             source.segmentation_fingerprint = actual
     except Exception as exc:
@@ -103,7 +101,7 @@ def source_frame(
 
 
 def _episode(
-    source: _DatasetSource, episode_index: int
+    source: DatasetSource, episode_index: int
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
     total = int(source.info.get("total_episodes", 0))
     if episode_index < 0 or episode_index >= total:
@@ -112,7 +110,7 @@ def _episode(
 
 
 def validate_video_selection(
-    source: _DatasetSource, video_key: str, frame_index: int, frame_count: int
+    source: DatasetSource, video_key: str, frame_index: int, frame_count: int
 ) -> None:
     if video_key not in source.video_keys:
         raise SegmentationError("Video key is not available")

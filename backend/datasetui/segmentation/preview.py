@@ -17,11 +17,10 @@ import numpy as np
 from PIL import Image
 
 from datasetui.config import Settings
-from datasetui.content_integrity import (
-    dataset_content_fingerprint,
-)
+from datasetui.content_integrity import dataset_content_fingerprint
 from datasetui.database import Database, RecipeRevisionMismatchError
-from datasetui.job_progress import JobProgressReporter
+from datasetui.dataset_io.files import read_regular_bytes, write_json_atomic
+from datasetui.job_progress import JobProgressReporter, report_progress
 from datasetui.segmentation import engine as engine_module
 from datasetui.segmentation.contract import (
     PendingPreviewSpec,
@@ -31,11 +30,11 @@ from datasetui.segmentation.contract import (
 from datasetui.segmentation.engine import engine_progress, estimated_sam_passes
 from datasetui.segmentation.errors import SegmentationError
 from datasetui.segmentation.media import (
-    MAX_IMAGE_PIXELS,
     close_video_writer,
     decode_frame,
     encode_frame,
     iter_video_arrays,
+    MAX_IMAGE_PIXELS,
     open_video_writer,
     png_bytes,
     video_frame_count,
@@ -43,11 +42,11 @@ from datasetui.segmentation.media import (
 )
 from datasetui.segmentation.paths import output_lock, safe_regular_path
 from datasetui.segmentation.selection import (
-    MASK_TARGETS,
     apply_legacy_corrections,
     brush_hints,
     has_keep_objects,
     mask_inputs,
+    MASK_TARGETS,
     read_mask,
     retained_mask,
     validate_detections,
@@ -57,11 +56,7 @@ from datasetui.segmentation.source import (
     load_source,
     validate_video_selection,
 )
-from datasetui.transforms import (
-    _read_regular_bytes,
-    _report_progress,
-    _write_json_atomic,
-)
+
 
 MAX_MANIFEST_BYTES = 16 * 1024 * 1024
 
@@ -80,7 +75,7 @@ def create_preview(
         job_id=job_id,
         worker_id=worker_id,
     )
-    _report_progress(
+    report_progress(
         progress,
         stage="preparing",
         completed=0,
@@ -147,7 +142,7 @@ def create_preview(
     stored_spec = {**normalized, "background_sha256": background_sha256}
     stored_spec.pop("background_base64", None)
     recipe_hash = canonical_hash(stored_spec)
-    _report_progress(
+    report_progress(
         progress,
         stage="preparing",
         completed=1,
@@ -161,7 +156,7 @@ def create_preview(
     if final.exists():
         database.assert_job_lease(job_id, worker_id=worker_id)
         result = _reuse_preview(final, recipe_hash, parsed.fingerprint, job_id)
-        _report_progress(
+        report_progress(
             progress,
             stage="complete",
             completed=1,
@@ -255,7 +250,7 @@ def create_preview(
                         ],
                     }
                 )
-        _report_progress(
+        report_progress(
             progress,
             stage="segment",
             completed=0,
@@ -289,7 +284,7 @@ def create_preview(
         selection_required = apply_selection(
             staging, parsed, provenance, frame_count, width, height
         )
-        _report_progress(
+        report_progress(
             progress,
             stage="segment",
             completed=1,
@@ -338,7 +333,7 @@ def create_preview(
             on_progress=progress,
             has_keep=has_keep_objects(parsed),
         )
-        _report_progress(
+        report_progress(
             progress,
             stage="validate",
             completed=0,
@@ -374,8 +369,8 @@ def create_preview(
             "object_coverage": coverage,
             "artifacts": _preview_artifact_manifest(staging),
         }
-        _write_json_atomic(staging / "manifest.json", manifest)
-        _report_progress(
+        write_json_atomic(staging / "manifest.json", manifest)
+        report_progress(
             progress,
             stage="validate",
             completed=1,
@@ -384,7 +379,7 @@ def create_preview(
             current_item="미리보기 결과 검사",
         )
         lease()
-        _report_progress(
+        report_progress(
             progress,
             stage="publish",
             completed=0,
@@ -396,7 +391,7 @@ def create_preview(
         with output_lock(settings, f"preview-{job_id}"):
             if final.exists() or final.is_symlink():
                 result = _reuse_preview(final, recipe_hash, parsed.fingerprint, job_id)
-                _report_progress(
+                report_progress(
                     progress,
                     stage="complete",
                     completed=1,
@@ -410,7 +405,7 @@ def create_preview(
             staging.rename(final)
         artifact_fingerprint = dataset_content_fingerprint(final, reuse_file_digests=True)
         result = _preview_result(manifest, artifact_fingerprint)
-        _report_progress(
+        report_progress(
             progress,
             stage="publish",
             completed=1,
@@ -418,7 +413,7 @@ def create_preview(
             unit="items",
             current_item="미리보기 게시",
         )
-        _report_progress(
+        report_progress(
             progress,
             stage="complete",
             completed=1,
@@ -452,7 +447,7 @@ def _render_preview(
     mask_video, mask_stream = open_video_writer(root / "mask.mp4", fps, width, height)
     background_array = np.asarray(background, dtype=np.uint8)
     seen = 0
-    _report_progress(
+    report_progress(
         on_progress,
         stage="write",
         completed=0,
@@ -477,7 +472,7 @@ def _render_preview(
             encode_frame(composite, composite_stream, output)
             encode_frame(mask_video, mask_stream, mask_rgb)
             seen += 1
-            _report_progress(
+            report_progress(
                 on_progress,
                 stage="write",
                 completed=seen,
@@ -504,7 +499,7 @@ def canonical_hash(value: Any) -> str:
 def read_manifest(root: Path) -> dict[str, Any]:
     try:
         value = json.loads(
-            _read_regular_bytes(root / "manifest.json", max_bytes=MAX_MANIFEST_BYTES)
+            read_regular_bytes(root / "manifest.json", max_bytes=MAX_MANIFEST_BYTES)
         )
     except Exception as exc:
         raise SegmentationError("Preview manifest is unavailable") from exc

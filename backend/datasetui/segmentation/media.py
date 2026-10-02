@@ -10,10 +10,9 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from datasetui.job_progress import report_progress
 from datasetui.segmentation.errors import SegmentationError
-from datasetui.transforms import (
-    _report_progress,
-)
+
 
 MAX_IMAGE_PIXELS = 16_000_000
 
@@ -34,7 +33,7 @@ def write_episode_clip(
     stream = None
     written = 0
     width = height = 0
-    _report_progress(
+    report_progress(
         on_progress,
         stage="read",
         completed=0,
@@ -56,7 +55,7 @@ def write_episode_clip(
                 output, stream = open_video_writer(output_path, fps, width, height)
             encode_frame(output, stream, array)
             written += 1
-            _report_progress(
+            report_progress(
                 on_progress,
                 stage="read",
                 completed=written,

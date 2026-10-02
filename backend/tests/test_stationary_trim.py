@@ -128,7 +128,7 @@ def test_v3_stationary_trim_copies_shared_shard_once_without_encoding(
     (destination / "videos").mkdir()
     monkeypatch.setattr(
         transforms,
-        "_slice_video",
+        "slice_video",
         lambda *args, **kwargs: pytest.fail("stationary trim must not encode video"),
     )
     episodes = [

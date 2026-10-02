@@ -2,10 +2,11 @@
 
 from pathlib import Path
 
-from datasetui.exact_statistics import recompute_numeric_statistics
-from datasetui.visual_statistics import recompute_visual_statistics_with_episodes
 from datasetui.episode_statistics import write_episode_statistics
+from datasetui.exact_statistics import recompute_numeric_statistics
 from datasetui.transform_errors import CurationTransformError
+from datasetui.visual_statistics import recompute_visual_statistics_with_episodes
+
 
 STATISTICS_POLICY = "exact-global-numeric-sampled-rgb-v1"
 
@@ -39,7 +40,7 @@ def write_output_statistics(root: Path, *, on_progress=None) -> dict:
 
         write_stats(stats, root)
     else:
-        from datasetui.transforms import _write_json
+        from datasetui.dataset_io.files import write_json
 
-        _write_json(root / "meta/stats.json", stats)
+        write_json(root / "meta/stats.json", stats)
     return stats

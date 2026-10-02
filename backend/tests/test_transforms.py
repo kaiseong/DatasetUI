@@ -8,17 +8,18 @@ import pandas as pd
 import pytest
 
 import datasetui.transforms as transforms
+
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
+from datasetui.dataset_io.video import slice_video
 from datasetui.datasets import inspect_dataset
-from datasetui.transforms import materialize_curation_recipe
+from datasetui.transform_errors import CurationTransformError
 from datasetui.transforms import (
     _output_selections,
     _relative_action_profile,
     _replace_language_columns,
-    _slice_video,
+    materialize_curation_recipe,
 )
-from datasetui.transform_errors import CurationTransformError
 
 
 def _settings(tmp_path: Path) -> Settings:
@@ -277,7 +278,7 @@ def test_exact_video_slice_decodes_and_reencodes_requested_frames(
     container.close()
 
     output = tmp_path / "trimmed.mp4"
-    _slice_video(source, output, 2, 7, 10, 5)
+    slice_video(source, output, 2, 7, 10, 5)
     decoded = av.open(str(output))
     try:
         assert sum(1 for _ in decoded.decode(video=0)) == 5

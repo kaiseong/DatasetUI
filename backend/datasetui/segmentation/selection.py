@@ -10,11 +10,10 @@ from typing import Any
 import numpy as np
 from PIL import Image, ImageDraw
 
-from datasetui.segmentation.contract import OBJECT_SELECTION, SegmentationSpec
+from datasetui.job_progress import report_progress
+from datasetui.segmentation.contract import SegmentationSpec, OBJECT_SELECTION
 from datasetui.segmentation.errors import SegmentationError, SegmentationGuidanceError
-from datasetui.transforms import (
-    _report_progress,
-)
+
 
 MASK_TARGETS = ("replace", "protect")
 
@@ -40,7 +39,7 @@ def apply_legacy_corrections(
         )
     total = count * len(MASK_TARGETS)
     completed = 0
-    _report_progress(
+    report_progress(
         on_progress,
         stage="write",
         completed=0,
@@ -68,7 +67,7 @@ def apply_legacy_corrections(
                     )
             mask.save(path, format="PNG", compress_level=6)
             completed += 1
-            _report_progress(
+            report_progress(
                 on_progress,
                 stage="write",
                 completed=completed,

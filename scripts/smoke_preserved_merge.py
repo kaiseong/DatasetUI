@@ -9,13 +9,14 @@ import av
 import numpy as np
 import pandas as pd
 
+import datasetui.transforms as transforms
+
 from datasetui.config import Settings
 from datasetui.database import Database
+from datasetui.dataset_io.source import DatasetSource
 from datasetui.datasets import inspect_dataset
 from datasetui.merge import merge_datasets
-from datasetui.transforms import _DatasetSource
 from datasetui.validation import validate_dataset_root
-import datasetui.transforms as transforms
 
 
 def digest(path):
@@ -220,7 +221,7 @@ for version in ("v2.1", "v3.0"):
         def forbidden(*args, **kwargs):
             raise AssertionError("Merge must never enter the video transcoder")
 
-        transforms._slice_video = forbidden
+        transforms.slice_video = forbidden
         result = merge_datasets(
             database=database,
             settings=settings,
@@ -229,7 +230,7 @@ for version in ("v2.1", "v3.0"):
             worker_id="smoke",
         )
         output = nas / "derived/merged"
-        merged = _DatasetSource(
+        merged = DatasetSource(
             output, json.loads((output / "meta/info.json").read_text())
         )
         assert result["output"]["episodes"] == 4
@@ -240,7 +241,7 @@ for version in ("v2.1", "v3.0"):
                 row for row in sources if row["id"] == item["source_dataset_id"]
             )
             source_root = nas / "raw" / record["relative_path"]
-            source = _DatasetSource(
+            source = DatasetSource(
                 source_root, json.loads((source_root / "meta/info.json").read_text())
             )
             source_index, output_index = (

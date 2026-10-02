@@ -7,12 +7,14 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from test_transforms import _settings, _write_v21
+
 from datasetui.database import Database
+from datasetui.dataset_io.stats import write_stats
+from datasetui.dataset_io.video import slice_video
 from datasetui.datasets import inspect_dataset
 from datasetui.merge import merge_datasets
 from datasetui.merge_progress import MergeProgressReporter
-from datasetui.transforms import _slice_video, _write_stats
-from test_transforms import _settings, _write_v21
 
 
 class _ProgressStore:
@@ -78,7 +80,7 @@ def test_statistics_callback_reports_actual_feature_counts(tmp_path: Path) -> No
     meta = tmp_path / "meta"
     meta.mkdir()
 
-    _write_stats(meta / "stats.json", [frames], on_progress=events.append)
+    write_stats(meta / "stats.json", [frames], on_progress=events.append)
 
     feature_events = [item for item in events if item["stage"] == "statistics"]
     assert feature_events[0]["completed"] == 0
@@ -106,7 +108,7 @@ def test_video_callback_reports_frames_and_propagates_failure(tmp_path: Path) ->
     container.close()
 
     events: list[dict] = []
-    _slice_video(
+    slice_video(
         source,
         tmp_path / "output.mp4",
         1,
@@ -128,7 +130,7 @@ def test_video_callback_reports_frames_and_propagates_failure(tmp_path: Path) ->
         raise RuntimeError("lease lost in video")
 
     with pytest.raises(RuntimeError, match="lease lost in video"):
-        _slice_video(
+        slice_video(
             source,
             tmp_path / "never-finished.mp4",
             1,

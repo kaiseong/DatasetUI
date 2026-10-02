@@ -7,17 +7,18 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from datasetui.conversion import (
-    CONVERSION_ENGINE_ID,
-    VIDEO_CODEC_POLICY,
-    convert_dataset_to_v21,
-)
-from datasetui.database import Database
-from datasetui.datasets import inspect_dataset
-from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import _tree_manifest
 from test_transforms import _settings
 from test_validation_conversion import _exact_stats, _write_v3
+
+from datasetui.conversion import (
+    CONVERSION_ENGINE_ID,
+    convert_dataset_to_v21,
+    VIDEO_CODEC_POLICY,
+)
+from datasetui.database import Database
+from datasetui.dataset_io.publish import tree_manifest
+from datasetui.datasets import inspect_dataset
+from datasetui.transform_errors import CurationTransformError
 
 
 def _add_shared_video(root: Path, codec: str) -> str:
@@ -173,7 +174,7 @@ def test_legacy_conversion_manifest_is_not_reused_or_deleted(tmp_path: Path) -> 
         worker_id="converter",
     )
     output = settings.nas_root / "derived" / payload["output_name"]
-    before = _tree_manifest(output)
+    before = tree_manifest(output)
     reused = convert_dataset_to_v21(
         database=database,
         settings=settings,
@@ -202,4 +203,4 @@ def test_legacy_conversion_manifest_is_not_reused_or_deleted(tmp_path: Path) -> 
         )
 
     assert output.is_dir()
-    assert _tree_manifest(output) == before
+    assert tree_manifest(output) == before

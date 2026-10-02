@@ -10,13 +10,16 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from datasetui.database import Database
-from datasetui.datasets import inspect_dataset
-from datasetui.transforms import _DatasetSource, materialize_curation_recipe
-from datasetui.validation import validate_dataset_root
-from datasetui import transforms
-from datasetui.transform_errors import CurationTransformError
 from test_transforms import _settings, _write_v21
+
+from datasetui import transforms
+from datasetui.dataset_io import video as dataset_video
+from datasetui.database import Database
+from datasetui.dataset_io.source import DatasetSource
+from datasetui.datasets import inspect_dataset
+from datasetui.transform_errors import CurationTransformError
+from datasetui.transforms import materialize_curation_recipe
+from datasetui.validation import validate_dataset_root
 
 
 CAMERAS = {"observation.images.front": "av1", "observation.images.left": "h264"}
@@ -171,7 +174,7 @@ def test_trim_materialization_follows_each_source_camera_codec(
     )
     output = settings.nas_root / "derived" / result["outputs"][0]["relative_path"]
     info = json.loads((output / "meta/info.json").read_text())
-    source = _DatasetSource(output, info)
+    source = DatasetSource(output, info)
     assert info["total_frames"] == 10
     for episode in range(2):
         data, metadata = source.episode(episode)
@@ -214,7 +217,7 @@ def test_av1_trim_preserves_format_and_fractional_fps(tmp_path, size, pix_fmt):
     _encode(
         source, "av1", list(range(20, 120, 10)), size=size, pix_fmt=pix_fmt, rate=rate
     )
-    transforms._slice_video(
+    dataset_video.slice_video(
         source, output, 2, 7, float(rate), 5, codec="av1", expected_source_codec="av1"
     )
     with av.open(str(output)) as video:
@@ -241,20 +244,20 @@ def test_missing_av1_encoder_never_falls_back_to_h264(monkeypatch):
 
     monkeypatch.setattr(av.codec, "Codec", unavailable)
     with pytest.raises(CurationTransformError, match="encoder"):
-        transforms._video_encoder("av1")
+        dataset_video.video_encoder("av1")
     assert attempted and all(name in {"libsvtav1", "libaom-av1"} for name in attempted)
 
 
 def test_unknown_source_codec_fails_explicitly():
     with pytest.raises(CurationTransformError, match="not supported"):
-        transforms._normalize_video_codec("unsupported_codec")
+        dataset_video.normalize_video_codec("unsupported_codec")
 
 
 @pytest.mark.parametrize("codec", ["av1", "h264"])
 def test_long_trim_timestamp_base_does_not_change_after_mux_starts(tmp_path, codec):
     source, output = tmp_path / "source.mp4", tmp_path / "output.mp4"
     _encode(source, codec, [50 + i % 100 for i in range(200)])
-    transforms._slice_video(
+    dataset_video.slice_video(
         source, output, 5, 190, 10, 185, codec=codec, expected_source_codec=codec
     )
     with av.open(str(output)) as video:

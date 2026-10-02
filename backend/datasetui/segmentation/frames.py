@@ -17,10 +17,11 @@ from PIL import Image
 
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError, utc_now
-from datasetui.segmentation.media import MAX_IMAGE_PIXELS, decode_frame
+from datasetui.dataset_io.files import safe_dataset_root
+from datasetui.segmentation.media import decode_frame, MAX_IMAGE_PIXELS
 from datasetui.segmentation.paths import safe_regular_path
 from datasetui.segmentation.source import load_source
-from datasetui.transforms import _safe_dataset_root
+
 
 _DIGEST_CACHE_LIMIT = 32
 
@@ -188,7 +189,7 @@ def read_snapshot_frame(
         raise ValueError("Frame is outside the snapshotted episode")
 
     try:
-        root = _safe_dataset_root(
+        root = safe_dataset_root(
             settings.nas_root, record["storage_area"], record["relative_path"]
         )
     except Exception as exc:

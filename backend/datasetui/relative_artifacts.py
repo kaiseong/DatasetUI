@@ -9,6 +9,7 @@ from pathlib import Path
 from datasetui.transform_errors import CurationTransformError
 
 
+
 def load_relative_processors(dataset_root: Path, *, chunk_size: int):
     """Insert relative BEFORE normalization; paired absolute AFTER unnormalization.
 
@@ -16,7 +17,7 @@ def load_relative_processors(dataset_root: Path, *, chunk_size: int):
     The caller must use this dataset's meta/stats.json for normalization.
     """
     from datasetui.lerobot_runtime import require_runtime
-    from datasetui.transforms import _read_regular_bytes
+    from datasetui.dataset_io.files import read_regular_bytes
 
     require_runtime()
     from lerobot.processor import (
@@ -30,7 +31,7 @@ def load_relative_processors(dataset_root: Path, *, chunk_size: int):
     if profile is None:
         raise ValueError("Dataset has no Relative training profile")
     info = json.loads(
-        _read_regular_bytes(root / "meta/info.json", max_bytes=16 * 1024 * 1024)
+        read_regular_bytes(root / "meta/info.json", max_bytes=16 * 1024 * 1024)
     )
     from datasetui.relative_actions import dimension_options
 
@@ -38,10 +39,10 @@ def load_relative_processors(dataset_root: Path, *, chunk_size: int):
     if not set(profile["dimensions"]).issubset(compatible_names):
         raise ValueError("Relative action dimensions do not match dataset metadata")
     stats = json.loads(
-        _read_regular_bytes(root / "meta/stats.json", max_bytes=64 * 1024 * 1024)
+        read_regular_bytes(root / "meta/stats.json", max_bytes=64 * 1024 * 1024)
     )
     absolute_stats = json.loads(
-        _read_regular_bytes(
+        read_regular_bytes(
             root / "meta/stats.absolute.json", max_bytes=64 * 1024 * 1024
         )
     )
@@ -161,14 +162,14 @@ def _processor_fingerprint(artifacts: dict) -> str:
 
 
 def _verify_processor_artifacts(root: Path, profile: dict) -> None:
-    from datasetui.transforms import _read_regular_bytes
+    from datasetui.dataset_io.files import read_regular_bytes
 
     expected = _processor_artifacts(profile)
     if profile.get("processor_sha256") != _processor_fingerprint(expected):
         raise CurationTransformError("Relative processor fingerprint differs")
     for filename, value in expected.items():
         actual = json.loads(
-            _read_regular_bytes(root / "meta" / filename, max_bytes=4 * 1024 * 1024)
+            read_regular_bytes(root / "meta" / filename, max_bytes=4 * 1024 * 1024)
         )
         if actual != value:
             raise CurationTransformError(
@@ -178,16 +179,16 @@ def _verify_processor_artifacts(root: Path, profile: dict) -> None:
 
 def write_training_instructions(root: Path) -> None:
     """Export declarative, allowlisted official processor configurations."""
-    from datasetui.transforms import _write_json
+    from datasetui.dataset_io.files import write_json
 
     profile = read_relative_profile(root)
     if profile is None:
         raise CurationTransformError("Missing Relative training profile")
     artifacts = _processor_artifacts(profile)
     for filename, value in artifacts.items():
-        _write_json(root / "meta" / filename, value)
+        write_json(root / "meta" / filename, value)
     profile["processor_sha256"] = _processor_fingerprint(artifacts)
-    _write_json(root / "meta/relative_action.json", profile)
+    write_json(root / "meta/relative_action.json", profile)
     (root / "RELATIVE_TRAINING.md").write_text(
         """# Relative training profile
 
@@ -254,13 +255,13 @@ def reject_relative_profile(root: Path, *, operation: str) -> None:
 
 
 def read_relative_profile(root: Path) -> dict | None:
-    from datasetui.transforms import _read_regular_bytes
+    from datasetui.dataset_io.files import read_regular_bytes
 
     path = root / "meta/relative_action.json"
     if not path.exists() and not path.is_symlink():
         return None
     try:
-        profile = json.loads(_read_regular_bytes(path, max_bytes=4 * 1024 * 1024))
+        profile = json.loads(read_regular_bytes(path, max_bytes=4 * 1024 * 1024))
         if (
             not isinstance(profile, dict)
             or type(profile.get("format_version")) is not int
@@ -289,9 +290,9 @@ def recompute_relative_artifact(
     root: Path, info: dict, profile: dict, *, on_progress=None
 ) -> tuple[dict, dict]:
     from datasetui.relative_actions import compute_relative_action_profile
-    from datasetui.transforms import _DatasetSource
+    from datasetui.dataset_io.source import DatasetSource
 
-    source = _DatasetSource(root, info)
+    source = DatasetSource(root, info)
     episodes = DatasetEpisodes(source)
     actual = compute_relative_action_profile(
         info,

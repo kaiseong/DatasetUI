@@ -7,7 +7,8 @@ import av
 import pandas as pd
 import pytest
 
-import datasetui.transforms as transforms
+import datasetui.dataset_io.video as video
+from datasetui.dataset_io.source import DatasetSource
 from test_trim_source_codec import _encode
 
 
@@ -28,8 +29,8 @@ def test_source_policy_copies_an_exact_whole_video_without_encoding(
             "whole-file source preservation must not select an encoder"
         )
 
-    monkeypatch.setattr(transforms, "_video_encoder", encoding_is_a_failure)
-    transforms._slice_video(
+    monkeypatch.setattr(video, "video_encoder", encoding_is_a_failure)
+    video.slice_video(
         source,
         output,
         0,
@@ -62,7 +63,7 @@ def test_v3_single_episode_file_metadata_resolves_to_whole_file_copy(
     pd.DataFrame([metadata]).to_parquet(
         tmp_path / "meta/episodes/chunk-000/file-000.parquet", index=False
     )
-    dataset_source = transforms._DatasetSource(
+    dataset_source = DatasetSource(
         tmp_path,
         {
             "codebase_version": "v3.0",
@@ -72,7 +73,7 @@ def test_v3_single_episode_file_metadata_resolves_to_whole_file_copy(
     )
     resolved_path, segment_start = dataset_source.video_source(0, video_key, metadata)
 
-    transforms._slice_video(
+    video.slice_video(
         resolved_path,
         output,
         segment_start,
@@ -96,15 +97,15 @@ def test_shared_shard_or_trim_range_is_reencoded_not_whole_file_copied(
     source = tmp_path / f"source-{codec}-{start}-{end}.mp4"
     output = tmp_path / f"output-{codec}-{start}-{end}.mp4"
     _encode(source, codec, [20 + index * 10 for index in range(8)])
-    original_encoder = transforms._video_encoder
+    original_encoder = video.video_encoder
     selected_encoders: list[str] = []
 
     def track_encoder(requested_codec: str, **kwargs):
         selected_encoders.append(requested_codec)
         return original_encoder(requested_codec, **kwargs)
 
-    monkeypatch.setattr(transforms, "_video_encoder", track_encoder)
-    transforms._slice_video(
+    monkeypatch.setattr(video, "video_encoder", track_encoder)
+    video.slice_video(
         source,
         output,
         start,
@@ -131,15 +132,15 @@ def test_whole_range_without_source_policy_still_uses_requested_encoder(
     source = tmp_path / "source-av1.mp4"
     output = tmp_path / "output-h264.mp4"
     _encode(source, "av1", [20 + index * 10 for index in range(8)])
-    original_encoder = transforms._video_encoder
+    original_encoder = video.video_encoder
     selected_encoders: list[str] = []
 
     def track_encoder(requested_codec: str, **kwargs):
         selected_encoders.append(requested_codec)
         return original_encoder(requested_codec, **kwargs)
 
-    monkeypatch.setattr(transforms, "_video_encoder", track_encoder)
-    transforms._slice_video(source, output, 0, 8, 10, 8, codec="h264")
+    monkeypatch.setattr(video, "video_encoder", track_encoder)
+    video.slice_video(source, output, 0, 8, 10, 8, codec="h264")
 
     assert selected_encoders == ["h264"]
     with av.open(str(output)) as container:

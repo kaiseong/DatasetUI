@@ -6,27 +6,24 @@ from typing import Any
 
 import numpy as np
 
+import hashlib
+
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
+from datasetui.dataset_io.files import read_regular_bytes, safe_dataset_root
+from datasetui.dataset_io.source import DatasetSource
 from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import (
-    MAX_INFO_BYTES,
-    _DatasetSource,
-    _read_regular_bytes,
-    _safe_dataset_root,
-)
+from datasetui.datasets import MAX_INFO_BYTES
+from datasetui.validation_integrity import validation_content_manifest, VALIDATOR_POLICY
 from datasetui.validation_reporting import ProgressCallback, ValidationReporter
+from datasetui.validation_statistics import NumericStatisticsValidator
 from datasetui.validation_structure import (
-    validate_info,
-    validate_metadata,
     validate_episode_structure,
     validate_features,
+    validate_info,
+    validate_metadata,
 )
-from datasetui.validation_statistics import NumericStatisticsValidator
 from datasetui.validation_video import VideoValidator
-from datasetui.validation_integrity import VALIDATOR_POLICY, validation_content_manifest
-
-import hashlib
 
 
 class DatasetValidationError(CurationTransformError):
@@ -49,7 +46,7 @@ def validate_registered_dataset(
         or record["relative_path"] != payload["relative_path"]
     ):
         raise RecipeRevisionMismatchError(payload["dataset_id"])
-    root = _safe_dataset_root(
+    root = safe_dataset_root(
         settings.nas_root, record["storage_area"], record["relative_path"]
     )
     return validate_dataset_root(
@@ -108,7 +105,7 @@ def validate_dataset_root(
         }
 
     try:
-        raw = _read_regular_bytes(root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
+        raw = read_regular_bytes(root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
         actual_fingerprint = hashlib.sha256(raw).hexdigest()
     except (OSError, ValueError, CurationTransformError):
         issue(
@@ -132,7 +129,7 @@ def validate_dataset_root(
         return result()
     total_episodes = info["total_episodes"]
     try:
-        source = _DatasetSource(root, info)
+        source = DatasetSource(root, info)
         validate_metadata(source, issue)
     except (OSError, ValueError, TypeError, KeyError, CurationTransformError):
         issue(

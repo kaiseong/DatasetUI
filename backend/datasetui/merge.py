@@ -12,24 +12,27 @@ import pandas as pd
 
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
+from datasetui.dataset_io.files import (
+    read_regular_bytes,
+    safe_child,
+    safe_dataset_root,
+    write_json_atomic,
+)
+from datasetui.dataset_io.publish import (
+    assert_source_unchanged,
+    publish_output,
+    source_tree_identity,
+    tree_manifest,
+)
+from datasetui.dataset_io.source import DatasetSource
 from datasetui.datasets import inspect_dataset, scan_storage_area
 from datasetui.merge_progress import MergeProgressReporter
 from datasetui.merge_writer import write_preserved_merge
 from datasetui.official_operations import enabled, provenance, write_official_merge
 from datasetui.output_statistics import STATISTICS_POLICY
 from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import (
-    MAX_INFO_BYTES,
-    _DatasetSource,
-    _publish_output,
-    _read_regular_bytes,
-    _assert_source_unchanged,
-    _safe_dataset_root,
-    _source_tree_identity,
-    _safe_child,
-    _tree_manifest,
-    _write_json_atomic,
-)
+from datasetui.datasets import MAX_INFO_BYTES
+
 
 
 class MergeCompatibilityError(CurationTransformError):
@@ -37,7 +40,7 @@ class MergeCompatibilityError(CurationTransformError):
 
 
 class _MergedSource:
-    def __init__(self, sources: list[_DatasetSource], robot_type: str):
+    def __init__(self, sources: list[DatasetSource], robot_type: str):
         self.sources = sources
         self.root = sources[0].root
         self.version = sources[0].version
@@ -120,7 +123,7 @@ def merge_datasets(
         output_name=payload["output_name"],
     )
     records: list[dict[str, Any]] = []
-    sources: list[_DatasetSource] = []
+    sources: list[DatasetSource] = []
     infos: list[dict[str, Any]] = []
     source_requests = payload["sources"]
     progress(
@@ -142,11 +145,11 @@ def merge_datasets(
             or record["fingerprint"] != requested["fingerprint"]
         ):
             raise RecipeRevisionMismatchError(requested["id"])
-        root = _safe_dataset_root(
+        root = safe_dataset_root(
             settings.nas_root, record["storage_area"], record["relative_path"]
         )
-        source_identities.append(_source_tree_identity(root))
-        raw = _read_regular_bytes(root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
+        source_identities.append(source_tree_identity(root))
+        raw = read_regular_bytes(root / "meta/info.json", max_bytes=MAX_INFO_BYTES)
         if hashlib.sha256(raw).hexdigest() != requested["fingerprint"]:
             raise RecipeRevisionMismatchError(requested["id"])
         from datasetui.relative_artifacts import reject_relative_profile
@@ -155,7 +158,7 @@ def merge_datasets(
         info = json.loads(raw)
         records.append(record)
         infos.append(info)
-        sources.append(_DatasetSource(root, info))
+        sources.append(DatasetSource(root, info))
         progress(
             {
                 "stage": "preparing",
@@ -210,11 +213,11 @@ def merge_datasets(
             raise CurationTransformError(
                 "Merge manifest provenance or output differs from request"
             )
-        output = _safe_child(settings.nas_root / "derived", payload["output_name"])
+        output = safe_child(settings.nas_root / "derived", payload["output_name"])
         if (
             result.get("video_policy") == "preserve_source_files"
             and output.is_dir()
-            and _tree_manifest(output)["tree_sha256"]
+            and tree_manifest(output)["tree_sha256"]
             == result["output"]["manifest_sha256"]
         ):
             progress(
@@ -275,9 +278,9 @@ def merge_datasets(
         for source, identity, requested in zip(
             sources, source_identities, source_requests
         ):
-            _assert_source_unchanged(source.root, identity, requested["id"])
+            assert_source_unchanged(source.root, identity, requested["id"])
         database.assert_job_lease(job_id, worker_id=worker_id)
-        manifest = _publish_output(
+        manifest = publish_output(
             database=database,
             settings=settings,
             job_id=job_id,
@@ -325,7 +328,7 @@ def merge_datasets(
             "reused": False,
         }
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_json_atomic(manifest_path, {"schema_version": 1, **result})
+        write_json_atomic(manifest_path, {"schema_version": 1, **result})
         progress(
             {
                 "stage": "register",

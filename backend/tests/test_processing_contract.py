@@ -4,13 +4,14 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from datasetui.transform_errors import CurationTransformError
 from datasetui.transforms import (
-    CURATION_PROCESSING_POLICY,
     _curation_processing,
     _remap_tasks,
-    _reuse_published_outputs,
+    CURATION_PROCESSING_POLICY,
+    reuse_published_outputs,
 )
-from datasetui.transform_errors import CurationTransformError
+
 
 
 @pytest.mark.parametrize("change", ["engine", "path", "snapshot", "duplicate"])
@@ -38,7 +39,7 @@ def test_cache_never_accepts_wrong_engine_path_or_snapshot(tmp_path, change):
         result["outputs"] *= 2
     path.write_text(json.dumps(result))
     with pytest.raises(CurationTransformError):
-        _reuse_published_outputs(
+        reuse_published_outputs(
             settings=settings,
             job_id="job",
             outputs=[{"name": "out"}],

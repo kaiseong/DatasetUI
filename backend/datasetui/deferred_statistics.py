@@ -6,6 +6,7 @@ from pathlib import Path
 from datasetui.content_integrity import _hash_regular_file
 from datasetui.transform_errors import CurationTransformError
 
+
 POLICY = "datasetui-distribution-statistics-deferred-v1"
 INFO_KEY = "datasetui_statistics_status"
 MARKER = "datasetui_statistics.json"
@@ -45,15 +46,15 @@ def _metadata_hashes(root: Path) -> dict[str, str]:
 
 
 def read_deferred_statistics(root: Path) -> bool:
-    from datasetui.transforms import _read_json
+    from datasetui.dataset_io.files import read_json
 
-    info = _read_json(root / "meta/info.json")
+    info = read_json(root / "meta/info.json")
     marker = root / "meta" / MARKER
     declared = info.get(INFO_KEY)
     if declared is None and not marker.exists() and not marker.is_symlink():
         return False
     try:
-        value = _read_json(marker)
+        value = read_json(marker)
         if (root / "meta/relative_action.json").exists() or (
             root / "meta/relative_action.json"
         ).is_symlink():
@@ -76,13 +77,13 @@ def read_deferred_statistics(root: Path) -> bool:
 
 
 def clear_deferred_statistics(root: Path) -> None:
-    from datasetui.transforms import _read_json, _write_json
+    from datasetui.dataset_io.files import read_json, write_json
 
     info_path = root / "meta/info.json"
-    info = _read_json(info_path)
+    info = read_json(info_path)
     if INFO_KEY in info:
         info.pop(INFO_KEY)
-        _write_json(info_path, info)
+        write_json(info_path, info)
     (root / "meta" / MARKER).unlink(missing_ok=True)
     readme = root / "README.md"
     if readme.is_file() and not readme.is_symlink():
@@ -94,11 +95,11 @@ def clear_deferred_statistics(root: Path) -> None:
 
 
 def preserve_deferred_statistics(source: Path, destination: Path) -> dict:
-    from datasetui.transforms import _read_json, _read_regular_bytes, _write_json
+    from datasetui.dataset_io.files import read_json, read_regular_bytes, write_json
 
     stats = source / "meta/stats.json"
     if stats.exists() or stats.is_symlink():
-        raw = _read_regular_bytes(stats, max_bytes=64 * 1024 * 1024)
+        raw = read_regular_bytes(stats, max_bytes=64 * 1024 * 1024)
         if not isinstance(json.loads(raw), dict):
             raise CurationTransformError("Source statistics must be an object")
     else:
@@ -107,10 +108,10 @@ def preserve_deferred_statistics(source: Path, destination: Path) -> dict:
     (destination / "meta/stats.json").write_bytes(raw)
     clear_deferred_statistics(destination)
     (destination / "meta/datasetui_provenance.json").unlink(missing_ok=True)
-    info = _read_json(destination / "meta/info.json")
+    info = read_json(destination / "meta/info.json")
     info[INFO_KEY] = "deferred"
-    _write_json(destination / "meta/info.json", info)
-    _write_json(
+    write_json(destination / "meta/info.json", info)
+    write_json(
         destination / "meta" / MARKER,
         {
             "policy": POLICY,

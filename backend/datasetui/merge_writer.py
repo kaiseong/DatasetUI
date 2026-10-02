@@ -11,18 +11,17 @@ from typing import Any, Callable
 import numpy as np
 import pandas as pd
 
-from datasetui.transform_errors import CurationTransformError
-from datasetui.transforms import (
-    _episode_task_names,
-    _language_column_types,
-    _report_progress,
-    _safe_child,
-    _write_json,
-    _write_json_lines,
-    _write_parquet,
-    _write_stats,
-    _write_v3_tasks,
+from datasetui.dataset_io.files import safe_child, write_json, write_json_lines
+from datasetui.dataset_io.stats import write_stats
+from datasetui.dataset_io.tables import (
+    episode_task_names,
+    language_column_types,
+    write_parquet,
+    write_v3_tasks,
 )
+from datasetui.job_progress import report_progress
+from datasetui.transform_errors import CurationTransformError
+
 
 
 ProgressCallback = Callable[[dict[str, Any]], None]
@@ -97,7 +96,7 @@ def _copy_regular_file(
                         break
                     output_stream.write(chunk)
                     copied += len(chunk)
-                    _report_progress(
+                    report_progress(
                         on_progress,
                         stage="video",
                         completed=copied,
@@ -166,7 +165,7 @@ def write_preserved_merge(
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]] = []
     lineage: list[dict[str, Any]] = []
     global_index = 0
-    _report_progress(
+    report_progress(
         on_progress,
         stage="read",
         completed=0,
@@ -203,7 +202,7 @@ def write_preserved_merge(
                 "event_annotations": 0,
             }
         )
-        _report_progress(
+        report_progress(
             on_progress,
             stage="read",
             completed=output_index + 1,
@@ -216,7 +215,7 @@ def write_preserved_merge(
         {"task_index": index, "task": text}
         for index, text in sorted(source.tasks.items())
     ]
-    language_types = _language_column_types(episodes)
+    language_types = language_column_types(episodes)
     if source.version == "v3.0":
         _write_v3_preserved(
             source, destination, episodes, tasks, language_types, on_progress
@@ -249,7 +248,7 @@ def write_preserved_merge(
         )
     if not used_legacy_aggregate and not defer_statistics:
         if legacy_aggregate_eligible:
-            _report_progress(
+            report_progress(
                 on_progress,
                 stage="statistics",
                 completed=0,
@@ -260,7 +259,7 @@ def write_preserved_merge(
                 ),
                 force=True,
             )
-        _write_stats(
+        write_stats(
             destination / "meta" / "stats.json",
             [item[0] for item in episodes],
             on_progress=on_progress,
@@ -271,7 +270,7 @@ def write_preserved_merge(
     deferred_result = None
     if defer_statistics:
         deferred_result = preserve_deferred_statistics(source.sources[0].root, destination)
-        _report_progress(on_progress, stage="statistics", completed=1, total=1,
+        report_progress(on_progress, stage="statistics", completed=1, total=1,
                          unit="items", current_item="분포 통계 미재계산 상태 유지 · 학습 전 norm_stats 계산 필요")
     return {
         "lineage": lineage,
@@ -316,11 +315,11 @@ def _write_v2_preserved(
         total_videos=len(episodes) * len(source.video_keys),
         splits={"train": f"0:{len(episodes)}"},
     )
-    _write_json(root / "meta/info.json", info)
-    _write_json_lines(root / "meta/tasks.jsonl", tasks)
+    write_json(root / "meta/info.json", info)
+    write_json_lines(root / "meta/tasks.jsonl", tasks)
     chunk_size = int(info.get("chunks_size", 1000))
     episode_rows: list[dict[str, Any]] = []
-    _report_progress(
+    report_progress(
         on_progress,
         stage="write",
         completed=0,
@@ -332,18 +331,18 @@ def _write_v2_preserved(
         relative = info["data_path"].format(
             episode_chunk=index // chunk_size, episode_index=index
         )
-        path = _safe_child(root, relative)
+        path = safe_child(root, relative)
         path.parent.mkdir(parents=True, exist_ok=True)
-        _write_parquet(data, path, language_types)
+        write_parquet(data, path, language_types)
         episode_rows.append(
             {
                 **_metadata_without_paths(metadata),
                 "episode_index": index,
-                "tasks": _episode_task_names(data, tasks),
+                "tasks": episode_task_names(data, tasks),
                 "length": len(data),
             }
         )
-        _report_progress(
+        report_progress(
             on_progress,
             stage="write",
             completed=index + 1,
@@ -351,13 +350,13 @@ def _write_v2_preserved(
             unit="episodes",
             current_item=f"에피소드 {index}",
         )
-    _write_json_lines(root / "meta/episodes.jsonl", episode_rows)
+    write_json_lines(root / "meta/episodes.jsonl", episode_rows)
 
     copies: list[tuple[Path, Path, Path]] = []
     for index, (_, metadata, _, _) in enumerate(episodes):
         for key in source.video_keys:
             source_path, _ = source.video_source(index, key, metadata)
-            destination = _safe_child(
+            destination = safe_child(
                 root,
                 info["video_path"].format(
                     episode_chunk=index // chunk_size,
@@ -391,15 +390,15 @@ def _write_v3_preserved(
         data_path="data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
         video_path="videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
     )
-    _write_json(root / "meta/info.json", info)
-    _write_v3_tasks(root, tasks)
+    write_json(root / "meta/info.json", info)
+    write_v3_tasks(root, tasks)
 
     video_locations: dict[tuple[int, str, Path], tuple[int, int]] = {}
     next_file: dict[str, int] = {key: 0 for key in source.video_keys}
     copies: list[tuple[Path, Path, Path]] = []
     metadata_rows: list[dict[str, Any]] = []
     dataset_offset = 0
-    _report_progress(
+    report_progress(
         on_progress,
         stage="write",
         completed=0,
@@ -411,11 +410,11 @@ def _write_v3_preserved(
         chunk, file_index = index // 1000, index % 1000
         data_path = root / f"data/chunk-{chunk:03d}/file-{file_index:03d}.parquet"
         data_path.parent.mkdir(parents=True, exist_ok=True)
-        _write_parquet(data, data_path, language_types)
+        write_parquet(data, data_path, language_types)
         row: dict[str, Any] = {
             **_metadata_without_paths(metadata),
             "episode_index": index,
-            "tasks": _episode_task_names(data, tasks),
+            "tasks": episode_task_names(data, tasks),
             "length": len(data),
             "data/chunk_index": chunk,
             "data/file_index": file_index,
@@ -471,7 +470,7 @@ def _write_v3_preserved(
             row[to_field] = metadata[to_field]
         metadata_rows.append(row)
         dataset_offset += len(data)
-        _report_progress(
+        report_progress(
             on_progress,
             stage="write",
             completed=index + 1,
@@ -483,7 +482,7 @@ def _write_v3_preserved(
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(metadata_rows).to_parquet(metadata_path, index=False)
     info["total_videos"] = len(copies)
-    _write_json(root / "meta/info.json", info)
+    write_json(root / "meta/info.json", info)
     _copy_videos(copies, on_progress)
 
 
@@ -494,7 +493,7 @@ def _copy_videos(
         return
     total = sum(_regular_file_size(source, root) for source, _, root in copies)
     copied = 0
-    _report_progress(
+    report_progress(
         on_progress,
         stage="video",
         completed=0,
@@ -512,7 +511,7 @@ def _copy_videos(
             total=total,
             on_progress=on_progress,
         )
-    _report_progress(
+    report_progress(
         on_progress,
         stage="video",
         completed=copied,

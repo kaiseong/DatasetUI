@@ -2,37 +2,63 @@ from __future__ import annotations
 
 import copy
 import hashlib
-import json
 import math
-import os
 import shutil
-import stat
 import tempfile
-import uuid
-from collections.abc import Callable
-from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import pyarrow as pa
-import pyarrow.parquet as pq
 
 from datasetui.config import Settings
-from datasetui.content_integrity import ContentIntegrityError, dataset_tree_identity
 from datasetui.database import Database, RecipeRevisionMismatchError
-from datasetui.datasets import MAX_INFO_BYTES, inspect_dataset, scan_storage_area
-from datasetui.job_progress import JobProgressReporter
+from datasetui.dataset_io.files import (
+    decode_json_object,
+    read_json,
+    read_regular_bytes,
+    safe_child,
+    safe_dataset_root,
+    write_json,
+    write_json_lines,
+)
+from datasetui.dataset_io.publish import (
+    assert_source_unchanged,
+    publish_output,
+    refresh_derived_registry,
+    source_tree_identity,
+    tree_manifest,
+    write_run_manifest,
+)
+from datasetui.dataset_io.source import DatasetSource
+from datasetui.dataset_io.stats import write_stats
+from datasetui.dataset_io.tables import (
+    episode_task_names,
+    language_column_types,
+    LANGUAGE_EVENTS,
+    LANGUAGE_PERSISTENT,
+    write_parquet,
+    write_v3_tasks,
+)
+from datasetui.dataset_io.video import (
+    probe_video_codec,
+    slice_video,
+    update_video_feature_codec,
+    video_encoder,
+)
+from datasetui.datasets import inspect_dataset, MAX_INFO_BYTES
+from datasetui.job_progress import (
+    JobProgressReporter,
+    ProgressCallback,
+    report_progress,
+)
 from datasetui.transform_errors import CurationTransformError
 
 
-MAX_METADATA_BYTES = 256 * 1024 * 1024
-LANGUAGE_PERSISTENT = "language_persistent"
-LANGUAGE_EVENTS = "language_events"
+
 PERSISTENT_STYLES = {"task_aug", "subtask", "plan", "memory"}
 EVENT_STYLES = {"interjection", "vqa"}
-ProgressCallback = Callable[[dict[str, Any]], None]
 CURATION_PROCESSING_POLICY = "official-preferred-source-relative-v2"
 SAY_TOOL_SCHEMA = {
     "type": "function",
@@ -53,31 +79,6 @@ SAY_TOOL_SCHEMA = {
 }
 
 
-def _report_progress(
-    callback: ProgressCallback | None,
-    *,
-    stage: str,
-    completed: int,
-    total: int,
-    unit: str,
-    current_item: str | None = None,
-    force: bool = False,
-) -> None:
-    if callback is None:
-        return
-    progress: dict[str, Any] = {
-        "stage": stage,
-        "completed": completed,
-        "total": total,
-        "unit": unit,
-    }
-    if current_item is not None:
-        progress["current_item"] = current_item
-    if force:
-        progress["_force"] = True
-    callback(progress)
-
-
 def materialize_curation_recipe(
     *,
     database: Database,
@@ -92,7 +93,7 @@ def materialize_curation_recipe(
         worker_id=worker_id,
         output_name=payload["output_name"],
     )
-    _report_progress(
+    report_progress(
         progress,
         stage="preparing",
         completed=0,
@@ -109,22 +110,22 @@ def materialize_curation_recipe(
     ):
         raise RecipeRevisionMismatchError(snapshot["dataset_id"])
 
-    source_root = _safe_dataset_root(
+    source_root = safe_dataset_root(
         settings.nas_root,
         snapshot["storage_area"],
         snapshot["relative_path"],
     )
-    source_identity = _source_tree_identity(source_root)
-    raw_info = _read_regular_bytes(
+    source_identity = source_tree_identity(source_root)
+    raw_info = read_regular_bytes(
         source_root / "meta" / "info.json", max_bytes=MAX_INFO_BYTES
     )
     if hashlib.sha256(raw_info).hexdigest() != snapshot["dataset_fingerprint"]:
         raise RecipeRevisionMismatchError(snapshot["dataset_id"])
-    info = _decode_json_object(raw_info)
+    info = decode_json_object(raw_info)
     version = info.get("codebase_version")
     if version not in {"v2.0", "v2.1", "v3.0"}:
         raise CurationTransformError("Unsupported source dataset version")
-    _report_progress(
+    report_progress(
         progress,
         stage="preparing",
         completed=1,
@@ -145,7 +146,7 @@ def materialize_curation_recipe(
         version, snapshot["trim_config"], annotations, snapshot["relative_action"],
         source_statistics_deferred=read_deferred_statistics(source_root),
     )
-    completed = _reuse_published_outputs(
+    completed = reuse_published_outputs(
         settings=settings,
         job_id=job_id,
         outputs=outputs,
@@ -153,7 +154,7 @@ def materialize_curation_recipe(
         snapshot=snapshot,
     )
     if completed is not None:
-        _report_progress(
+        report_progress(
             progress,
             stage="register",
             completed=0,
@@ -162,8 +163,8 @@ def materialize_curation_recipe(
             current_item="라이브러리 갱신",
             force=True,
         )
-        _refresh_derived_registry(database, settings)
-        _report_progress(
+        refresh_derived_registry(database, settings)
+        report_progress(
             progress,
             stage="complete",
             completed=1,
@@ -179,7 +180,7 @@ def materialize_curation_recipe(
     staging_root = Path(tempfile.mkdtemp(prefix=f"{job_id}-", dir=staging_parent))
     published: list[dict[str, Any]] = []
     try:
-        source = _DatasetSource(source_root, info)
+        source = DatasetSource(source_root, info)
         for output_index, output in enumerate(outputs):
             destination = staging_root / output["name"]
 
@@ -202,7 +203,7 @@ def materialize_curation_recipe(
                 on_progress=output_progress,
             )
             lineage = built["lineage"]
-            _report_progress(
+            report_progress(
                 progress,
                 stage="validate",
                 completed=output_index,
@@ -220,7 +221,7 @@ def materialize_curation_recipe(
                 raise CurationTransformError(
                     "Derived dataset failed structural validation"
                 )
-            _report_progress(
+            report_progress(
                 progress,
                 stage="validate",
                 completed=output_index + 1,
@@ -228,11 +229,11 @@ def materialize_curation_recipe(
                 unit="items",
                 current_item=f"{output['name']} 구조 검사",
             )
-            _assert_source_unchanged(
+            assert_source_unchanged(
                 source_root, source_identity, snapshot["dataset_id"]
             )
             database.assert_job_lease(job_id, worker_id=worker_id)
-            manifest = _publish_output(
+            manifest = publish_output(
                 database=database,
                 settings=settings,
                 job_id=job_id,
@@ -273,8 +274,8 @@ def materialize_curation_recipe(
             "outputs": published,
             "reused": False,
         }
-        _write_run_manifest(settings, job_id, result)
-        _report_progress(
+        write_run_manifest(settings, job_id, result)
+        report_progress(
             progress,
             stage="register",
             completed=0,
@@ -283,8 +284,8 @@ def materialize_curation_recipe(
             current_item="라이브러리 갱신",
             force=True,
         )
-        _refresh_derived_registry(database, settings)
-        _report_progress(
+        refresh_derived_registry(database, settings)
+        report_progress(
             progress,
             stage="register",
             completed=1,
@@ -292,7 +293,7 @@ def materialize_curation_recipe(
             unit="items",
             current_item="라이브러리 갱신",
         )
-        _report_progress(
+        report_progress(
             progress,
             stage="complete",
             completed=1,
@@ -341,134 +342,6 @@ def _output_selections(
     return [{"role": role, "name": f"{base_name}--{suffix}", "episodes": selected}]
 
 
-def _task_rows_from_frame(frame: pd.DataFrame) -> list[dict[str, Any]]:
-    """Preserve v3 task text stored either as a column or a string index."""
-    rows = frame.to_dict("records")
-    description_column = next(
-        (name for name in ("task", "name") if name in frame.columns), None
-    )
-    if description_column is not None:
-        return rows
-    for row, description in zip(rows, frame.index, strict=True):
-        row["task"] = description if isinstance(description, str) else None
-    return rows
-
-
-class _DatasetSource:
-    def __init__(self, root: Path, info: dict[str, Any]):
-        self.root = root
-        self.info = info
-        self.version = str(info["codebase_version"])
-        self.fps = float(info["fps"])
-        self.video_keys = [
-            key
-            for key, value in info.get("features", {}).items()
-            if isinstance(value, dict) and value.get("dtype") == "video"
-        ]
-        if any(
-            key in {"", ".", ".."} or "/" in key or "\\" in key
-            for key in self.video_keys
-        ):
-            raise CurationTransformError(
-                "Dataset contains an unsafe video feature name"
-            )
-        self.tasks = self._load_tasks()
-        self.episode_metadata = self._load_episode_metadata()
-        self._v3_data_cache: tuple[Path, pd.DataFrame] | None = None
-
-    def _load_tasks(self) -> dict[int, str]:
-        if self.version == "v3.0":
-            path = self.root / "meta" / "tasks.parquet"
-            if not path.is_file():
-                return {}
-            _require_regular_file(path)
-            frame = _read_parquet(path)
-            rows = _task_rows_from_frame(frame)
-            return {
-                int(row["task_index"]): str(row.get("task", row.get("name", "")))
-                for row in rows
-            }
-        path = self.root / "meta" / "tasks.jsonl"
-        if not path.is_file():
-            return {}
-        _require_regular_file(path)
-        return {
-            int(row["task_index"]): str(row.get("task", row.get("name", "")))
-            for row in _read_json_lines(path)
-        }
-
-    def _load_episode_metadata(self) -> dict[int, dict[str, Any]]:
-        if self.version != "v3.0":
-            path = self.root / "meta" / "episodes.jsonl"
-            return {
-                int(row["episode_index"]): row
-                for row in (_read_json_lines(path) if path.is_file() else [])
-            }
-        rows: list[dict[str, Any]] = []
-        for path in _safe_parquet_files(self.root / "meta" / "episodes"):
-            rows.extend(_read_parquet(path).to_dict("records"))
-        return {int(row["episode_index"]): row for row in rows}
-
-    def episode(self, episode_index: int) -> tuple[pd.DataFrame, dict[str, Any]]:
-        metadata = self.episode_metadata.get(episode_index, {})
-        if self.version == "v3.0":
-            chunk = int(metadata.get("data/chunk_index", 0))
-            file_index = int(metadata.get("data/file_index", 0))
-            path = self.root / f"data/chunk-{chunk:03d}/file-{file_index:03d}.parquet"
-            _require_regular_file(path)
-            if self._v3_data_cache is None or self._v3_data_cache[0] != path:
-                self._v3_data_cache = (path, _read_parquet(path))
-            data = self._v3_data_cache[1]
-            data = data[data["episode_index"] == episode_index].copy()
-        else:
-            chunk_size = int(self.info.get("chunks_size", 1000))
-            template = self.info.get(
-                "data_path",
-                "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
-            )
-            relative = template.format(
-                episode_chunk=episode_index // chunk_size,
-                episode_index=episode_index,
-            )
-            path = _safe_child(self.root, relative)
-            _require_regular_file(path)
-            data = _read_parquet(path)
-        if data.empty:
-            raise CurationTransformError(f"Episode {episode_index} has no frames")
-        return data.reset_index(drop=True), metadata
-
-    def video_source(
-        self, episode_index: int, video_key: str, metadata: dict[str, Any]
-    ) -> tuple[Path, int]:
-        if self.version == "v3.0":
-            chunk = int(metadata.get(f"videos/{video_key}/chunk_index", 0))
-            file_index = int(metadata.get(f"videos/{video_key}/file_index", 0))
-            start = int(
-                round(
-                    float(metadata.get(f"videos/{video_key}/from_timestamp", 0))
-                    * self.fps
-                )
-            )
-            return (
-                _safe_child(
-                    self.root,
-                    f"videos/{video_key}/chunk-{chunk:03d}/file-{file_index:03d}.mp4",
-                ),
-                start,
-            )
-        chunk_size = int(self.info.get("chunks_size", 1000))
-        template = self.info.get(
-            "video_path",
-            "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4",
-        )
-        relative = template.format(
-            episode_chunk=episode_index // chunk_size,
-            episode_index=episode_index,
-            video_key=video_key,
-        )
-        return _safe_child(self.root, relative), 0
-
-
 def _curation_processing(
     version, trim_config, annotations, relative_action, output_version=None,
     *, source_statistics_deferred=False,
@@ -499,7 +372,7 @@ def _curation_processing(
 
 def _write_dataset(
     *,
-    source: _DatasetSource,
+    source: DatasetSource,
     destination: Path,
     source_indices: list[int],
     trim_config: dict[str, Any],
@@ -557,7 +430,7 @@ def _write_dataset(
         with private_sources(
             [source.root], destination.parent, on_progress=on_progress
         ) as copies:
-            copied = _DatasetSource(copies[0], _read_json(copies[0] / "meta/info.json"))
+            copied = DatasetSource(copies[0], read_json(copies[0] / "meta/info.json"))
             relative_profile = _relative_action_profile(
                 copied.info,
                 DatasetEpisodes(copied),
@@ -565,14 +438,14 @@ def _write_dataset(
                 on_progress=on_progress,
             )
             stats_path = copies[0] / "meta/stats.json"
-            absolute_stats = _read_json(stats_path) if stats_path.exists() else {}
+            absolute_stats = read_json(stats_path) if stats_path.exists() else {}
             absolute_stats.update(
                 recompute_numeric_statistics(copies[0], on_progress=on_progress)
             )
             absolute_stats.update(
                 recompute_visual_statistics(copies[0], on_progress=on_progress)
             )
-            _write_json(copies[0] / "meta/stats.json", absolute_stats)
+            write_json(copies[0] / "meta/stats.json", absolute_stats)
             _write_relative_profile(copies[0], relative_profile)
             shutil.move(str(copies[0]), str(destination))
         return {
@@ -617,7 +490,7 @@ def _write_dataset(
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]] = []
     lineage: list[dict[str, Any]] = []
     global_index = 0
-    _report_progress(
+    report_progress(
         on_progress,
         stage="read",
         completed=0,
@@ -682,7 +555,7 @@ def _write_dataset(
                 "event_annotations": event_count,
             }
         )
-        _report_progress(
+        report_progress(
             on_progress,
             stage="read",
             completed=output_index + 1,
@@ -705,7 +578,7 @@ def _write_dataset(
         on_progress=on_progress,
     )
 
-    language_types = _language_column_types(episodes)
+    language_types = language_column_types(episodes)
     output_video_codecs = (
         {}
         if stationary_trim
@@ -758,7 +631,7 @@ def _write_dataset(
         )
     if not used_legacy_aggregate and not defer_statistics:
         if legacy_aggregate_eligible:
-            _report_progress(
+            report_progress(
                 on_progress,
                 stage="statistics",
                 completed=0,
@@ -769,7 +642,7 @@ def _write_dataset(
                 ),
                 force=True,
             )
-        _write_stats(
+        write_stats(
             destination / "meta" / "stats.json",
             [item[0] for item in episodes],
             on_progress=on_progress,
@@ -781,7 +654,7 @@ def _write_dataset(
     deferred_result = None
     if defer_statistics:
         deferred_result = preserve_deferred_statistics(source.root, destination)
-        _report_progress(on_progress, stage="statistics", completed=1, total=1,
+        report_progress(on_progress, stage="statistics", completed=1, total=1,
                          unit="items", current_item="분포 통계 재계산 생략 · 학습 전 norm_stats 계산 필요")
     return {
         "lineage": lineage,
@@ -805,13 +678,13 @@ def _write_dataset(
 
 def _write_relative_profile(destination: Path, relative_profile: dict) -> None:
     if relative_profile["enabled"]:
-        absolute_stats = _read_json(destination / "meta/stats.json")
-        _write_json(destination / "meta/stats.absolute.json", absolute_stats)
-        _write_json(
+        absolute_stats = read_json(destination / "meta/stats.json")
+        write_json(destination / "meta/stats.absolute.json", absolute_stats)
+        write_json(
             destination / "meta/stats.json",
             {**absolute_stats, "action": relative_profile["statistics"]},
         )
-        _write_json(
+        write_json(
             destination / "meta/relative_action.json",
             {"format_version": 1, **relative_profile},
         )
@@ -1050,61 +923,6 @@ def _apply_task_overrides(
     return tasks
 
 
-def _language_column_types(
-    episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
-) -> dict[str, pa.DataType]:
-    tool_call_type = pa.struct(
-        [
-            pa.field("type", pa.string()),
-            pa.field(
-                "function",
-                pa.struct(
-                    [
-                        pa.field("name", pa.string()),
-                        pa.field(
-                            "arguments", pa.struct([pa.field("text", pa.string())])
-                        ),
-                    ]
-                ),
-            ),
-        ]
-    )
-    common = [
-        pa.field("role", pa.string(), nullable=False),
-        pa.field("content", pa.string()),
-        pa.field("style", pa.string()),
-    ]
-    persistent_type = pa.list_(
-        pa.struct(
-            [
-                *common,
-                pa.field("timestamp", pa.float32(), nullable=False),
-                pa.field("camera", pa.string()),
-                pa.field("tool_calls", pa.list_(tool_call_type)),
-            ]
-        )
-    )
-    event_type = pa.list_(
-        pa.struct(
-            [
-                *common,
-                pa.field("camera", pa.string()),
-                pa.field("tool_calls", pa.list_(tool_call_type)),
-            ]
-        )
-    )
-    present = {
-        name
-        for data, _, _, _ in episodes
-        for name in (LANGUAGE_PERSISTENT, LANGUAGE_EVENTS)
-        if name in data.columns
-    }
-    return {
-        name: persistent_type if name == LANGUAGE_PERSISTENT else event_type
-        for name in present
-    }
-
-
 def _updated_info(
     source_info: dict[str, Any],
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
@@ -1128,7 +946,7 @@ def _updated_info(
         feature = features.get(key)
         if not isinstance(feature, dict):
             continue
-        _update_video_feature_codec(feature, codec)
+        update_video_feature_codec(feature, codec)
     has_speech = any(
         row.get("style") is None and row.get("tool_calls")
         for data, _, _, _ in episodes
@@ -1147,29 +965,6 @@ def _updated_info(
             existing_tools.append(copy.deepcopy(SAY_TOOL_SCHEMA))
         info["tools"] = existing_tools
     return info
-
-
-def _write_parquet(
-    data: pd.DataFrame, path: Path, language_types: dict[str, pa.DataType]
-) -> None:
-    language_columns = [name for name in language_types if name in data.columns]
-    ordinary = data.drop(columns=language_columns)
-    ordinary.attrs = {}
-    table = pa.Table.from_pandas(ordinary, preserve_index=False)
-    for name, source_type in data.attrs.get("datasetui_arrow_types", {}).items():
-        if name not in table.column_names or name in language_columns:
-            continue
-        column_index = table.schema.get_field_index(name)
-        column = table.column(name)
-        if column.type != source_type:
-            table = table.set_column(
-                column_index, name, column.cast(source_type, safe=True)
-            )
-    for name in language_columns:
-        table = table.append_column(
-            name, pa.array(data[name].tolist(), type=language_types[name])
-        )
-    pq.write_table(table, path)
 
 
 def _trim_bounds(
@@ -1255,7 +1050,7 @@ def _true_runs(values: np.ndarray, minimum: int) -> list[tuple[int, int]]:
 
 
 def _write_v2(
-    source: _DatasetSource,
+    source: DatasetSource,
     root: Path,
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
     tasks: list[dict[str, Any]],
@@ -1281,15 +1076,15 @@ def _write_v2(
         total_tasks=len(tasks),
         splits={"train": f"0:{len(episodes)}"},
     )
-    _write_json(root / "meta" / "info.json", info)
-    _write_json_lines(root / "meta" / "tasks.jsonl", tasks)
+    write_json(root / "meta" / "info.json", info)
+    write_json_lines(root / "meta" / "tasks.jsonl", tasks)
     episode_rows = []
     chunk_size = int(info.get("chunks_size", 1000))
     template = info.get(
         "data_path",
         "data/chunk-{episode_chunk:03d}/episode_{episode_index:06d}.parquet",
     )
-    _report_progress(
+    report_progress(
         on_progress,
         stage="write",
         completed=0,
@@ -1301,17 +1096,17 @@ def _write_v2(
         relative = template.format(
             episode_chunk=index // chunk_size, episode_index=index
         )
-        path = _safe_child(root, relative)
+        path = safe_child(root, relative)
         path.parent.mkdir(parents=True, exist_ok=True)
-        _write_parquet(data, path, language_types)
+        write_parquet(data, path, language_types)
         episode_rows.append(
             {
                 "episode_index": index,
-                "tasks": _episode_task_names(data, tasks),
+                "tasks": episode_task_names(data, tasks),
                 "length": len(data),
             }
         )
-        _report_progress(
+        report_progress(
             on_progress,
             stage="write",
             completed=index + 1,
@@ -1319,11 +1114,11 @@ def _write_v2(
             unit="episodes",
             current_item=f"에피소드 {index}",
         )
-    _write_json_lines(root / "meta" / "episodes.jsonl", episode_rows)
+    write_json_lines(root / "meta" / "episodes.jsonl", episode_rows)
     video_total = sum(len(item[0]) for item in episodes) * len(source.video_keys) * 2
     video_completed = 0
     if video_total:
-        _report_progress(
+        report_progress(
             on_progress,
             stage="video",
             completed=0,
@@ -1349,23 +1144,8 @@ def _write_v2(
         )
 
 
-def _write_v3_tasks(root: Path, tasks: list[dict[str, Any]]) -> None:
-    from datasetui.official_operations import enabled
-
-    frame = pd.DataFrame(tasks, columns=["task_index", "task"]).set_index("task")
-    if enabled():
-        from datasetui.lerobot_runtime import require_runtime
-
-        require_runtime()
-        from lerobot.datasets.io_utils import write_tasks
-
-        write_tasks(frame, root)
-    else:
-        frame.to_parquet(root / "meta/tasks.parquet")
-
-
 def _write_v3(
-    source: _DatasetSource,
+    source: DatasetSource,
     root: Path,
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
     tasks: list[dict[str, Any]],
@@ -1397,11 +1177,11 @@ def _write_v3(
         data_path="data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
         video_path="videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
     )
-    _write_json(root / "meta" / "info.json", info)
-    _write_v3_tasks(root, tasks)
+    write_json(root / "meta" / "info.json", info)
+    write_v3_tasks(root, tasks)
     metadata_rows: list[dict[str, Any]] = []
     offset = 0
-    _report_progress(
+    report_progress(
         on_progress,
         stage="write",
         completed=0,
@@ -1414,10 +1194,10 @@ def _write_v3(
         file_index = index % 1000
         path = root / f"data/chunk-{chunk:03d}/file-{file_index:03d}.parquet"
         path.parent.mkdir(parents=True, exist_ok=True)
-        _write_parquet(data, path, language_types)
+        write_parquet(data, path, language_types)
         row: dict[str, Any] = {
             "episode_index": index,
-            "tasks": _episode_task_names(data, tasks),
+            "tasks": episode_task_names(data, tasks),
             "length": len(data),
             "data/chunk_index": chunk,
             "data/file_index": file_index,
@@ -1431,7 +1211,7 @@ def _write_v3(
             row[f"videos/{key}/to_timestamp"] = len(data) / source.fps
         metadata_rows.append(row)
         offset += len(data)
-        _report_progress(
+        report_progress(
             on_progress,
             stage="write",
             completed=index + 1,
@@ -1445,7 +1225,7 @@ def _write_v3(
     video_total = sum(len(item[0]) for item in episodes) * len(source.video_keys) * 2
     video_completed = 0
     if video_total:
-        _report_progress(
+        report_progress(
             on_progress,
             stage="video",
             completed=0,
@@ -1472,7 +1252,7 @@ def _write_v3(
 
 
 def _write_v3_stationary(
-    source: _DatasetSource,
+    source: DatasetSource,
     root: Path,
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
     tasks: list[dict[str, Any]],
@@ -1494,15 +1274,15 @@ def _write_v3_stationary(
         data_path="data/chunk-{chunk_index:03d}/file-{file_index:03d}.parquet",
         video_path="videos/{video_key}/chunk-{chunk_index:03d}/file-{file_index:03d}.mp4",
     )
-    _write_json(root / "meta" / "info.json", info)
-    _write_v3_tasks(root, tasks)
+    write_json(root / "meta" / "info.json", info)
+    write_v3_tasks(root, tasks)
 
     video_locations: dict[tuple[str, Path], tuple[int, int]] = {}
     next_video_file: dict[str, int] = {key: 0 for key in source.video_keys}
     copies: list[tuple[Path, Path, Path]] = []
     metadata_rows: list[dict[str, Any]] = []
     offset = 0
-    _report_progress(
+    report_progress(
         on_progress,
         stage="write",
         completed=0,
@@ -1514,10 +1294,10 @@ def _write_v3_stationary(
         chunk, file_index = index // 1000, index % 1000
         path = root / f"data/chunk-{chunk:03d}/file-{file_index:03d}.parquet"
         path.parent.mkdir(parents=True, exist_ok=True)
-        _write_parquet(data, path, language_types)
+        write_parquet(data, path, language_types)
         row: dict[str, Any] = {
             "episode_index": index,
-            "tasks": _episode_task_names(data, tasks),
+            "tasks": episode_task_names(data, tasks),
             "length": len(data),
             "data/chunk_index": chunk,
             "data/file_index": file_index,
@@ -1577,7 +1357,7 @@ def _write_v3_stationary(
             row[to_field] = new_to
         metadata_rows.append(row)
         offset += len(data)
-        _report_progress(
+        report_progress(
             on_progress,
             stage="write",
             completed=index + 1,
@@ -1589,12 +1369,12 @@ def _write_v3_stationary(
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     pd.DataFrame(metadata_rows).to_parquet(metadata_path, index=False)
     info["total_videos"] = len(copies)
-    _write_json(root / "meta" / "info.json", info)
+    write_json(root / "meta" / "info.json", info)
     _copy_videos(copies, on_progress)
 
 
 def _write_episode_videos(
-    source: _DatasetSource,
+    source: DatasetSource,
     output_root: Path,
     output_index: int,
     metadata: dict[str, Any],
@@ -1624,7 +1404,7 @@ def _write_episode_videos(
             )
         else:
             template = "videos/chunk-{episode_chunk:03d}/{video_key}/episode_{episode_index:06d}.mp4"
-            destination = _safe_child(
+            destination = safe_child(
                 output_root,
                 template.format(
                     episode_chunk=output_index
@@ -1634,7 +1414,7 @@ def _write_episode_videos(
                 ),
             )
         destination.parent.mkdir(parents=True, exist_ok=True)
-        _slice_video(
+        slice_video(
             source_path,
             destination,
             segment_start + trim_start,
@@ -1654,172 +1434,8 @@ def _write_episode_videos(
     return completed
 
 
-def _slice_video(
-    source: Path,
-    destination: Path,
-    start_frame: int,
-    end_frame: int,
-    fps: float,
-    expected_frames: int,
-    *,
-    codec: str = "h264",
-    expected_source_codec: str | None = None,
-    on_progress: ProgressCallback | None = None,
-    progress_base: int = 0,
-    progress_total: int | None = None,
-    current_item: str | None = None,
-) -> None:
-    try:
-        import av
-    except ImportError as exc:
-        raise CurationTransformError("Video transform support is unavailable") from exc
-    try:
-        descriptor = os.open(
-            source, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
-        )
-    except OSError as exc:
-        raise CurationTransformError("Source episode video is unavailable") from exc
-    try:
-        source_metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(source_metadata.st_mode):
-            raise CurationTransformError("Source episode video is unavailable")
-        with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            input_container = av.open(stream)
-            try:
-                if not input_container.streams.video:
-                    raise CurationTransformError(
-                        "Source episode video has no video stream"
-                    )
-                if expected_source_codec is not None:
-                    source_codec = _normalize_video_codec(
-                        input_container.streams.video[0].name
-                    )
-                    if source_codec != expected_source_codec:
-                        raise CurationTransformError(
-                            "Source video codec changed while the trim was running"
-                        )
-                frames = []
-                copy_whole_file = (
-                    expected_source_codec is not None
-                    and start_frame == 0
-                    and end_frame == expected_frames
-                )
-                for index, frame in enumerate(input_container.decode(video=0)):
-                    if index >= end_frame:
-                        copy_whole_file = False
-                        break
-                    if index < start_frame:
-                        continue
-                    frames.append(frame)
-                    _report_progress(
-                        on_progress,
-                        stage="video",
-                        completed=progress_base + len(frames),
-                        total=progress_total or expected_frames * 2,
-                        unit="frame_operations",
-                        current_item=(
-                            f"{current_item} · 디코딩" if current_item else "디코딩"
-                        ),
-                    )
-            finally:
-                input_container.close()
-        if len(frames) != expected_frames:
-            raise CurationTransformError("Video and data frame counts do not match")
-        if copy_whole_file:
-            _copy_open_regular_file(
-                descriptor,
-                destination,
-                source_metadata=source_metadata,
-            )
-            _report_progress(
-                on_progress,
-                stage="video",
-                completed=progress_base + expected_frames * 2,
-                total=progress_total or expected_frames * 2,
-                unit="frame_operations",
-                current_item=(
-                    f"{current_item} · 원본 영상 복사 (재인코딩 없음)"
-                    if current_item
-                    else "원본 영상 복사 (재인코딩 없음)"
-                ),
-                force=True,
-            )
-            return
-    finally:
-        os.close(descriptor)
-    source_format = frames[0].format.name
-    encoder = _video_encoder(
-        codec,
-        width=frames[0].width,
-        height=frames[0].height,
-        pixel_format=source_format,
-    )
-    output = av.open(str(destination), mode="w")
-    try:
-        frame_rate = Fraction(str(fps)).limit_denominator(1_000_000)
-        stream = output.add_stream(encoder, rate=frame_rate)
-        stream.width = frames[0].width
-        stream.height = frames[0].height
-        stream.pix_fmt = _compatible_pixel_format(encoder, source_format)
-        stream.options = _video_encoder_options(encoder)
-        stream.thread_count = max(1, min(4, os.cpu_count() or 1))
-        frame_time_base = 1 / frame_rate
-        stream.time_base = frame_time_base
-        for encoded_count, frame in enumerate(frames, start=1):
-            frame.pts = encoded_count - 1
-            frame.time_base = frame_time_base
-            for packet in stream.encode(frame):
-                output.mux(packet)
-            _report_progress(
-                on_progress,
-                stage="video",
-                completed=progress_base + expected_frames + encoded_count,
-                total=progress_total or expected_frames * 2,
-                unit="frame_operations",
-                current_item=f"{current_item} · 인코딩" if current_item else "인코딩",
-            )
-        for packet in stream.encode():
-            output.mux(packet)
-    finally:
-        output.close()
-
-
-def _copy_open_regular_file(
-    descriptor: int,
-    destination: Path,
-    *,
-    source_metadata: os.stat_result,
-) -> None:
-    identity = (
-        source_metadata.st_dev,
-        source_metadata.st_ino,
-        source_metadata.st_size,
-        source_metadata.st_mtime_ns,
-        source_metadata.st_ctime_ns,
-    )
-    try:
-        os.lseek(descriptor, 0, os.SEEK_SET)
-        with destination.open("xb") as output:
-            while chunk := os.read(descriptor, 1024 * 1024):
-                output.write(chunk)
-        after = os.fstat(descriptor)
-        if identity != (
-            after.st_dev,
-            after.st_ino,
-            after.st_size,
-            after.st_mtime_ns,
-            after.st_ctime_ns,
-        ):
-            raise CurationTransformError(
-                "Source episode video changed while it was being copied"
-            )
-    except Exception:
-        destination.unlink(missing_ok=True)
-        raise
-
-
 def _output_video_codecs(
-    source: _DatasetSource,
+    source: DatasetSource,
     episodes: list[tuple[pd.DataFrame, dict[str, Any], int, int]],
     *,
     policy: str,
@@ -1837,7 +1453,7 @@ def _output_video_codecs(
             path, _ = source.video_source(source_index, key, metadata)
             actual = inspected.get(path)
             if actual is None:
-                actual = _probe_video_codec(path)
+                actual = probe_video_codec(path)
                 inspected[path] = actual
             codecs[key].add(actual)
     resolved: dict[str, str] = {}
@@ -1847,153 +1463,9 @@ def _output_video_codecs(
                 f"Source videos use inconsistent codecs for {key}"
             )
         codec = next(iter(values))
-        _video_encoder(codec)
+        video_encoder(codec)
         resolved[key] = codec
     return resolved
-
-
-def _probe_video_codec(path: Path) -> str:
-    try:
-        import av
-    except ImportError as exc:
-        raise CurationTransformError("Video transform support is unavailable") from exc
-    try:
-        descriptor = os.open(
-            path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
-        )
-    except OSError as exc:
-        raise CurationTransformError("Source episode video is unavailable") from exc
-    try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise CurationTransformError("Source episode video is unavailable")
-        with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            container = av.open(stream)
-            try:
-                if not container.streams.video:
-                    raise CurationTransformError(
-                        "Source episode video has no video stream"
-                    )
-                return _normalize_video_codec(container.streams.video[0].name)
-            finally:
-                container.close()
-    finally:
-        os.close(descriptor)
-
-
-def _normalize_video_codec(name: str) -> str:
-    normalized = name.lower().replace("_", "-")
-    aliases = {
-        "av1": "av1",
-        "libdav1d": "av1",
-        "libaom-av1": "av1",
-        "libsvtav1": "av1",
-        "h264": "h264",
-        "avc1": "h264",
-        "libx264": "h264",
-        "hevc": "hevc",
-        "h265": "hevc",
-        "hev1": "hevc",
-        "hvc1": "hevc",
-        "libx265": "hevc",
-        "vp9": "vp9",
-        "libvpx-vp9": "vp9",
-    }
-    try:
-        return aliases[normalized]
-    except KeyError as exc:
-        raise CurationTransformError(
-            f"Source video codec is not supported for trimming: {name}"
-        ) from exc
-
-
-def _video_encoder(
-    codec: str,
-    *,
-    width: int | None = None,
-    height: int | None = None,
-    pixel_format: str | None = None,
-) -> str:
-    try:
-        import av
-    except ImportError as exc:
-        raise CurationTransformError("Video transform support is unavailable") from exc
-    candidates = {
-        "av1": ("libsvtav1", "libaom-av1"),
-        "h264": ("libx264",),
-        "hevc": ("libx265",),
-        "vp9": ("libvpx-vp9",),
-    }.get(codec, ())
-    for candidate in candidates:
-        if candidate == "libsvtav1" and (
-            (width is not None and width < 64)
-            or (height is not None and height < 64)
-            or (pixel_format is not None and not pixel_format.startswith("yuv420p"))
-        ):
-            continue
-        try:
-            encoder = av.codec.Codec(candidate, "w")
-        except (ValueError, av.error.FFmpegError):
-            continue
-        if pixel_format is not None and pixel_format not in {
-            item.name for item in (encoder.video_formats or [])
-        }:
-            continue
-        return candidate
-    raise CurationTransformError(
-        f"No encoder is available to preserve source video codec: {codec}"
-    )
-
-
-def _compatible_pixel_format(encoder: str, source_format: str) -> str:
-    import av
-
-    codec = av.codec.Codec(encoder, "w")
-    supported = {item.name for item in (codec.video_formats or [])}
-    if source_format in supported:
-        return source_format
-    raise CurationTransformError(
-        f"Encoder cannot preserve source pixel format {source_format}: {encoder}"
-    )
-
-
-def _update_video_feature_codec(feature: dict[str, Any], codec: str) -> None:
-    dotted_settings = {
-        "video.crf",
-        "video.encoder",
-        "video.fast_decode",
-        "video.g",
-        "video.preset",
-    }
-    plain_settings = {"crf", "encoder", "fast_decode", "g", "preset"}
-    for location in ("info", "video_info"):
-        details = feature.get(location)
-        if details is None and location == "info":
-            details = feature.setdefault(location, {})
-        if isinstance(details, dict):
-            for name in dotted_settings:
-                details.pop(name, None)
-            details["video.codec"] = codec
-    video = feature.get("video")
-    if isinstance(video, dict):
-        for name in plain_settings:
-            video.pop(name, None)
-        video["codec"] = codec
-    for name in dotted_settings:
-        feature.pop(name, None)
-    feature["video.codec"] = codec
-
-
-def _video_encoder_options(encoder: str) -> dict[str, str]:
-    if encoder == "libsvtav1":
-        return {"preset": "8", "crf": "30"}
-    if encoder == "libaom-av1":
-        return {"cpu-used": "8", "crf": "30", "row-mt": "1"}
-    if encoder == "libx265":
-        return {"preset": "medium", "crf": "28"}
-    if encoder == "libvpx-vp9":
-        return {"cpu-used": "4", "crf": "30", "b": "0"}
-    return {}
 
 
 def _remap_tasks(
@@ -2018,13 +1490,6 @@ def _remap_tasks(
     return mapping, tasks
 
 
-def _episode_task_names(data: pd.DataFrame, tasks: list[dict[str, Any]]) -> list[str]:
-    by_index = {row["task_index"]: row["task"] for row in tasks}
-    if "task_index" not in data.columns:
-        return []
-    return [by_index[index] for index in sorted(set(data["task_index"].astype(int)))]
-
-
 def _matrix_column(data: pd.DataFrame, name: str) -> np.ndarray:
     if name not in data.columns:
         raise CurationTransformError(f"Trim feature is missing: {name}")
@@ -2047,165 +1512,7 @@ def _feature_names(info: dict[str, Any], key: str, width: int) -> list[str]:
     return [str(index) for index in range(width)]
 
 
-def _write_stats(
-    path: Path,
-    episodes: list[pd.DataFrame],
-    *,
-    on_progress: ProgressCallback | None = None,
-) -> None:
-    root = path.parent.parent
-    if (root / "meta/info.json").is_file():
-        from datasetui.output_statistics import write_output_statistics
-
-        write_output_statistics(root, on_progress=on_progress)
-        return
-    # Array-only diagnostic compatibility; production outputs always have info.
-    combined = pd.concat(episodes, ignore_index=True)
-    stats: dict[str, Any] = {}
-    columns = list(combined.columns)
-    _report_progress(
-        on_progress,
-        stage="statistics",
-        completed=0,
-        total=len(columns),
-        unit="items",
-        current_item="수치 특성",
-        force=True,
-    )
-    for column_index, name in enumerate(columns, start=1):
-        try:
-            matrix = np.stack(
-                [
-                    np.asarray(value, dtype=np.float64).reshape(-1)
-                    for value in combined[name]
-                ]
-            )
-        except (TypeError, ValueError):
-            _report_progress(
-                on_progress,
-                stage="statistics",
-                completed=column_index,
-                total=len(columns),
-                unit="items",
-                current_item=name,
-            )
-            continue
-        if matrix.size == 0 or not np.isfinite(matrix).all():
-            _report_progress(
-                on_progress,
-                stage="statistics",
-                completed=column_index,
-                total=len(columns),
-                unit="items",
-                current_item=name,
-            )
-            continue
-        stats[name] = {
-            "min": np.min(matrix, axis=0).tolist(),
-            "max": np.max(matrix, axis=0).tolist(),
-            "mean": np.mean(matrix, axis=0).tolist(),
-            "std": np.std(matrix, axis=0).tolist(),
-            "q01": np.quantile(matrix, 0.01, axis=0).tolist(),
-            "q10": np.quantile(matrix, 0.10, axis=0).tolist(),
-            "q50": np.quantile(matrix, 0.50, axis=0).tolist(),
-            "q90": np.quantile(matrix, 0.90, axis=0).tolist(),
-            "q99": np.quantile(matrix, 0.99, axis=0).tolist(),
-            "count": [len(matrix)],
-        }
-        _report_progress(
-            on_progress,
-            stage="statistics",
-            completed=column_index,
-            total=len(columns),
-            unit="items",
-            current_item=name,
-        )
-    _write_json(path, stats)
-
-
-def _publish_output(
-    *,
-    database: Database,
-    settings: Settings,
-    job_id: str,
-    worker_id: str,
-    staging_path: Path,
-    output_name: str,
-    on_progress: ProgressCallback | None = None,
-) -> dict[str, Any]:
-    derived = _real_directory(settings.nas_root / "derived")
-    final = derived / output_name
-    _report_progress(
-        on_progress,
-        stage="publish",
-        completed=0,
-        total=0,
-        unit="bytes",
-        current_item="출력 해시 계산",
-        force=True,
-    )
-    source_manifest = _tree_manifest(staging_path)
-    if final.exists():
-        if (
-            final.is_symlink()
-            or not final.is_dir()
-            or _tree_manifest(final) != source_manifest
-        ):
-            raise CurationTransformError("Derived output name already exists")
-        database.begin_job_finalization(job_id, worker_id=worker_id)
-        _report_progress(
-            on_progress,
-            stage="publish",
-            completed=1,
-            total=1,
-            unit="items",
-            current_item="기존 출력 재사용",
-            force=True,
-        )
-        return source_manifest
-    incoming = derived / f".incoming-{job_id}-{uuid.uuid4().hex}"
-    try:
-        _report_progress(
-            on_progress,
-            stage="publish",
-            completed=0,
-            total=0,
-            unit="bytes",
-            current_item="출력 복사",
-            force=True,
-        )
-        shutil.copytree(staging_path, incoming)
-        _report_progress(
-            on_progress,
-            stage="publish",
-            completed=0,
-            total=0,
-            unit="bytes",
-            current_item="복사 결과 확인",
-            force=True,
-        )
-        if _tree_manifest(incoming) != source_manifest:
-            raise CurationTransformError("Derived output copy verification failed")
-        # This atomic transition is the cancellation/publication boundary: a
-        # cancel request that wins first prevents the final rename, while jobs
-        # already finalizing are no longer advertised as cancellable.
-        database.begin_job_finalization(job_id, worker_id=worker_id)
-        incoming.rename(final)
-        _report_progress(
-            on_progress,
-            stage="publish",
-            completed=1,
-            total=1,
-            unit="items",
-            current_item="출력 게시 완료",
-            force=True,
-        )
-        return source_manifest
-    finally:
-        shutil.rmtree(incoming, ignore_errors=True)
-
-
-def _reuse_published_outputs(
+def reuse_published_outputs(
     *,
     settings: Settings,
     job_id: str,
@@ -2216,7 +1523,7 @@ def _reuse_published_outputs(
     path = settings.nas_root / "manifests" / "curation" / f"{job_id}.json"
     if not path.is_file() or path.is_symlink():
         return None
-    result = _read_json(path)
+    result = read_json(path)
     if result.get("video_codec_policy") != "source":
         raise CurationTransformError(
             "Curation manifest was produced with a legacy video codec policy"
@@ -2245,241 +1552,9 @@ def _reuse_published_outputs(
             raise CurationTransformError(
                 "Curation manifest engine or output path differs from request"
             )
-        root = _safe_child(settings.nas_root / "derived", item["relative_path"])
+        root = safe_child(settings.nas_root / "derived", item["relative_path"])
         if not root.is_dir() or root.is_symlink():
             return None
-        if _tree_manifest(root)["tree_sha256"] != item["manifest_sha256"]:
+        if tree_manifest(root)["tree_sha256"] != item["manifest_sha256"]:
             raise CurationTransformError("Published derived dataset was modified")
     return {**result, "reused": True}
-
-
-def _write_run_manifest(
-    settings: Settings, job_id: str, result: dict[str, Any]
-) -> None:
-    manifests = _real_directory(settings.nas_root / "manifests")
-    root = manifests / "curation"
-    root.mkdir(exist_ok=True)
-    root = _real_directory(root)
-    _write_json_atomic(root / f"{job_id}.json", {"schema_version": 1, **result})
-
-
-def _refresh_derived_registry(database: Database, settings: Settings) -> None:
-    generation = database.begin_dataset_scan("derived")
-    database.synchronize_datasets(
-        storage_area="derived",
-        records=scan_storage_area(
-            settings.nas_root,
-            "derived",
-            max_depth=settings.dataset_scan_max_depth,
-        ),
-        scan_generation=generation,
-    )
-
-
-def _tree_manifest(root: Path) -> dict[str, Any]:
-    digest = hashlib.sha256()
-    count = 0
-    total = 0
-    for current, directories, files in os.walk(root, followlinks=False):
-        current_path = Path(current)
-        directories.sort()
-        for name in directories:
-            if (current_path / name).is_symlink():
-                raise CurationTransformError("Derived dataset contains a symlink")
-        for name in sorted(files):
-            path = current_path / name
-            descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
-            file_digest = hashlib.sha256()
-            size = 0
-            try:
-                metadata = os.fstat(descriptor)
-                if not stat.S_ISREG(metadata.st_mode):
-                    raise CurationTransformError(
-                        "Derived dataset contains an unsafe file"
-                    )
-                while chunk := os.read(descriptor, 1024 * 1024):
-                    file_digest.update(chunk)
-                    size += len(chunk)
-            finally:
-                os.close(descriptor)
-            relative = path.relative_to(root).as_posix()
-            digest.update(f"{relative}\0{size}\0{file_digest.hexdigest()}\n".encode())
-            count += 1
-            total += size
-    return {
-        "tree_sha256": digest.hexdigest(),
-        "file_count": count,
-        "total_bytes": total,
-    }
-
-
-def _source_tree_identity(root: Path) -> str:
-    """Stat-only snapshot of a source tree, taken before the job reads it."""
-    try:
-        return dataset_tree_identity(root)
-    except ContentIntegrityError as exc:
-        raise CurationTransformError("Dataset source contains an unsafe entry") from exc
-
-
-def _assert_source_unchanged(root: Path, baseline: str, dataset_id: str) -> None:
-    """Refuse to publish an output built from a source modified mid-job.
-
-    The registry fingerprint covers only ``meta/info.json``; this closes the gap
-    for data and video files without hashing their contents.
-    """
-    try:
-        current = dataset_tree_identity(root)
-    except ContentIntegrityError:
-        raise RecipeRevisionMismatchError(dataset_id) from None
-    if current != baseline:
-        raise RecipeRevisionMismatchError(dataset_id)
-
-
-def _safe_dataset_root(nas_root: Path, storage_area: str, relative_path: str) -> Path:
-    root = _real_directory(nas_root / storage_area)
-    current = root
-    for component in Path(relative_path).parts:
-        if component in {"", ".", ".."}:
-            raise CurationTransformError("Unsafe dataset path")
-        current = current / component
-        if current.is_symlink() or not current.is_dir():
-            raise CurationTransformError("Dataset source is unavailable")
-    return current
-
-
-def _safe_child(root: Path, relative: str) -> Path:
-    path = Path(relative)
-    if path.is_absolute() or any(part in {"", ".", ".."} for part in path.parts):
-        raise CurationTransformError("Unsafe dataset file path")
-    return root / path
-
-
-def _real_directory(path: Path) -> Path:
-    if path.is_symlink() or not path.is_dir():
-        raise CurationTransformError("Dataset storage is unavailable")
-    return path
-
-
-def _read_json(path: Path) -> dict[str, Any]:
-    value = _decode_json_object(_read_regular_bytes(path, max_bytes=MAX_METADATA_BYTES))
-    return value
-
-
-def _decode_json_object(raw: bytes) -> dict[str, Any]:
-    try:
-        value = json.loads(raw.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise CurationTransformError("Dataset metadata is invalid") from exc
-    if not isinstance(value, dict):
-        raise CurationTransformError("Dataset metadata is invalid")
-    return value
-
-
-def _read_json_lines(path: Path) -> list[dict[str, Any]]:
-    try:
-        text = _read_regular_bytes(path, max_bytes=MAX_METADATA_BYTES).decode("utf-8")
-        rows = [json.loads(line) for line in text.splitlines() if line.strip()]
-    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise CurationTransformError("Dataset metadata is invalid") from exc
-    if any(not isinstance(row, dict) for row in rows):
-        raise CurationTransformError("Dataset metadata is invalid")
-    return rows
-
-
-def _write_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as stream:
-        json.dump(
-            value, stream, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-        )
-
-
-def _write_json_lines(path: Path, rows: list[dict[str, Any]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8") as stream:
-        for row in rows:
-            stream.write(json.dumps(row, ensure_ascii=False, sort_keys=True) + "\n")
-
-
-def _write_json_atomic(path: Path, value: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        _write_json(temporary, value)
-        temporary.replace(path)
-    finally:
-        temporary.unlink(missing_ok=True)
-
-
-def _require_regular_file(path: Path) -> None:
-    try:
-        metadata = path.lstat()
-    except OSError as exc:
-        raise CurationTransformError("Dataset file is unavailable") from exc
-    if path.is_symlink() or not stat.S_ISREG(metadata.st_mode):
-        raise CurationTransformError("Dataset contains an unsafe file entry")
-
-
-def _read_regular_bytes(path: Path, *, max_bytes: int) -> bytes:
-    try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
-    except OSError as exc:
-        raise CurationTransformError("Dataset file is unavailable") from exc
-    try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode) or metadata.st_size > max_bytes:
-            raise CurationTransformError("Dataset metadata is invalid")
-        chunks: list[bytes] = []
-        remaining = max_bytes + 1
-        while remaining:
-            chunk = os.read(descriptor, min(64 * 1024, remaining))
-            if not chunk:
-                break
-            chunks.append(chunk)
-            remaining -= len(chunk)
-        raw = b"".join(chunks)
-        if len(raw) > max_bytes:
-            raise CurationTransformError("Dataset metadata is invalid")
-        return raw
-    finally:
-        os.close(descriptor)
-
-
-def _read_parquet(path: Path) -> pd.DataFrame:
-    try:
-        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
-    except OSError as exc:
-        raise CurationTransformError("Dataset file is unavailable") from exc
-    try:
-        metadata = os.fstat(descriptor)
-        if not stat.S_ISREG(metadata.st_mode):
-            raise CurationTransformError("Dataset contains an unsafe file entry")
-        with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            table = pq.read_table(stream)
-            frame = table.to_pandas()
-            frame.attrs["datasetui_arrow_types"] = {
-                field.name: field.type for field in table.schema
-            }
-            return frame
-    finally:
-        os.close(descriptor)
-
-
-def _safe_parquet_files(root: Path) -> list[Path]:
-    if root.is_symlink() or not root.is_dir():
-        raise CurationTransformError("Dataset episode metadata is unavailable")
-    files: list[Path] = []
-    for current, directories, names in os.walk(root, followlinks=False):
-        current_path = Path(current)
-        for name in directories:
-            if (current_path / name).is_symlink():
-                raise CurationTransformError(
-                    "Dataset contains an unsafe directory entry"
-                )
-        for name in names:
-            if not name.endswith(".parquet"):
-                continue
-            path = current_path / name
-            _require_regular_file(path)
-            files.append(path)
-    return sorted(files)

@@ -7,23 +7,25 @@ import json
 import uuid
 
 from datasetui.database import RecipeRevisionMismatchError, utc_now
+from datasetui.dataset_io.files import read_regular_bytes, safe_dataset_root
+from datasetui.dataset_io.source import DatasetSource
 from datasetui.segmentation.frames import (
     _SNAPSHOT_TABLE,
     safe_snapshot_path,
     verified_file_sha256,
 )
-from datasetui.transforms import _DatasetSource, _read_regular_bytes, _safe_dataset_root
+
 
 
 def _metadata(database, settings, dataset_id):
     record = database.get_dataset(dataset_id)
     if not record["available"] or record["readiness"] != "ready":
         raise RecipeRevisionMismatchError(dataset_id)
-    root = _safe_dataset_root(
+    root = safe_dataset_root(
         settings.nas_root, record["storage_area"], record["relative_path"]
     )
     path = safe_snapshot_path(root, root / "meta/info.json")
-    raw = _read_regular_bytes(path, max_bytes=2 * 1024 * 1024)
+    raw = read_regular_bytes(path, max_bytes=2 * 1024 * 1024)
     info = json.loads(raw)
     return record, root, info, hashlib.sha256(raw).hexdigest()
 
@@ -94,7 +96,7 @@ def selected_scope(database, settings, dataset_id, episode_index, video_key):
     if metadata is None or int(metadata["length"]) < 1:
         raise ValueError("Episode metadata is unavailable")
     # Reuse the path resolver only; never run its eager constructor or episode().
-    resolver = object.__new__(_DatasetSource)
+    resolver = object.__new__(DatasetSource)
     resolver.root, resolver.info = root, info
     resolver.version, resolver.fps = info["codebase_version"], float(info["fps"])
     path, start = resolver.video_source(episode_index, video_key, metadata)

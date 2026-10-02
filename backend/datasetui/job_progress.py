@@ -107,3 +107,31 @@ class WeightedProgress:
             self._best = max(self._best, (before + self._plan[stage] * fraction) / whole)
             event["overall"] = min(0.99, self._best)
         self._reporter(event)
+
+
+ProgressCallback = Callable[[dict[str, Any]], None]
+
+
+def report_progress(
+    callback: ProgressCallback | None,
+    *,
+    stage: str,
+    completed: int,
+    total: int,
+    unit: str,
+    current_item: str | None = None,
+    force: bool = False,
+) -> None:
+    if callback is None:
+        return
+    progress: dict[str, Any] = {
+        "stage": stage,
+        "completed": completed,
+        "total": total,
+        "unit": unit,
+    }
+    if current_item is not None:
+        progress["current_item"] = current_item
+    if force:
+        progress["_force"] = True
+    callback(progress)
