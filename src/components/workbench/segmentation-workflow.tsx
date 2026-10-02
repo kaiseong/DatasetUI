@@ -8,6 +8,7 @@ import {
   draftFromSegmentationSpec,
   emptySegmentationDraft,
   hasSegmentationGuidance,
+  orderWorkflowCameras,
   batchEstimate,
   batchItemAttention,
   segmentationBatchCanExport,
@@ -92,7 +93,6 @@ export default function SegmentationWorkflow({
   const [cameraSourceEpisodes, setCameraSourceEpisodes] = useState<
     Record<string, number>
   >({});
-  const [camera, setCamera] = useState(scope.video_keys[0] ?? "");
   const [representative, setRepresentative] = useState(
     scope.episodes[0]?.episode_index ?? 0,
   );
@@ -101,7 +101,7 @@ export default function SegmentationWorkflow({
     scope.episodes.slice(0, 10).map((episode) => episode.episode_index),
   );
   const [cameras, setCameras] = useState<string[]>(
-    scope.video_keys.slice(0, 1),
+    orderWorkflowCameras(scope.video_keys).slice(0, 1),
   );
   const [sameSetup, setSameSetup] = useState(false);
   const [batches, setBatches] = useState<SegmentationBatch[]>([]);
@@ -273,7 +273,6 @@ export default function SegmentationWorkflow({
           ]),
       ),
     );
-    setCamera(selected.cameras[0]?.video_key ?? scope.video_keys[0]);
     setCameras(
       selected.cameras
         .map((item) => item.video_key)
@@ -497,6 +496,7 @@ export default function SegmentationWorkflow({
     });
   }
 
+  const workflowCameras = orderWorkflowCameras(scope.video_keys);
   const activeTemplate = templates.find((item) => item.id === templateId);
   const missingCameras = cameras.filter(
     (key) => !activeTemplate?.cameras.some((item) => item.video_key === key),
@@ -562,21 +562,6 @@ export default function SegmentationWorkflow({
               ))}
             </select>
           </label>
-          <label>
-            설정할 카메라
-            <select
-              value={review?.item.video_key ?? camera}
-              disabled={!!review}
-              onChange={(event) => {
-                setCamera(event.target.value);
-                setEditorRevision((value) => value + 1);
-              }}
-            >
-              {scope.video_keys.map((key) => (
-                <option key={key}>{key}</option>
-              ))}
-            </select>
-          </label>
         </div>
         {review && (
           <div className="segmentation-review-banner">
@@ -592,29 +577,50 @@ export default function SegmentationWorkflow({
             </button>
           </div>
         )}
-        <SegmentationEditor
-          key={
-            review?.key ??
-            `template:${camera}:${representative}:${editorRevision}`
-          }
-          datasetId={datasetId}
-          datasetName={datasetName}
-          scope={scope}
-          capabilities={capabilities}
-          initialEpisode={review?.item.episode_index ?? representative}
-          initialVideoKey={review?.item.video_key ?? camera}
-          initialDraft={
-            review?.draft ??
-            episodeDrafts[`${camera}:${representative}`] ??
-            textOnlyDraft(cameraDrafts[camera])
-          }
-          initialPreview={review?.preview}
-          workflowMode
-          onDraftChange={captureDraft}
-          onPreviewReady={review ? onPreviewReady : undefined}
-          onApprove={review ? approveItem : undefined}
-          onReviewInvalidated={review ? invalidateReview : undefined}
-        />
+        {review ? (
+          <SegmentationEditor
+            key={review.key}
+            datasetId={datasetId}
+            datasetName={datasetName}
+            scope={scope}
+            capabilities={capabilities}
+            initialEpisode={review.item.episode_index}
+            initialVideoKey={review.item.video_key}
+            initialDraft={review.draft}
+            initialPreview={review.preview}
+            workflowMode
+            onDraftChange={captureDraft}
+            onPreviewReady={onPreviewReady}
+            onApprove={approveItem}
+            onReviewInvalidated={invalidateReview}
+          />
+        ) : (
+          // Every camera is configured at once, stacked front, right, left.
+          workflowCameras.map((key) => (
+            <section
+              key={key}
+              className="segmentation-camera-editor"
+              aria-label={`${key} 카메라 설정`}
+            >
+              <h3>{key}</h3>
+              <SegmentationEditor
+                key={`template:${key}:${representative}:${editorRevision}`}
+                datasetId={datasetId}
+                datasetName={datasetName}
+                scope={scope}
+                capabilities={capabilities}
+                initialEpisode={representative}
+                initialVideoKey={key}
+                initialDraft={
+                  episodeDrafts[`${key}:${representative}`] ??
+                  textOnlyDraft(cameraDrafts[key])
+                }
+                workflowMode
+                onDraftChange={captureDraft}
+              />
+            </section>
+          ))
+        )}
         {!review && (
           <div className="segmentation-fields segmentation-template-save">
             <label>
@@ -705,7 +711,7 @@ export default function SegmentationWorkflow({
           </fieldset>
           <fieldset>
             <legend>카메라 · {cameras.length}개</legend>
-            {scope.video_keys.map((key) => (
+            {workflowCameras.map((key) => (
               <label className="segmentation-camera-choice" key={key}>
                 <input
                   type="checkbox"

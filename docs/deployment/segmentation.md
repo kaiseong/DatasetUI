@@ -229,3 +229,11 @@ docker compose stop worker-gpu
 - 렌더링 설정이라 SAM 마스크 입력(`mask_inputs`)에서 빠진다. 값만 바꾸면 저장된 마스크로 다시 렌더링한다(재승인 필요).
 - 0이면 spec·템플릿 직렬화에서 생략되어 기존 recipe hash가 바뀌지 않는다.
 - 검증: 백엔드 626 통과(운영 processor 이미지), 프론트 293 통과, `smoke_segmentation_confirm.py`(입력→미리보기 요청에 값 포함), `smoke_segmentation_member.py` 통과.
+
+### 2026-10-02 카메라 한 화면 설정 (`release-20261002-cameras-v1`)
+
+- "설정할 카메라" 선택을 없앴다. 01 단계에서 모든 카메라의 편집기(원본과 범위·전체 적용)를 세로로 쌓아 한 번에 설정한다.
+  - 순서는 front, right, left, 그 밖의 카메라는 원래 순서(`orderWorkflowCameras`). 02 일괄 처리의 카메라 목록도 같은 순서이고 기본 선택은 첫 카메라(front)다.
+  - 카메라마다 객체·작업 영역은 따로 저장되고, 템플릿에는 지시가 있는 카메라만 들어간다. 검토 중에는 해당 항목 하나만 보인다.
+- 화면만 바뀐 배포라 web만 다시 띄웠다(백엔드 이미지는 같은 이미지에 태그만 추가).
+- 검증: 프론트 294 통과, `scripts/smoke_segmentation_cameras.py`(세 카메라 순서, 카메라별 독립 저장, 템플릿 구성, 모바일 가로 스크롤 없음), `smoke_segmentation_confirm.py`, `smoke_segmentation_member.py` 통과.

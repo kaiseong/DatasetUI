@@ -4,6 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useId,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -127,6 +128,7 @@ export default function SegmentationEditor({
   const [tool, setTool] = useState<Tool>("positive");
   const [brushRadius, setBrushRadius] = useState(0.025);
   const [brushOperation, setBrushOperation] = useState<"add" | "erase">("add");
+  const edgeMarginHelpId = useId();
   const [draft, setDraft] = useState<SegmentationDraft>(
     initialDraft ?? emptySegmentationDraft,
   );
@@ -1423,7 +1425,7 @@ export default function SegmentationEditor({
               min={0}
               max={MAX_EDGE_MARGIN_PX}
               step={1}
-              aria-describedby="edge-margin-help"
+              aria-describedby={edgeMarginHelpId}
               className="w-24 rounded border border-white/15 bg-slate-950 px-3 py-2 text-sm"
               value={draft.edge_margin_px ?? 0}
               onChange={(event) =>
@@ -1435,7 +1437,7 @@ export default function SegmentationEditor({
             />
           </label>
           <p
-            id="edge-margin-help"
+            id={edgeMarginHelpId}
             className="basis-full text-xs text-slate-400"
           >
             경계 여유: 남길 객체는 이만큼 더 넓게 남기고 제거할 객체는 더 넓게

@@ -537,3 +537,18 @@ export function batchEstimate(
       perItem === null || done >= total ? null : perItem * (total - progressed),
   };
 }
+
+const CAMERA_ORDER = ["front", "right", "left"];
+
+/** Workflow cameras top to bottom: front, right, left, then any others as listed. */
+export function orderWorkflowCameras(keys: string[]): string[] {
+  const rank = (key: string) => {
+    const name = key.toLowerCase().split(".").pop() ?? "";
+    const index = CAMERA_ORDER.findIndex((side) => name.includes(side));
+    return index < 0 ? CAMERA_ORDER.length : index;
+  };
+  return keys
+    .map((key, position) => ({ key, position, rank: rank(key) }))
+    .sort((a, b) => a.rank - b.rank || a.position - b.position)
+    .map((item) => item.key);
+}

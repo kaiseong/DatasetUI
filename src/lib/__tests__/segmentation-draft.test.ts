@@ -15,6 +15,7 @@ import {
   retainRequestKey,
   updatePrompt,
   draftFromSegmentationSpec,
+  orderWorkflowCameras,
   segmentationBatchCanExport,
   segmentationMaskSignature,
   invalidateChangedMaskSelection,
@@ -141,6 +142,28 @@ describe("segmentation draft", () => {
         render_mode: "image",
       }).selected_candidate_ids,
     ).toEqual(["1-1"]);
+  });
+
+  test("workflow cameras stack front, right, left, then the rest in order", () => {
+    expect(
+      orderWorkflowCameras([
+        "observation.images.left",
+        "observation.images.wrist",
+        "observation.images.right",
+        "observation.images.front",
+        "observation.images.top",
+      ]),
+    ).toEqual([
+      "observation.images.front",
+      "observation.images.right",
+      "observation.images.left",
+      "observation.images.wrist",
+      "observation.images.top",
+    ]);
+    expect(orderWorkflowCameras(["cam_left_wrist", "cam_front"])).toEqual([
+      "cam_front",
+      "cam_left_wrist",
+    ]);
   });
 
   test("edge margin is a bounded whole pixel count that survives reload", () => {
