@@ -23,3 +23,5 @@
 - `exact_statistics`, `episode_statistics`, `visual_statistics`, `deferred_statistics`, `output_statistics` → `statistics/`; `official_operations`, `lerobot_runtime`, `processing_sources` → `official/`. 런타임 고정 파일 `lerobot_source_lock.json`을 `official/`로 이동(런타임이 자기 파일 옆에서 읽음).
 - 공식 엔진 환경에서만 실패하던 테스트 2개 수정: v3 테스트 데이터를 공식 형식(task 문자열 인덱스, meta/episodes 인덱스, 2축 action)으로, 프로세스 정리 테스트의 시작 직후 SIGTERM 경합 제거. 운영 코드 변경 없음.
 - processor 이미지(공식 엔진, torch 포함) 619개 전부 통과(반복 실행 모두 통과), 로컬 598개 통과.
+- 배포: 백업 `~/kgs/datasetui-backup-20261002-statistics-115415`(이전 HEAD `4d24af0`), 이전 태그 `~/kgs/DatasetUI-release-20261002-statistics/compose.override.before.yaml`.
+- 이후 배포 방식: `rtx6000`이 docker 그룹에 들어가 sudo 없이 배포 스크립트(`~/kgs/DatasetUI-release-*/rollout_*.sh`)를 실행한다.
