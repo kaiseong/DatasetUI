@@ -9,6 +9,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import { LuPlay } from "react-icons/lu";
 import { useProfile } from "./profile-context";
 import { JobProgress } from "./job-progress";
@@ -23,6 +24,7 @@ import { MemberPicker } from "./segmentation/member-picker";
 import { ObjectChips } from "./segmentation/object-chips";
 import { PreviewReview } from "./segmentation/preview-review";
 import { SampleResult } from "./segmentation/sample-result";
+import type { ApplyHandle, SharedApply } from "./segmentation/shared-apply";
 import { useFrameSelection } from "./segmentation/use-frame-selection";
 import { useUnsavedEditGuard } from "./segmentation/use-unsaved-edit-guard";
 import {
@@ -93,6 +95,8 @@ type Props = {
   onPreviewReady?: (preview: SegmentationPreviewResult) => Promise<void>;
   onApprove?: (preview: SegmentationPreviewResult) => Promise<void>;
   onReviewInvalidated?: () => void;
+  /** One panel below every camera applies, shows results and approves. */
+  sharedApply?: SharedApply;
 };
 
 export default function SegmentationEditor({
@@ -109,6 +113,7 @@ export default function SegmentationEditor({
   onPreviewReady,
   onApprove,
   onReviewInvalidated,
+  sharedApply,
 }: Props) {
   const { currentProfile, openProfileDialog } = useProfile();
   const firstEpisode = scope.episodes[0];
@@ -190,6 +195,9 @@ export default function SegmentationEditor({
     [number, number, number, number] | null
   >(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Preview/approval feedback; shown in the shared panel when there is one.
+  const [applyMessage, setApplyMessage] = useState<string | null>(null);
+  const sayApply = sharedApply ? setApplyMessage : setMessage;
   const {
     selection,
     selectionLoading,
@@ -835,7 +843,7 @@ export default function SegmentationEditor({
       return;
     }
     if (!canGenerate) {
-      setMessage(capabilities.message);
+      sayApply(capabilities.message);
       return;
     }
     const primaryTarget =
@@ -845,11 +853,11 @@ export default function SegmentationEditor({
           ? "replace"
           : "protect";
     if (!hasSegmentationGuidance(draft, primaryTarget)) {
-      setMessage("객체를 찾을 텍스트·포함점·Box·포함 브러시를 추가하세요.");
+      sayApply("객체를 찾을 텍스트·포함점·Box·포함 브러시를 추가하세요.");
       return;
     }
     if (draft.render_mode === "image" && !draft.background_base64) {
-      setMessage("배경 이미지를 선택하세요.");
+      sayApply("배경 이미지를 선택하세요.");
       return;
     }
     const requestGeneration = ++generationRef.current;
@@ -868,7 +876,7 @@ export default function SegmentationEditor({
     );
     previewRequestKeyRef.current = requestKey;
     exportRequestKeyRef.current = null;
-    setMessage(null);
+    sayApply(null);
     setPreview(null);
     setApprovalToken(null);
     setExportJob(null);
@@ -908,7 +916,7 @@ export default function SegmentationEditor({
         !isSegmentationPreviewResult(result) ||
         (!!scope.fingerprint && result.fingerprint !== scope.fingerprint)
       ) {
-        setMessage("현재 데이터셋과 다른 미리보기 결과를 거부했습니다.");
+        sayApply("현재 데이터셋과 다른 미리보기 결과를 거부했습니다.");
         return;
       }
       setPreview(result);
@@ -919,7 +927,7 @@ export default function SegmentationEditor({
       await onPreviewReady?.(result);
     } catch (error) {
       if (generationRef.current === requestGeneration) {
-        setMessage(
+        sayApply(
           error instanceof Error
             ? error.message
             : "미리보기를 만들지 못했습니다.",
@@ -936,7 +944,7 @@ export default function SegmentationEditor({
         await onApprove(preview);
         if (generationRef.current === requestGeneration) {
           setApprovalToken("batch-approved");
-          setMessage(
+          sayApply(
             "이 영상의 작업 영역을 승인했습니다. 모든 영상을 승인한 후 아래 일괄 내보내기를 사용하세요.",
           );
         }
@@ -950,11 +958,13 @@ export default function SegmentationEditor({
       if (generationRef.current !== requestGeneration) return;
       exportRequestKeyRef.current = null;
       setApprovalToken(result.approval_token);
-      setMessage(
-        "현재 미리보기를 승인했습니다. 이제 새 데이터셋을 만들 수 있습니다.",
+      sayApply(
+        sharedApply
+          ? "이 카메라 결과를 승인했습니다."
+          : "현재 미리보기를 승인했습니다. 이제 새 데이터셋을 만들 수 있습니다.",
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : String(error));
+      sayApply(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -1009,6 +1019,60 @@ export default function SegmentationEditor({
   }
 
   const shownBox = boxPreview ?? prompt.box;
+
+  const sharedRender = sharedApply?.render;
+  useEffect(() => {
+    if (
+      !sharedRender ||
+      (draft.render_mode === sharedRender.render_mode &&
+        (draft.background_base64 ?? "") === sharedRender.background_base64 &&
+        (draft.edge_margin_px ?? 0) === sharedRender.edge_margin_px)
+    )
+      return;
+    editRender((current) => ({ ...current, ...sharedRender }));
+  }, [
+    sharedRender,
+    draft.render_mode,
+    draft.background_base64,
+    draft.edge_margin_px,
+    editRender,
+  ]);
+
+  const applyActions = useRef<ApplyHandle>({
+    apply: async () => {},
+    approve: async () => {},
+  });
+  useEffect(() => {
+    applyActions.current = { apply: generatePreview, approve: approvePreview };
+  });
+  const registerApply = sharedApply?.register;
+  useEffect(() => {
+    if (!registerApply) return;
+    registerApply(videoKey, {
+      apply: () => applyActions.current.apply(),
+      approve: () => applyActions.current.approve(),
+    });
+    return () => registerApply(videoKey, null);
+  }, [registerApply, videoKey]);
+
+  const reportApply = sharedApply?.onState;
+  const applyConfigured = hasSegmentationGuidance(confirmed);
+  const applyRunning = !!previewJob && !TERMINAL.has(previewJob.status);
+  useEffect(() => {
+    reportApply?.(videoKey, {
+      configured: applyConfigured,
+      running: applyRunning,
+      preview,
+      approved: !!approvalToken,
+    });
+  }, [
+    reportApply,
+    videoKey,
+    applyConfigured,
+    applyRunning,
+    preview,
+    approvalToken,
+  ]);
 
   useEffect(() => {
     sampleGeneration.current += 1;
@@ -1213,7 +1277,7 @@ export default function SegmentationEditor({
                 setSampleView={setSampleView}
               />
             )}
-            {preview && (
+            {preview && !sharedApply && (
               <EpisodeVideos
                 preview={preview}
                 episodeIndex={episodeIndex}
@@ -1391,126 +1455,192 @@ export default function SegmentationEditor({
           </div>
         </div>
 
-        <div className="curation-section-title">
-          <span>02</span>
-          <div>
-            <h2>선택 에피소드 전체 적용</h2>
-            <p>
-              기본은 작업 영역 밖을 검게 처리합니다. 배경·후보 선택만 바꾸면
-              저장된 마스크로 다시 렌더링하며, 모든 변경은 재승인이 필요합니다.
-            </p>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className="text-xs text-slate-300">
-            <span className="mb-1 block">출력 배경</span>
-            <select
-              className="rounded border border-white/15 bg-slate-950 px-3 py-2 text-sm"
-              value={draft.render_mode ?? "black"}
-              onChange={(event) =>
-                editRender((current) => ({
-                  ...current,
-                  render_mode: event.target.value as "black" | "image",
-                }))
-              }
-            >
-              <option value="black">검은 배경 · 이미지 불필요</option>
-              <option value="image">사진 배경 · 선택 사항</option>
-            </select>
-          </label>
-          <label className="text-xs text-slate-300">
-            <span className="mb-1 block">경계 여유 (px)</span>
-            <input
-              type="number"
-              min={0}
-              max={MAX_EDGE_MARGIN_PX}
-              step={1}
-              aria-describedby={edgeMarginHelpId}
-              className="w-24 rounded border border-white/15 bg-slate-950 px-3 py-2 text-sm"
-              value={draft.edge_margin_px ?? 0}
-              onChange={(event) =>
-                editRender((current) => ({
-                  ...current,
-                  edge_margin_px: clampEdgeMargin(event.target.valueAsNumber),
-                }))
-              }
-            />
-          </label>
-          <p
-            id={edgeMarginHelpId}
-            className="basis-full text-xs text-slate-400"
-          >
-            경계 여유: 남길 객체는 이만큼 더 넓게 남기고 제거할 객체는 더 넓게
-            지웁니다. 두 여유가 겹치면 제거가 우선이며, 객체 자체는 깎지
-            않습니다. SAM을 다시 돌리지 않고 저장된 마스크로 다시 렌더링합니다.
-          </p>
-          {draft.render_mode === "image" && (
-            <label className="min-w-72 flex-1 text-xs text-slate-300">
-              <span className="mb-1 block">
-                배경 이미지 · PNG/JPEG/WebP, 최대 10 MiB
-              </span>
-              <input
-                type="file"
-                accept="image/png,image/jpeg,image/webp"
-                onChange={(event) =>
-                  void chooseBackground(event.target.files?.[0])
-                }
-              />
-              {backgroundName && (
-                <small className="mt-1 block text-cyan-200">
-                  {backgroundName}
-                </small>
+        {sharedApply
+          ? sharedApply.host &&
+            (previewJob || preview || applyMessage || cacheSource) &&
+            createPortal(
+              <section
+                className="space-y-3"
+                aria-label={`${videoKey} 적용 결과`}
+              >
+                <h3 className="text-sm font-semibold text-cyan-200">
+                  {videoKey}
+                </h3>
+                {previewJob && (
+                  <p className="text-xs text-slate-400" aria-live="polite">
+                    {jobMessage(previewJob)}
+                  </p>
+                )}
+                {previewJob && applyRunning && (
+                  <JobProgress job={previewJob} compact />
+                )}
+                {applyMessage && (
+                  <p className="workbench-live-message" role="status">
+                    {applyMessage}
+                  </p>
+                )}
+                {preview && (
+                  <EpisodeVideos
+                    preview={preview}
+                    episodeIndex={episodeIndex}
+                    videoKey={videoKey}
+                    renderMode={draft.render_mode}
+                  />
+                )}
+                {cacheSource?.signature ===
+                  segmentationMaskSignature(confirmed) &&
+                  !!cacheSource.preview.candidates?.length &&
+                  (cacheSource.preview.selection_required ||
+                    confirmed.mode !== "object_selection" ||
+                    confirmed.prompts.some(
+                      (p) => p.text && !p.selected_candidates?.length,
+                    )) && (
+                    <CandidatePicker
+                      cacheSource={cacheSource}
+                      draft={draft}
+                      editRender={editRender}
+                    />
+                  )}
+                {preview && (
+                  <PreviewReview
+                    preview={preview}
+                    maxFrame={maxFrame}
+                    setFrameIndex={setFrameIndex}
+                    approvalToken={approvalToken}
+                  />
+                )}
+              </section>,
+              sharedApply.host,
+            )
+          : null}
+        {!sharedApply && (
+          <>
+            <div className="curation-section-title">
+              <span>02</span>
+              <div>
+                <h2>선택 에피소드 전체 적용</h2>
+                <p>
+                  기본은 작업 영역 밖을 검게 처리합니다. 배경·후보 선택만 바꾸면
+                  저장된 마스크로 다시 렌더링하며, 모든 변경은 재승인이
+                  필요합니다.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="text-xs text-slate-300">
+                <span className="mb-1 block">출력 배경</span>
+                <select
+                  className="rounded border border-white/15 bg-slate-950 px-3 py-2 text-sm"
+                  value={draft.render_mode ?? "black"}
+                  onChange={(event) =>
+                    editRender((current) => ({
+                      ...current,
+                      render_mode: event.target.value as "black" | "image",
+                    }))
+                  }
+                >
+                  <option value="black">검은 배경 · 이미지 불필요</option>
+                  <option value="image">사진 배경 · 선택 사항</option>
+                </select>
+              </label>
+              <label className="text-xs text-slate-300">
+                <span className="mb-1 block">경계 여유 (px)</span>
+                <input
+                  type="number"
+                  min={0}
+                  max={MAX_EDGE_MARGIN_PX}
+                  step={1}
+                  aria-describedby={edgeMarginHelpId}
+                  className="w-24 rounded border border-white/15 bg-slate-950 px-3 py-2 text-sm"
+                  value={draft.edge_margin_px ?? 0}
+                  onChange={(event) =>
+                    editRender((current) => ({
+                      ...current,
+                      edge_margin_px: clampEdgeMargin(
+                        event.target.valueAsNumber,
+                      ),
+                    }))
+                  }
+                />
+              </label>
+              <p
+                id={edgeMarginHelpId}
+                className="basis-full text-xs text-slate-400"
+              >
+                경계 여유: 남길 객체는 이만큼 더 넓게 남기고 제거할 객체는 더
+                넓게 지웁니다. 두 여유가 겹치면 제거가 우선이며, 객체 자체는
+                깎지 않습니다. SAM을 다시 돌리지 않고 저장된 마스크로 다시
+                렌더링합니다.
+              </p>
+              {draft.render_mode === "image" && (
+                <label className="min-w-72 flex-1 text-xs text-slate-300">
+                  <span className="mb-1 block">
+                    배경 이미지 · PNG/JPEG/WebP, 최대 10 MiB
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={(event) =>
+                      void chooseBackground(event.target.files?.[0])
+                    }
+                  />
+                  {backgroundName && (
+                    <small className="mt-1 block text-cyan-200">
+                      {backgroundName}
+                    </small>
+                  )}
+                </label>
               )}
-            </label>
-          )}
-          <button
-            type="button"
-            className="workbench-button workbench-button--primary"
-            disabled={
-              !canGenerate ||
-              (!scope.frame_token && !selection) ||
-              previewJob?.status === "queued" ||
-              previewJob?.status === "running"
-            }
-            onClick={() => void generatePreview()}
-          >
-            <LuPlay aria-hidden />{" "}
-            {previewJob && !TERMINAL.has(previewJob.status)
-              ? "생성 중…"
-              : cacheSource?.signature === segmentationMaskSignature(draft)
-                ? "저장된 마스크로 다시 렌더링"
-                : "선택 에피소드 전체 적용"}
-          </button>
-          <span className="text-xs text-slate-400" aria-live="polite">
-            {jobMessage(previewJob)}
-          </span>
-        </div>
-        {previewJob && !TERMINAL.has(previewJob.status) && (
-          <JobProgress job={previewJob} compact />
-        )}
+              <button
+                type="button"
+                className="workbench-button workbench-button--primary"
+                disabled={
+                  !canGenerate ||
+                  (!scope.frame_token && !selection) ||
+                  previewJob?.status === "queued" ||
+                  previewJob?.status === "running"
+                }
+                onClick={() => void generatePreview()}
+              >
+                <LuPlay aria-hidden />{" "}
+                {previewJob && !TERMINAL.has(previewJob.status)
+                  ? "생성 중…"
+                  : cacheSource?.signature === segmentationMaskSignature(draft)
+                    ? "저장된 마스크로 다시 렌더링"
+                    : "선택 에피소드 전체 적용"}
+              </button>
+              <span className="text-xs text-slate-400" aria-live="polite">
+                {jobMessage(previewJob)}
+              </span>
+            </div>
+            {previewJob && !TERMINAL.has(previewJob.status) && (
+              <JobProgress job={previewJob} compact />
+            )}
 
-        {cacheSource?.signature === segmentationMaskSignature(confirmed) &&
-          !!cacheSource.preview.candidates?.length &&
-          (cacheSource.preview.selection_required ||
-            confirmed.mode !== "object_selection" ||
-            confirmed.prompts.some(
-              (p) => p.text && !p.selected_candidates?.length,
-            )) && (
-            <CandidatePicker
-              cacheSource={cacheSource}
-              draft={draft}
-              editRender={editRender}
-            />
-          )}
+            {cacheSource?.signature === segmentationMaskSignature(confirmed) &&
+              !!cacheSource.preview.candidates?.length &&
+              (cacheSource.preview.selection_required ||
+                confirmed.mode !== "object_selection" ||
+                confirmed.prompts.some(
+                  (p) => p.text && !p.selected_candidates?.length,
+                )) && (
+                <CandidatePicker
+                  cacheSource={cacheSource}
+                  draft={draft}
+                  editRender={editRender}
+                />
+              )}
 
-        {preview && (
-          <PreviewReview
-            preview={preview}
-            maxFrame={maxFrame}
-            setFrameIndex={setFrameIndex}
-            approvalToken={approvalToken}
-            approvePreview={approvePreview}
-          />
+            {preview && (
+              <PreviewReview
+                preview={preview}
+                maxFrame={maxFrame}
+                setFrameIndex={setFrameIndex}
+                approvalToken={approvalToken}
+                approvePreview={approvePreview}
+              />
+            )}
+          </>
         )}
 
         {!workflowMode && (

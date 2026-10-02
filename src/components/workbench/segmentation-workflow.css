@@ -268,3 +268,31 @@
   font-weight: 600;
   overflow-wrap: anywhere;
 }
+.segmentation-shared-apply {
+  margin-top: 1.5rem;
+  padding: 1.25rem;
+  border: 1px solid rgb(34 211 238 / 0.3);
+  border-radius: 8px;
+  background: rgb(34 211 238 / 0.04);
+}
+.segmentation-shared-apply > h3 {
+  color: #67e8f9;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.segmentation-shared-apply > p,
+.segmentation-shared-apply-note {
+  margin: 0.4rem 0 0.9rem;
+  color: #94a3b8;
+  font-size: 0.8rem;
+}
+.segmentation-shared-apply-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.segmentation-shared-apply-result:not(:empty) {
+  margin-top: 1.25rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgb(148 163 184 / 0.2);
+}

@@ -111,10 +111,11 @@ def main():
         editor.get_by_role('button',name='저장',exact=True).click()
         expect(editor.get_by_role('group',name='저장된 객체 선택').get_by_role('button').filter(has_not_text='+ 객체 추가')).to_have_count(3)
         assert workspace['objects'][-1]['prompts'][0]['selected_candidates'][0]['candidate_id']=='3-7'
-        page.get_by_label('출력 배경').select_option('image')
-        expect(editor.locator('input[type=file]')).to_have_count(1)
-        page.get_by_label('출력 배경').select_option('black')
-        expect(editor.locator('input[type=file]')).to_have_count(0)
+        shared = page.get_by_role('region', name='선택 에피소드 전체 적용', exact=True)
+        shared.get_by_label('출력 배경').select_option('image')
+        expect(shared.locator('input[type=file]')).to_have_count(1)
+        shared.get_by_label('출력 배경').select_option('black')
+        expect(shared.locator('input[type=file]')).to_have_count(0)
         page.get_by_label('경계 여유 (px)').fill('6')
         expect(page.get_by_label('경계 여유 (px)')).to_have_value('6')
         assert workspace['revision']==3
@@ -126,7 +127,7 @@ def main():
         expect(editor.get_by_role('button',name='객체 삭제',exact=True)).to_be_visible()
         expect(chip).to_have_attribute('aria-pressed','true')
         editor.get_by_role('button',name='취소',exact=True).click()
-        page.get_by_role('button',name='선택 에피소드 전체 적용',exact=True).click()
+        shared.get_by_role('button',name='선택 에피소드 전체 적용 · 카메라 1개',exact=True).click()
         expect(page.get_by_role('region',name='에피소드 영상 결과')).to_be_visible()
         assert [data for path,data in posts if path.endswith('/previews')][-1]['spec']['edge_margin_px']==6
         expect(page.get_by_role('region',name='보존할 객체 후보 선택')).to_have_count(0)

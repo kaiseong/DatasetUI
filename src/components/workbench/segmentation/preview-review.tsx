@@ -8,7 +8,8 @@ type Props = {
   maxFrame: number;
   setFrameIndex: (frame: number) => void;
   approvalToken: string | null;
-  approvePreview: () => Promise<void>;
+  /** Omitted when a shared panel approves every camera at once. */
+  approvePreview?: () => Promise<void>;
 };
 
 export function PreviewReview({
@@ -73,19 +74,27 @@ export function PreviewReview({
           생성해야 합니다.
         </p>
       )}
-      <button
-        type="button"
-        className="workbench-button"
-        disabled={
-          !!approvalToken ||
-          preview.selection_required ||
-          preview.review_blocked
-        }
-        onClick={() => void approvePreview()}
-      >
-        <LuBadgeCheck aria-hidden />{" "}
-        {approvalToken ? "승인됨" : "이 미리보기 승인"}
-      </button>
+      {approvePreview ? (
+        <button
+          type="button"
+          className="workbench-button"
+          disabled={
+            !!approvalToken ||
+            preview.selection_required ||
+            preview.review_blocked
+          }
+          onClick={() => void approvePreview()}
+        >
+          <LuBadgeCheck aria-hidden />{" "}
+          {approvalToken ? "승인됨" : "이 미리보기 승인"}
+        </button>
+      ) : (
+        approvalToken && (
+          <p className="flex items-center gap-1 text-xs text-emerald-300">
+            <LuBadgeCheck aria-hidden /> 승인됨
+          </p>
+        )
+      )}
     </div>
   );
 }

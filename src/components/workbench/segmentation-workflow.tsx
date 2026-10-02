@@ -2,6 +2,18 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import SegmentationEditor from "./segmentation-editor";
+import {
+  BACKGROUND_TYPES,
+  MAX_BACKGROUND_BYTES,
+  readRawBase64,
+} from "./segmentation/support";
+import {
+  canApprove,
+  type ApplyHandle,
+  type ApplyState,
+  type SharedApply,
+  type SharedRender,
+} from "./segmentation/shared-apply";
 import { formatDuration } from "@/lib/job-presentation";
 import { useProfile } from "./profile-context";
 import {
@@ -11,6 +23,8 @@ import {
   orderWorkflowCameras,
   batchEstimate,
   batchItemAttention,
+  clampEdgeMargin,
+  MAX_EDGE_MARGIN_PX,
   segmentationBatchCanExport,
   type SegmentationDraft,
 } from "@/lib/segmentation-draft";
@@ -104,6 +118,40 @@ export default function SegmentationWorkflow({
     orderWorkflowCameras(scope.video_keys).slice(0, 1),
   );
   const [sameSetup, setSameSetup] = useState(false);
+  const [sharedRender, setSharedRender] = useState<SharedRender>({
+    render_mode: "black",
+    background_base64: "",
+    edge_margin_px: 0,
+  });
+  const [backgroundName, setBackgroundName] = useState("");
+  const [applyHosts, setApplyHosts] = useState<
+    Record<string, HTMLElement | null>
+  >({});
+  const [applyStates, setApplyStates] = useState<Record<string, ApplyState>>(
+    {},
+  );
+  const [applyMessage, setApplyMessage] = useState<string | null>(null);
+  const applyHandles = useRef<Record<string, ApplyHandle>>({});
+  const registerApply = useCallback(
+    (videoKey: string, handle: ApplyHandle | null) => {
+      if (handle) applyHandles.current[videoKey] = handle;
+      else delete applyHandles.current[videoKey];
+    },
+    [],
+  );
+  const reportApply = useCallback((videoKey: string, state: ApplyState) => {
+    setApplyStates((current) => ({ ...current, [videoKey]: state }));
+  }, []);
+  // One stable ref callback per camera; a fresh one each render would detach
+  // and reattach the host, update state and render again forever.
+  const applyHostRefs = useRef<
+    Record<string, (node: HTMLElement | null) => void>
+  >({});
+  const applyHostRef = (videoKey: string) =>
+    (applyHostRefs.current[videoKey] ??= (node) =>
+      setApplyHosts((current) =>
+        current[videoKey] === node ? current : { ...current, [videoKey]: node },
+      ));
   const [batches, setBatches] = useState<SegmentationBatch[]>([]);
   const [batch, setBatch] = useState<SegmentationBatch | null>(null);
   const [review, setReview] = useState<Review | null>(null);
@@ -235,6 +283,10 @@ export default function SegmentationWorkflow({
     setSameSetup(false);
     if (!selected) return;
     setTemplateName(selected.name);
+    setSharedRender((current) => ({
+      ...current,
+      edge_margin_px: selected.cameras[0]?.edge_margin_px ?? 0,
+    }));
     setCameraDrafts(
       Object.fromEntries(
         selected.cameras.map((item) => [
@@ -497,6 +549,78 @@ export default function SegmentationWorkflow({
   }
 
   const workflowCameras = orderWorkflowCameras(scope.video_keys);
+  const sharedApplyFor = (key: string): SharedApply => ({
+    host: applyHosts[key] ?? null,
+    render: sharedRender,
+    register: registerApply,
+    onState: reportApply,
+  });
+  const configuredCameras = workflowCameras.filter(
+    (key) => applyStates[key]?.configured,
+  );
+  const applying = configuredCameras.some((key) => applyStates[key]?.running);
+  const allApprovable =
+    configuredCameras.length > 0 &&
+    configuredCameras.every((key) => canApprove(applyStates[key]));
+  const allApproved =
+    configuredCameras.length > 0 &&
+    configuredCameras.every((key) => applyStates[key]?.approved);
+
+  async function chooseSharedBackground(file: File | undefined) {
+    if (!file) return;
+    if (!BACKGROUND_TYPES.has(file.type)) {
+      setApplyMessage("PNG, JPEG, WebP 이미지만 배경으로 사용할 수 있습니다.");
+      return;
+    }
+    if (file.size > MAX_BACKGROUND_BYTES) {
+      setApplyMessage("배경 이미지는 10 MiB 이하여야 합니다.");
+      return;
+    }
+    try {
+      const raw = await readRawBase64(file);
+      setSharedRender((current) => ({ ...current, background_base64: raw }));
+      setBackgroundName(file.name);
+      setApplyMessage(null);
+    } catch (error) {
+      setApplyMessage(errorMessage(error));
+    }
+  }
+
+  async function applyAllCameras() {
+    if (!configuredCameras.length) {
+      setApplyMessage(
+        "객체를 저장한 카메라가 없습니다. 먼저 객체를 설정하세요.",
+      );
+      return;
+    }
+    if (
+      sharedRender.render_mode === "image" &&
+      !sharedRender.background_base64
+    ) {
+      setApplyMessage("배경 이미지를 선택하세요.");
+      return;
+    }
+    const skipped = workflowCameras.filter(
+      (key) => !configuredCameras.includes(key),
+    );
+    setApplyMessage(
+      skipped.length
+        ? `객체가 없는 카메라는 건너뜁니다: ${skipped.join(", ")}`
+        : null,
+    );
+    // Each camera is its own GPU job; idle GPU workers take them in parallel.
+    await Promise.all(
+      configuredCameras.map((key) => applyHandles.current[key]?.apply()),
+    );
+  }
+
+  async function approveAllCameras() {
+    setApplyMessage(null);
+    for (const key of configuredCameras) {
+      if (!applyStates[key]?.approved)
+        await applyHandles.current[key]?.approve();
+    }
+  }
   const activeTemplate = templates.find((item) => item.id === templateId);
   const missingCameras = cameras.filter(
     (key) => !activeTemplate?.cameras.some((item) => item.video_key === key),
@@ -595,31 +719,131 @@ export default function SegmentationWorkflow({
             onReviewInvalidated={invalidateReview}
           />
         ) : (
-          // Every camera is configured at once, stacked front, right, left.
-          workflowCameras.map((key) => (
+          <>
+            {/* Every camera is configured at once, stacked front, right, left. */}
+            {workflowCameras.map((key) => (
+              <section
+                key={key}
+                className="segmentation-camera-editor"
+                aria-label={`${key} 카메라 설정`}
+              >
+                <h3>{key}</h3>
+                <SegmentationEditor
+                  key={`template:${key}:${representative}:${editorRevision}`}
+                  datasetId={datasetId}
+                  datasetName={datasetName}
+                  scope={scope}
+                  capabilities={capabilities}
+                  initialEpisode={representative}
+                  initialVideoKey={key}
+                  initialDraft={
+                    episodeDrafts[`${key}:${representative}`] ??
+                    textOnlyDraft(cameraDrafts[key])
+                  }
+                  workflowMode
+                  onDraftChange={captureDraft}
+                  sharedApply={sharedApplyFor(key)}
+                />
+              </section>
+            ))}
             <section
-              key={key}
-              className="segmentation-camera-editor"
-              aria-label={`${key} 카메라 설정`}
+              className="segmentation-shared-apply"
+              aria-label="선택 에피소드 전체 적용"
             >
-              <h3>{key}</h3>
-              <SegmentationEditor
-                key={`template:${key}:${representative}:${editorRevision}`}
-                datasetId={datasetId}
-                datasetName={datasetName}
-                scope={scope}
-                capabilities={capabilities}
-                initialEpisode={representative}
-                initialVideoKey={key}
-                initialDraft={
-                  episodeDrafts[`${key}:${representative}`] ??
-                  textOnlyDraft(cameraDrafts[key])
-                }
-                workflowMode
-                onDraftChange={captureDraft}
-              />
+              <h3>선택 에피소드 전체 적용</h3>
+              <p>
+                Episode {representative}의 모든 카메라(객체를 저장한 카메라)를
+                한 번에 처리합니다. 객체는 카메라별 설정을 쓰고, 출력 배경과
+                경계 여유는 모든 카메라에 같이 적용합니다. 배경·여유만 바꾸면
+                저장된 마스크로 다시 렌더링합니다.
+              </p>
+              <div className="segmentation-fields">
+                <label>
+                  출력 배경
+                  <select
+                    value={sharedRender.render_mode}
+                    onChange={(event) =>
+                      setSharedRender((current) => ({
+                        ...current,
+                        render_mode: event.target.value as "black" | "image",
+                      }))
+                    }
+                  >
+                    <option value="black">검은 배경 · 이미지 불필요</option>
+                    <option value="image">사진 배경 · 선택 사항</option>
+                  </select>
+                </label>
+                <label>
+                  경계 여유 (px)
+                  <input
+                    type="number"
+                    min={0}
+                    max={MAX_EDGE_MARGIN_PX}
+                    step={1}
+                    value={sharedRender.edge_margin_px}
+                    onChange={(event) =>
+                      setSharedRender((current) => ({
+                        ...current,
+                        edge_margin_px: clampEdgeMargin(
+                          event.target.valueAsNumber,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                {sharedRender.render_mode === "image" && (
+                  <label>
+                    배경 이미지 · PNG/JPEG/WebP, 최대 10 MiB
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={(event) =>
+                        void chooseSharedBackground(event.target.files?.[0])
+                      }
+                    />
+                    {backgroundName && <small>{backgroundName}</small>}
+                  </label>
+                )}
+              </div>
+              <p className="segmentation-shared-apply-note">
+                경계 여유: 남길 객체는 이만큼 더 넓게 남기고 제거할 객체는 더
+                넓게 지웁니다. 두 여유가 겹치면 제거가 우선이며, 객체 자체는
+                깎지 않습니다.
+              </p>
+              <div className="segmentation-shared-apply-actions">
+                <button
+                  type="button"
+                  className="workbench-button workbench-button--primary"
+                  disabled={applying || configuredCameras.length === 0}
+                  onClick={() => void applyAllCameras()}
+                >
+                  {applying
+                    ? "처리 중…"
+                    : `선택 에피소드 전체 적용 · 카메라 ${configuredCameras.length}개`}
+                </button>
+                <button
+                  type="button"
+                  className="workbench-button"
+                  disabled={!allApprovable || allApproved}
+                  onClick={() => void approveAllCameras()}
+                >
+                  {allApproved ? "모두 승인됨" : "전체 승인"}
+                </button>
+              </div>
+              {applyMessage && (
+                <p className="workbench-live-message" role="status">
+                  {applyMessage}
+                </p>
+              )}
+              {workflowCameras.map((key) => (
+                <div
+                  key={key}
+                  ref={applyHostRef(key)}
+                  className="segmentation-shared-apply-result"
+                />
+              ))}
             </section>
-          ))
+          </>
         )}
         {!review && (
           <div className="segmentation-fields segmentation-template-save">
