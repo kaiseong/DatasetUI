@@ -276,3 +276,50 @@ def test_episode_metadata_count_mismatch_does_not_write_partial_stats(
 
     assert not (root / "meta/episodes_stats.jsonl").exists()
     assert list((root / "meta").glob(".episodes_stats.jsonl.episode-stats-*.tmp")) == []
+
+
+def test_parallel_video_decoding_matches_sequential_bit_for_bit(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from test_joint_offset_augmentation import _write_v21 as _write_v21_video
+
+    root = tmp_path / "dataset"
+    _write_v21_video(root)  # one video file per episode
+    videos = sorted(root.rglob("*.mp4"))
+    assert len(videos) > 2
+    lengths = []
+    for index, path in enumerate(videos):
+        with av.open(str(path)) as container:
+            lengths.append(sum(1 for _ in container.decode(video=0)))
+        _rewrite_test_video(
+            path, [(index * 37 + frame * 11) for frame in range(lengths[-1])]
+        )
+
+    def run(workers: str):
+        monkeypatch.setenv("DATASETUI_STATS_DECODE_WORKERS", workers)
+        return (
+            recompute_visual_statistics_with_episodes(root),
+            recompute_visual_statistics(root),
+        )
+
+    parallel, sequential = run("2"), run("1")
+    assert parallel[1]["observation.images.front"]["count"] == [sum(lengths)]
+    assert json.dumps(parallel, sort_keys=True) == json.dumps(
+        sequential, sort_keys=True
+    )
+
+
+def test_parallel_video_decoding_still_checks_cancellation(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from test_joint_offset_augmentation import _write_v21 as _write_v21_video
+
+    root = tmp_path / "dataset"
+    _write_v21_video(root)
+    monkeypatch.setenv("DATASETUI_STATS_DECODE_WORKERS", "2")
+
+    def cancel(event: dict) -> None:
+        raise RuntimeError("cancelled while workers decode")
+
+    with pytest.raises(RuntimeError, match="cancelled while workers decode"):
+        recompute_visual_statistics_with_episodes(root, on_progress=cancel)

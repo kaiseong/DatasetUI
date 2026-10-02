@@ -17,7 +17,7 @@ from datasetui.statistics.exact import (
     list_parquet_files,
     open_parquet,
     read_info,
-    recompute_numeric_statistics,
+    recompute_numeric_statistics_by_episode,
 )
 from datasetui.statistics.visual import recompute_visual_statistics_with_episodes
 from datasetui.transform_errors import CurationTransformError
@@ -77,39 +77,33 @@ def write_episode_statistics(
         raise CurationTransformError(
             "Precomputed visual statistics features differ from metadata"
         )
+    def numeric_progress(event: dict[str, Any]) -> None:
+        if on_progress is None:
+            return
+        update = dict(event)
+        item = update.get("current_item")
+        update["current_item"] = f"에피소드별 · {item}" if item else "에피소드별"
+        on_progress(update)
+
+    numeric_by_episode = recompute_numeric_statistics_by_episode(
+        root, episode_indices, on_progress=numeric_progress
+    )
     stats_by_episode: dict[int, dict[str, Any]] = {}
-    for completed, episode_index in enumerate(episode_indices, start=1):
-
-        def child_progress(event: dict[str, Any]) -> None:
-            if on_progress is None:
-                return
-            update = dict(event)
-            item = update.get("current_item")
-            update["current_item"] = (
-                f"에피소드 {episode_index} · {item}"
-                if item
-                else f"에피소드 {episode_index}"
-            )
-            on_progress(update)
-
-        stats = recompute_numeric_statistics(
-            root,
-            on_progress=child_progress,
-            episode_indices=[episode_index],
-        )
+    for episode_index in episode_indices:
+        stats = numeric_by_episode[episode_index]
         stats.update(visual_stats_by_episode[episode_index])
         stats_by_episode[episode_index] = stats
-        if on_progress is not None:
-            on_progress(
-                {
-                    "stage": "statistics",
-                    "completed": completed,
-                    "total": len(episode_indices),
-                    "unit": "episodes",
-                    "current_item": f"에피소드 {episode_index} 통계 완료",
-                    "_force": True,
-                }
-            )
+    if on_progress is not None:
+        on_progress(
+            {
+                "stage": "statistics",
+                "completed": len(episode_indices),
+                "total": len(episode_indices),
+                "unit": "episodes",
+                "current_item": "에피소드별 통계 완료",
+                "_force": True,
+            }
+        )
 
     if version in {"v2.0", "v2.1"}:
         output_paths = [_write_v2_episode_statistics(root, stats_by_episode)]

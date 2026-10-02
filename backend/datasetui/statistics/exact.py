@@ -210,6 +210,138 @@ def recompute_numeric_statistics(
     return results
 
 
+def recompute_numeric_statistics_by_episode(
+    root: Path,
+    episode_indices: Sequence[int],
+    on_progress: ProgressCallback | None = None,
+) -> dict[int, dict[str, Any]]:
+    """Per-episode statistics from one pass over the data.
+
+    For each episode the result equals
+    ``recompute_numeric_statistics(root, episode_indices=[episode])``: every
+    episode's moments see the same row slices of the same record batches, in
+    the same order, and its quantiles come from exactly its own rows. Reading
+    the data once instead of once per episode keeps this linear in size.
+    """
+    root = Path(root)
+    info = read_info(root / "meta" / "info.json")
+    total_frames = info.get("total_frames")
+    if (
+        isinstance(total_frames, bool)
+        or not isinstance(total_frames, int)
+        or total_frames < 1
+    ):
+        raise CurationTransformError("Dataset total_frames is invalid")
+    features = info.get("features")
+    if not isinstance(features, dict):
+        raise CurationTransformError("Dataset feature metadata is invalid")
+    numeric_features = _numeric_features(features)
+    parquet_files = list_parquet_files(root / "data")
+    selected = _episode_selection(episode_indices)
+    assert selected is not None
+    counts = _episode_frame_counts(parquet_files, selected, total_frames)
+    episodes = sorted(selected)
+    starts: dict[int, int] = {}
+    measured_frames = 0
+    for episode in episodes:
+        starts[episode] = measured_frames
+        measured_frames += counts[episode]
+    total_measurements = measured_frames * len(numeric_features)
+    measured = 0
+    _progress(
+        on_progress,
+        completed=0,
+        total=total_measurements,
+        current_item=(numeric_features[0][0] if numeric_features else "수치 특성"),
+        force=True,
+    )
+    results: dict[int, dict[str, Any]] = {episode: {} for episode in episodes}
+    with tempfile.TemporaryDirectory(prefix="datasetui-exact-stats-") as scratch:
+        scratch_root = Path(scratch)
+        for feature_index, (name, descriptor, shape, width) in enumerate(
+            numeric_features
+        ):
+            storage = np.memmap(
+                scratch_root / f"feature-{feature_index:04d}.float64",
+                mode="w+",
+                dtype=np.float64,
+                shape=(width, measured_frames),
+            )
+            moments = {episode: StableMoments(width) for episode in episodes}
+            filled = dict.fromkeys(episodes, 0)
+            feature_count = 0
+            try:
+                for path in parquet_files:
+                    with open_parquet(path) as parquet:
+                        _validate_physical_type(parquet.schema_arrow, name, descriptor)
+                        columns = [name]
+                        if name != "episode_index":
+                            columns.append("episode_index")
+                        for batch in parquet.iter_batches(
+                            batch_size=BATCH_ROWS, columns=columns
+                        ):
+                            values = _numeric_batch(
+                                batch.column(batch.schema.get_field_index(name)),
+                                name,
+                                width,
+                            )
+                            owners = np.asarray(
+                                _batch_episode_indices(batch), dtype=np.int64
+                            )
+                            for episode in np.unique(owners).tolist():
+                                if episode not in selected:
+                                    continue
+                                rows = values[owners == episode]
+                                batch_count = len(rows)
+                                offset = starts[episode] + filled[episode]
+                                if filled[episode] + batch_count > counts[episode]:
+                                    raise CurationTransformError(
+                                        "Numeric feature row count exceeds expected selection: "
+                                        f"{name}"
+                                    )
+                                storage[:, offset : offset + batch_count] = rows.T
+                                moments[episode].update(rows)
+                                filled[episode] += batch_count
+                                feature_count += batch_count
+                            _progress(
+                                on_progress,
+                                completed=measured + feature_count,
+                                total=total_measurements,
+                                current_item=name,
+                            )
+                storage.flush()
+                for episode in episodes:
+                    if filled[episode] != counts[episode]:
+                        raise CurationTransformError(
+                            f"Numeric feature row count differs from expected selection: "
+                            f"{name} ({filled[episode]} != {counts[episode]})"
+                        )
+                    start = starts[episode]
+                    statistics = moments[episode].finish()
+                    statistics.update(
+                        exact_quantiles(
+                            storage[:, start : start + counts[episode]],
+                            counts[episode],
+                        )
+                    )
+                    results[episode][name] = {
+                        key: _reshape(values, shape)
+                        for key, values in statistics.items()
+                    }
+                    results[episode][name]["count"] = [counts[episode]]
+            finally:
+                del storage
+            measured += feature_count
+            _progress(
+                on_progress,
+                completed=measured,
+                total=total_measurements,
+                current_item=name,
+                force=True,
+            )
+    return results
+
+
 def _numeric_features(
     features: dict[str, Any],
 ) -> list[tuple[str, dict[str, Any], tuple[int, ...], int]]:
@@ -418,6 +550,59 @@ def _selected_frame_count(
     if selected_count < 1:
         raise CurationTransformError("Selected episodes contain no numeric rows")
     return selected_count
+
+
+def _episode_frame_counts(
+    parquet_files: list[Path], selected: set[int], total_frames: int
+) -> dict[int, int]:
+    """Row count of every selected episode, with _selected_frame_count's checks."""
+    counts = dict.fromkeys(selected, 0)
+    all_count = 0
+    seen: set[int] = set()
+    for path in parquet_files:
+        with open_parquet(path) as parquet:
+            index = parquet.schema_arrow.get_field_index("episode_index")
+            if index < 0:
+                raise CurationTransformError(
+                    "Episode selection requires an episode_index column"
+                )
+            physical = parquet.schema_arrow.field(index).type
+            if not pa.types.is_integer(physical):
+                raise CurationTransformError("episode_index has a non-integer dtype")
+            for batch in parquet.iter_batches(
+                batch_size=BATCH_ROWS, columns=["episode_index"]
+            ):
+                values = _batch_episode_indices(batch)
+                all_count += len(values)
+                for value in values:
+                    seen.add(value)
+                    if value in counts:
+                        counts[value] += 1
+    if all_count != total_frames:
+        raise CurationTransformError(
+            "Dataset row count differs from total_frames "
+            f"({all_count} != {total_frames})"
+        )
+    missing = selected - seen
+    if missing:
+        raise CurationTransformError(
+            "Unknown episode in numeric statistics selection: "
+            + ", ".join(str(value) for value in sorted(missing))
+        )
+    return counts
+
+
+def _batch_episode_indices(batch: pa.RecordBatch) -> list[int]:
+    index = batch.schema.get_field_index("episode_index")
+    if index < 0:
+        raise CurationTransformError(
+            "Episode selection requires an episode_index column"
+        )
+    values = batch.column(index).to_pylist()
+    for value in values:
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise CurationTransformError("episode_index contains an invalid value")
+    return values
 
 
 def _selection_mask(batch: pa.RecordBatch, selected: set[int]) -> list[bool]:

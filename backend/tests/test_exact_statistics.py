@@ -334,3 +334,64 @@ def test_total_frame_count_mismatch_fails_explicitly(tmp_path: Path) -> None:
 
     with pytest.raises(CurationTransformError, match="row count differs.*2 != 3"):
         recompute_numeric_statistics(root)
+
+
+@pytest.mark.parametrize("batch_rows", [3, 4096])
+def test_single_pass_episode_statistics_equal_per_episode_runs(
+    tmp_path: Path, monkeypatch, batch_rows: int
+) -> None:
+    # Episodes straddle files and record batches; values are irregular so any
+    # change in batch slicing or accumulation order shows up in the bits.
+    monkeypatch.setattr(exact_statistics, "BATCH_ROWS", batch_rows)
+    root = tmp_path / "dataset"
+    rng = np.random.default_rng(7)
+    lengths = [5, 1, 9, 4, 7]
+    episodes = np.repeat(np.arange(len(lengths)), lengths)
+    state = rng.normal(size=(len(episodes), 3)).astype(np.float32) * 1e3
+    signal = rng.normal(size=len(episodes)) / 7
+    features = {
+        "observation.state": {"dtype": "float32", "shape": [3]},
+        "signal": {"dtype": "float64", "shape": [1]},
+        "episode_index": {"dtype": "int64", "shape": [1]},
+        "observation.images.top": {"dtype": "video", "shape": [8, 8, 3]},
+    }
+    tables = [
+        pa.table(
+            {
+                "observation.state": pa.array(
+                    state[start:end].tolist(), type=pa.list_(pa.float32(), 3)
+                ),
+                "signal": pa.array(signal[start:end], type=pa.float64()),
+                "episode_index": pa.array(episodes[start:end], type=pa.int64()),
+            }
+        )
+        for start, end in ((0, 8), (8, 11), (11, len(episodes)))
+    ]
+    _write_dataset(root, features=features, tables=tables)
+    events: list[dict] = []
+
+    actual = exact_statistics.recompute_numeric_statistics_by_episode(
+        root, list(range(len(lengths))), on_progress=events.append
+    )
+
+    for episode in range(len(lengths)):
+        expected = recompute_numeric_statistics(root, episode_indices=[episode])
+        assert json.dumps(actual[episode]) == json.dumps(expected)
+    assert list(actual) == list(range(len(lengths)))
+    assert events[-1]["completed"] == events[-1]["total"] == len(episodes) * 3
+    subset = exact_statistics.recompute_numeric_statistics_by_episode(root, [3, 1])
+    assert json.dumps(subset[3]) == json.dumps(actual[3])
+    with pytest.raises(CurationTransformError, match="Unknown episode"):
+        exact_statistics.recompute_numeric_statistics_by_episode(root, [0, 9])
+
+
+def test_single_pass_episode_statistics_check_total_frames(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    _write_dataset(
+        root,
+        features={"episode_index": {"dtype": "int64", "shape": [1]}},
+        tables=[pa.table({"episode_index": pa.array([0, 0, 1], type=pa.int64())})],
+        total_frames=4,
+    )
+    with pytest.raises(CurationTransformError, match="differs from total_frames"):
+        exact_statistics.recompute_numeric_statistics_by_episode(root, [0, 1])
