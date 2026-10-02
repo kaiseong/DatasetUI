@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from datasetui.validation_integrity import VALIDATOR_POLICY
 from test_curation_api import _record, _register
+
+from datasetui.validation.integrity import VALIDATOR_POLICY
 
 
 def _validation_run(

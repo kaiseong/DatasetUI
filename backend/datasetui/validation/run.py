@@ -1,29 +1,30 @@
+"""Validation entry points for a dataset root or a registered dataset."""
+
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 
-import hashlib
-
 from datasetui.config import Settings
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.dataset_io.files import read_regular_bytes, safe_dataset_root
 from datasetui.dataset_io.source import DatasetSource
-from datasetui.transform_errors import CurationTransformError
 from datasetui.datasets import MAX_INFO_BYTES
-from datasetui.validation_integrity import validation_content_manifest, VALIDATOR_POLICY
-from datasetui.validation_reporting import ProgressCallback, ValidationReporter
-from datasetui.validation_statistics import NumericStatisticsValidator
-from datasetui.validation_structure import (
+from datasetui.transform_errors import CurationTransformError
+from datasetui.validation.integrity import VALIDATOR_POLICY, validation_content_manifest
+from datasetui.validation.reporting import ProgressCallback, ValidationReporter
+from datasetui.validation.statistics import NumericStatisticsValidator
+from datasetui.validation.structure import (
     validate_episode_structure,
     validate_features,
     validate_info,
     validate_metadata,
 )
-from datasetui.validation_video import VideoValidator
+from datasetui.validation.video import VideoValidator
 
 
 class DatasetValidationError(CurationTransformError):

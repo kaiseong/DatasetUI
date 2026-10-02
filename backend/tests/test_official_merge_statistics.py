@@ -9,6 +9,7 @@ import pytest
 from datasetui import official_operations as operations
 
 
+
 def test_only_merge_uses_official_aggregated_statistics():
     merge = operations.provenance("merge_datasets")
     assert merge["statistics_policy"] == "lerobot-official-aggregate-v1"
@@ -19,7 +20,8 @@ def test_only_merge_uses_official_aggregated_statistics():
 
 
 def test_merge_retains_official_global_and_episode_stats(tmp_path, monkeypatch):
-    from datasetui import merge_schema, output_metadata, output_statistics
+    from datasetui import output_metadata, output_statistics
+    from datasetui.merge import schema as merge_schema
 
     sources = []
     for name in ("first", "second"):

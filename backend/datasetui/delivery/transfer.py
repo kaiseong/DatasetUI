@@ -1,3 +1,5 @@
+"""Export-gated transfers: NAS export, Hugging Face upload, PC copy."""
+
 from __future__ import annotations
 
 import os
@@ -20,12 +22,8 @@ from datasetui.dataset_io.files import (
 from datasetui.huggingface import HF_NAMESPACE, validate_dataset_name
 from datasetui.job_progress import JobProgressReporter
 from datasetui.transform_errors import CurationTransformError
-from datasetui.validation_integrity import (
-    ContentIntegrityError,
-    validation_content_manifest,
-    VALIDATOR_POLICY,
-)
-
+from datasetui.validation.integrity import VALIDATOR_POLICY, validation_content_manifest
+from datasetui.content_integrity import ContentIntegrityError
 
 
 class ExportGateRequiredError(CurationTransformError):
@@ -55,7 +53,7 @@ def _require_current_gate(database: Database, record: dict, manifest: dict) -> N
         raise ExportGateRequiredError("A current content-bound export gate is required")
 
 
-def _source(
+def gated_source(
     database: Database,
     settings: Settings,
     payload: dict[str, Any],
@@ -121,7 +119,7 @@ def export_to_nas(
         unit="items",
         current_item="내보낼 데이터셋 확인",
     )
-    record, source, source_manifest = _source(database, settings, payload)
+    record, source, source_manifest = gated_source(database, settings, payload)
     exports = real_directory(settings.nas_root / "exports")
     final = exports / payload["output_name"]
     if final.exists():
@@ -228,7 +226,7 @@ def upload_to_huggingface(
         unit="items",
         current_item="업로드할 데이터셋 확인",
     )
-    record, source, source_manifest = _source(database, settings, payload)
+    record, source, source_manifest = gated_source(database, settings, payload)
     if not settings.hf_write_token:
         raise CurationTransformError("Hugging Face write access is not configured")
     from huggingface_hub import HfApi
@@ -364,8 +362,8 @@ def copy_to_pc_with_key(
         unit="items",
         current_item="전송할 데이터셋 확인",
     )
-    record, source, source_manifest = _source(database, settings, payload)
-    return _copy_verified_to_pc(
+    record, source, source_manifest = gated_source(database, settings, payload)
+    return copy_verified_to_pc(
         expected_manifest=source_manifest,
         settings=settings,
         source=source,
@@ -403,8 +401,8 @@ def copy_to_pc_with_password(
         "storage_area": record["storage_area"],
         "relative_path": record["relative_path"],
     }
-    record, source, source_manifest = _source(database, settings, payload)
-    return _copy_verified_to_pc(
+    record, source, source_manifest = gated_source(database, settings, payload)
+    return copy_verified_to_pc(
         expected_manifest=source_manifest,
         settings=settings,
         source=source,
@@ -420,7 +418,7 @@ def copy_to_pc_with_password(
     )
 
 
-def _copy_verified_to_pc(
+def copy_verified_to_pc(
     *,
     expected_manifest: dict[str, Any],
     on_progress: Callable[[dict[str, Any]], None] | None = None,

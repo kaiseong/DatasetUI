@@ -6,7 +6,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from datasetui.validation_statistics import NumericStatisticsValidator
+from datasetui.validation.statistics import NumericStatisticsValidator
+
 
 
 

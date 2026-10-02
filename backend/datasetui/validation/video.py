@@ -1,3 +1,5 @@
+"""Video stream checks."""
+
 from __future__ import annotations
 
 import math
@@ -7,8 +9,7 @@ from typing import Any, Callable, Protocol
 
 import numpy as np
 
-from datasetui.validation_statistics import RunningMoments
-
+from datasetui.validation.statistics import RunningMoments
 
 IssueCallback = Callable[[str, str, str, int | None], None]
 

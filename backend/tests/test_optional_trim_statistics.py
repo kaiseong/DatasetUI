@@ -10,7 +10,8 @@ from datasetui.dataset_io.source import DatasetSource
 from datasetui.deferred_statistics import read_deferred_statistics
 from datasetui.models import TrimConfig
 from datasetui.output_statistics import write_output_statistics
-from datasetui.validation import validate_dataset_root
+from datasetui.validation.run import validate_dataset_root
+
 
 
 @pytest.fixture
@@ -141,8 +142,8 @@ def test_deferred_state_survives_selection_and_can_be_recomputed(
 def test_deferred_merge_does_not_aggregate_stale_statistics(
     source, tmp_path, monkeypatch
 ):
-    from datasetui.merge import _MergedSource
-    from datasetui.merge_writer import write_preserved_merge
+    from datasetui.merge.job import _MergedSource
+    from datasetui.merge.writer import write_preserved_merge
 
     output = tmp_path / "trimmed"
     build(source, output)
@@ -151,7 +152,7 @@ def test_deferred_merge_does_not_aggregate_stale_statistics(
     )
     merged = _MergedSource([inherited, source], "rby1")
     monkeypatch.setattr(
-        "datasetui.merge_writer.write_stats",
+        "datasetui.merge.writer.write_stats",
         lambda *a, **k: pytest.fail("merge recomputed statistics"),
     )
     destination = tmp_path / "merged"

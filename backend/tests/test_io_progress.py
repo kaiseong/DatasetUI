@@ -6,11 +6,16 @@ from types import SimpleNamespace
 
 import pytest
 
-import datasetui.delivery as delivery
-from datasetui.delivery import copy_to_pc_with_key, export_to_nas, upload_to_huggingface
-from datasetui.huggingface import import_huggingface_dataset
+import datasetui.delivery.transfer as delivery
 from test_delivery import _pass_gate, _registered
 from test_huggingface import FakeGateway, SHA, _settings
+
+from datasetui.delivery.transfer import (
+    copy_to_pc_with_key,
+    export_to_nas,
+    upload_to_huggingface,
+)
+from datasetui.huggingface import import_huggingface_dataset
 
 
 def _record_job_progress(database, monkeypatch: pytest.MonkeyPatch) -> list[dict]:
@@ -164,7 +169,7 @@ def test_pc_key_delivery_passes_reporter_through_verified_copy(
         )
         return {"ok": True, "files": 1, "bytes": 1, "destination": "~/pick"}
 
-    monkeypatch.setattr(delivery, "_copy_verified_to_pc", fake_copy)
+    monkeypatch.setattr(delivery, "copy_verified_to_pc", fake_copy)
     copy_to_pc_with_key(
         database=database,
         settings=settings,

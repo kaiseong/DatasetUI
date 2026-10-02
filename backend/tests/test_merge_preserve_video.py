@@ -10,9 +10,10 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from datasetui import merge_writer
-from datasetui.merge_writer import write_preserved_merge
+from datasetui.merge import writer as merge_writer
+from datasetui.merge.writer import write_preserved_merge
 from datasetui.transform_errors import CurationTransformError
+
 
 
 
@@ -185,7 +186,7 @@ def test_video_copy_rejects_symlink_source(tmp_path: Path) -> None:
     link.symlink_to(source)
 
     with pytest.raises(CurationTransformError, match="unavailable"):
-        merge_writer._copy_videos([(link, tmp_path / "output.mp4", tmp_path)], None)
+        merge_writer.copy_videos([(link, tmp_path / "output.mp4", tmp_path)], None)
 
 
 def test_video_copy_rejects_symlinked_parent_directory(tmp_path: Path) -> None:
@@ -197,7 +198,7 @@ def test_video_copy_rejects_symlinked_parent_directory(tmp_path: Path) -> None:
     (root / "videos").symlink_to(outside, target_is_directory=True)
 
     with pytest.raises(CurationTransformError, match="unavailable"):
-        merge_writer._copy_videos(
+        merge_writer.copy_videos(
             [
                 (
                     root / "videos/source.mp4",
@@ -214,7 +215,7 @@ def test_video_copy_rejects_fifo_without_blocking(tmp_path: Path) -> None:
     os.mkfifo(fifo)
 
     with pytest.raises(CurationTransformError, match="unavailable"):
-        merge_writer._copy_videos([(fifo, tmp_path / "output.mp4", tmp_path)], None)
+        merge_writer.copy_videos([(fifo, tmp_path / "output.mp4", tmp_path)], None)
 
 
 def test_progress_failure_aborts_current_video_copy(tmp_path: Path) -> None:
@@ -227,7 +228,7 @@ def test_progress_failure_aborts_current_video_copy(tmp_path: Path) -> None:
             raise RuntimeError("lease lost")
 
     with pytest.raises(RuntimeError, match="lease lost"):
-        merge_writer._copy_videos([(source, destination, tmp_path)], lose_lease)
+        merge_writer.copy_videos([(source, destination, tmp_path)], lose_lease)
     assert not destination.exists()
 
 

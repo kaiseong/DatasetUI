@@ -3042,7 +3042,7 @@ class Database:
     def has_successful_export_gate(
         self, *, dataset_id: str, dataset_fingerprint: str
     ) -> bool:
-        from datasetui.validation_integrity import VALIDATOR_POLICY
+        from datasetui.validation.integrity import VALIDATOR_POLICY
 
         result = self.export_gate_result(
             dataset_id=dataset_id, dataset_fingerprint=dataset_fingerprint

@@ -9,12 +9,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from datasetui.merge_normalization import (
+from datasetui.merge.normalization import (
     NORMALIZATION_ENGINE,
     normalize_private_merge_sources,
     plan_merge_normalization,
 )
 from datasetui.transform_errors import CurationTransformError
+
 
 def test_identical_float64_vectors_are_preserved_without_narrowing(tmp_path):
     root = tmp_path / "source"

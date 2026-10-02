@@ -15,8 +15,9 @@ from datasetui.config import Settings
 from datasetui.database import Database
 from datasetui.dataset_io.source import DatasetSource
 from datasetui.datasets import inspect_dataset
-from datasetui.merge import merge_datasets
-from datasetui.validation import validate_dataset_root
+from datasetui.merge.job import merge_datasets
+from datasetui.validation.run import validate_dataset_root
+
 
 
 

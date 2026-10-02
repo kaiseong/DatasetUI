@@ -16,7 +16,6 @@ from datasetui.dataset_io.tables import (
 )
 
 
-
 def integer(value):
     return isinstance(value, (int, np.integer)) and not isinstance(
         value, (bool, np.bool_)

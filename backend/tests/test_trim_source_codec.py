@@ -19,7 +19,8 @@ from datasetui.dataset_io import video as dataset_video
 from datasetui.dataset_io.source import DatasetSource
 from datasetui.datasets import inspect_dataset
 from datasetui.transform_errors import CurationTransformError
-from datasetui.validation import validate_dataset_root
+from datasetui.validation.run import validate_dataset_root
+
 
 
 

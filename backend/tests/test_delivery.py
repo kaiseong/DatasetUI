@@ -7,11 +7,12 @@ from types import SimpleNamespace
 
 import pytest
 
+import datasetui.delivery.transfer as delivery_module
+from test_transforms import _settings, _write_v21
+
 from datasetui.database import Database, JobLeaseLostError
-from datasetui.validation_integrity import VALIDATOR_POLICY, validation_content_manifest
 from datasetui.datasets import inspect_dataset
-import datasetui.delivery as delivery_module
-from datasetui.delivery import (
+from datasetui.delivery.transfer import (
     ExportGateRequiredError,
     HuggingFaceExternalOperationAmbiguousError,
     copy_to_pc_with_key,
@@ -20,7 +21,7 @@ from datasetui.delivery import (
     upload_to_huggingface,
 )
 from datasetui.jobs import validate_job_payload
-from test_transforms import _settings, _write_v21
+from datasetui.validation.integrity import validation_content_manifest, VALIDATOR_POLICY
 
 
 def _registered(tmp_path: Path) -> tuple:

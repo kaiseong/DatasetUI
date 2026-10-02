@@ -1,10 +1,11 @@
+"""Collects validation issues and shapes the report."""
+
 from __future__ import annotations
 
 import time
 from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
-
 
 ProgressCallback = Callable[[dict[str, Any]], None]
 

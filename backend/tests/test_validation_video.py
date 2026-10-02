@@ -7,8 +7,9 @@ import av
 import numpy as np
 import pytest
 
-from datasetui.validation_video import DecodedVideo, VideoValidator
-from datasetui.validation_statistics import NumericStatisticsValidator
+from datasetui.validation.statistics import NumericStatisticsValidator
+from datasetui.validation.video import DecodedVideo, VideoValidator
+
 
 
 KEY = "observation.images.top"

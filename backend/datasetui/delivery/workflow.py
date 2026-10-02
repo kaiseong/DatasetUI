@@ -1,5 +1,7 @@
 """Content-bound CPU checks followed by existing IO delivery jobs."""
 
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timezone
 
@@ -8,6 +10,8 @@ from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.queueing import QueueDispatcher
 
 LOG = logging.getLogger(__name__)
+
+
 DELIVERY_KINDS = {
     "datasets.export_nas",
     "datasets.upload_hf",
@@ -234,9 +238,9 @@ def recover_workflows(
 def run_delivery_preflight(
     database: Database, settings: Settings, payload: dict, job_id: str, worker_id: str
 ) -> dict:
-    from datasetui.delivery import _source, ExportGateRequiredError
+    from datasetui.delivery.transfer import ExportGateRequiredError, gated_source
     from datasetui.job_progress import JobProgressReporter
-    from datasetui.validation import validate_registered_dataset
+    from datasetui.validation.run import validate_registered_dataset
 
     progress = JobProgressReporter(database, job_id=job_id, worker_id=worker_id)
     progress(
@@ -250,7 +254,7 @@ def run_delivery_preflight(
         }
     )
     try:
-        _record, _root, manifest = _source(
+        _record, _root, manifest = gated_source(
             database, settings, payload, exclude_job_id=job_id
         )
     except (ExportGateRequiredError, RecipeRevisionMismatchError):

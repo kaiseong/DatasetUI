@@ -19,13 +19,11 @@ from datasetui.hf_errors import (
     HuggingFaceRevisionNotFoundError,
     HuggingFaceUnavailableError,
 )
-from datasetui.jobs import run_registered_job
-from datasetui.job_cancellation import (
-    JobCancellationRequested,
-    cancellation_monitor,
-)
+from datasetui.job_cancellation import JobCancellationRequested, cancellation_monitor
 from datasetui.job_progress import JobProgressReporter
+from datasetui.jobs import run_registered_job
 from datasetui.transform_errors import CurationTransformError
+
 
 
 logger = logging.getLogger("datasetui.worker")
@@ -147,7 +145,7 @@ def run_job(job_id: str) -> dict[str, object]:
             raise RuntimeError(public_message) from None
         raise
     finally:
-        from datasetui.delivery_workflow import reconcile_deliveries
+        from datasetui.delivery.workflow import reconcile_deliveries
         from datasetui.queueing import RQDispatcher
 
         try:
@@ -240,7 +238,7 @@ def _public_failure(exc: Exception) -> tuple[str, str]:
             "credential_unavailable",
             "비밀번호가 만료되거나 임시 저장소에 연결할 수 없습니다. 다시 입력해 새 작업을 요청하세요.",
         )
-    from datasetui.delivery import ExportGateRequiredError, HuggingFaceExternalOperationAmbiguousError
+    from datasetui.delivery.transfer import ExportGateRequiredError, HuggingFaceExternalOperationAmbiguousError
 
     if isinstance(exc, ExportGateRequiredError):
         return (

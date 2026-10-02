@@ -5,9 +5,10 @@ from pathlib import Path
 import pytest
 import pandas as pd
 
-from datasetui.validation import validate_dataset_root
 from test_transforms import _write_v21
 from test_validation_conversion import _add_shared_v3_video, _write_v3
+
+from datasetui.validation.run import validate_dataset_root
 
 
 def _checks_by_id(result):
@@ -105,7 +106,7 @@ def test_progress_callback_failure_propagates_without_becoming_a_video_issue(
 
 
 def test_official_aggregate_issues_belong_to_statistics_not_metadata():
-    from datasetui.validation_reporting import ValidationReporter
+    from datasetui.validation.reporting import ValidationReporter
 
     reporter = ValidationReporter(None)
     reporter.issue("WARN", "official_visual_stats_difference", "sampled images")

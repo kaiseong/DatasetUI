@@ -6,11 +6,12 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-import datasetui.merge as merge_module
+import datasetui.merge.job as merge_module
+from test_transforms import _settings, _write_v21
+
 from datasetui.database import Database, RecipeRevisionMismatchError
 from datasetui.datasets import inspect_dataset
-from datasetui.merge import MergeCompatibilityError, merge_datasets
-from test_transforms import _settings, _write_v21
+from datasetui.merge.job import MergeCompatibilityError, merge_datasets
 
 
 def _register(database: Database, settings, relative: str) -> dict:

@@ -3,9 +3,10 @@ from __future__ import annotations
 import uuid
 import pytest
 
-import datasetui.delivery as delivery
-from datasetui.validation_integrity import VALIDATOR_POLICY, validation_content_manifest
+import datasetui.delivery.transfer as delivery
 from test_delivery import _registered, _pass_gate
+
+from datasetui.validation.integrity import validation_content_manifest, VALIDATOR_POLICY
 
 
 def _payload(dataset):
@@ -50,7 +51,7 @@ def test_latest_nonpassing_gate_revokes_prior_pass(tmp_path, status):
         dataset_id=dataset["id"], dataset_fingerprint=dataset["fingerprint"]
     )
     with pytest.raises(delivery.ExportGateRequiredError):
-        delivery._source(db, settings, _payload(dataset))
+        delivery.gated_source(db, settings, _payload(dataset))
 
 
 def test_legacy_gate_is_not_accepted(tmp_path):
@@ -62,7 +63,7 @@ def test_legacy_gate_is_not_accepted(tmp_path):
             ('{"passed":true}',),
         )
     with pytest.raises(delivery.ExportGateRequiredError):
-        delivery._source(db, settings, _payload(dataset))
+        delivery.gated_source(db, settings, _payload(dataset))
 
 
 def test_data_mutation_without_info_change_invalidates_gate(tmp_path):
@@ -72,7 +73,7 @@ def test_data_mutation_without_info_change_invalidates_gate(tmp_path):
     with pytest.raises(
         (delivery.ExportGateRequiredError, delivery.RecipeRevisionMismatchError)
     ):
-        delivery._source(db, settings, _payload(dataset))
+        delivery.gated_source(db, settings, _payload(dataset))
 
 
 @pytest.mark.parametrize("kind", ["nas", "pc"])

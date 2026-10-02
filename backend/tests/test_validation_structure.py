@@ -10,7 +10,8 @@ from test_transforms import _write_v21
 from test_validation_conversion import _write_v3
 
 from datasetui.dataset_io.source import DatasetSource
-from datasetui.validation import validate_dataset_root
+from datasetui.validation.run import validate_dataset_root
+
 
 
 @pytest.mark.parametrize(

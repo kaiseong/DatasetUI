@@ -25,7 +25,8 @@ from datasetui.dataset_io.source import DatasetSource
 from datasetui.datasets import inspect_dataset, MAX_INFO_BYTES, scan_storage_area
 from datasetui.job_progress import JobProgressReporter, report_progress
 from datasetui.transform_errors import CurationTransformError
-from datasetui.validation import validate_dataset_root
+from datasetui.validation.run import validate_dataset_root
+
 
 
 

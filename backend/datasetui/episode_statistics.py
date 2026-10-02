@@ -16,9 +16,10 @@ from datasetui.exact_statistics import (
     _read_info,
     recompute_numeric_statistics,
 )
-from datasetui.merge_schema import _compression_policy, _values_equal
+from datasetui.merge.schema import compression_policy, values_equal
 from datasetui.transform_errors import CurationTransformError
 from datasetui.visual_statistics import recompute_visual_statistics_with_episodes
+
 
 
 EPISODE_STATISTICS_ENGINE = "datasetui-exact-episode-statistics-v1"
@@ -207,7 +208,7 @@ def _rewrite_v3_metadata_file(
     temporary = Path(temporary_name)
     try:
         with _open_parquet(path) as parquet:
-            compression = _compression_policy(parquet)
+            compression = compression_policy(parquet)
             row_groups = [
                 _episode_table_with_stats(
                     parquet.read_row_group(index), stats_by_episode
@@ -352,7 +353,7 @@ def _verify_v3_metadata_rewrite(
             for name in after.column_names:
                 if not name.startswith("stats/"):
                     continue
-                if not _values_equal(
+                if not values_equal(
                     after.column(name).to_pylist(), expected.column(name).to_pylist()
                 ):
                     raise CurationTransformError(

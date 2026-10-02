@@ -1,3 +1,5 @@
+"""Writes the merged dataset while preserving source video files."""
+
 from __future__ import annotations
 
 import copy
@@ -22,9 +24,9 @@ from datasetui.dataset_io.tables import (
 from datasetui.job_progress import report_progress
 from datasetui.transform_errors import CurationTransformError
 
-
-
 ProgressCallback = Callable[[dict[str, Any]], None]
+
+
 _COPY_CHUNK_BYTES = 1024 * 1024
 
 
@@ -224,7 +226,10 @@ def write_preserved_merge(
         _write_v2_preserved(
             source, destination, episodes, tasks, language_types, on_progress
         )
-    from datasetui.deferred_statistics import read_deferred_statistics, preserve_deferred_statistics
+    from datasetui.deferred_statistics import (
+        preserve_deferred_statistics,
+        read_deferred_statistics,
+    )
 
     deferred_inputs = [read_deferred_statistics(item.root) for item in source.sources]
     defer_statistics = any(deferred_inputs)
@@ -368,7 +373,7 @@ def _write_v2_preserved(
             copies.append(
                 (source_path, destination, source.sources[source_number].root)
             )
-    _copy_videos(copies, on_progress)
+    copy_videos(copies, on_progress)
 
 
 def _write_v3_preserved(
@@ -483,10 +488,10 @@ def _write_v3_preserved(
     pd.DataFrame(metadata_rows).to_parquet(metadata_path, index=False)
     info["total_videos"] = len(copies)
     write_json(root / "meta/info.json", info)
-    _copy_videos(copies, on_progress)
+    copy_videos(copies, on_progress)
 
 
-def _copy_videos(
+def copy_videos(
     copies: list[tuple[Path, Path, Path]], on_progress: ProgressCallback | None
 ) -> None:
     if not copies:

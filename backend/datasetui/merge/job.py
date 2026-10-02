@@ -1,3 +1,5 @@
+"""Merge job: verify sources, check compatibility, write and publish."""
+
 from __future__ import annotations
 
 import copy
@@ -25,14 +27,12 @@ from datasetui.dataset_io.publish import (
     tree_manifest,
 )
 from datasetui.dataset_io.source import DatasetSource
-from datasetui.datasets import inspect_dataset, scan_storage_area
-from datasetui.merge_progress import MergeProgressReporter
-from datasetui.merge_writer import write_preserved_merge
+from datasetui.datasets import MAX_INFO_BYTES, inspect_dataset, scan_storage_area
+from datasetui.merge.writer import write_preserved_merge
+from datasetui.job_progress import JobProgressReporter
 from datasetui.official_operations import enabled, provenance, write_official_merge
 from datasetui.output_statistics import STATISTICS_POLICY
 from datasetui.transform_errors import CurationTransformError
-from datasetui.datasets import MAX_INFO_BYTES
-
 
 
 class MergeCompatibilityError(CurationTransformError):
@@ -116,7 +116,7 @@ def merge_datasets(
     job_id: str,
     worker_id: str,
 ) -> dict[str, Any]:
-    progress = MergeProgressReporter(
+    progress = JobProgressReporter(
         database,
         job_id=job_id,
         worker_id=worker_id,

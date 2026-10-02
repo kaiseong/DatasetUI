@@ -28,10 +28,10 @@ from datasetui.dataset_io.files import (
 from datasetui.dataset_io.source import DatasetSource
 from datasetui.dataset_io.stats import write_stats
 from datasetui.dataset_io.tables import (
-    LANGUAGE_EVENTS,
-    LANGUAGE_PERSISTENT,
     episode_task_names,
     language_column_types,
+    LANGUAGE_EVENTS,
+    LANGUAGE_PERSISTENT,
     write_parquet,
     write_v3_tasks,
 )
@@ -41,11 +41,9 @@ from datasetui.dataset_io.video import (
     update_video_feature_codec,
     video_encoder,
 )
-from datasetui.job_progress import (
-    ProgressCallback,
-    report_progress,
-)
+from datasetui.job_progress import ProgressCallback, report_progress
 from datasetui.transform_errors import CurationTransformError
+
 
 SAY_TOOL_SCHEMA = {
     "type": "function",
@@ -689,7 +687,7 @@ def _write_v3_stationary(
     on_progress: ProgressCallback | None = None,
 ) -> None:
     """Write a v3 logical trim while preserving source video bytes."""
-    from datasetui.merge_writer import _copy_videos
+    from datasetui.merge.writer import copy_videos
 
     info = _updated_info(source.info, episodes, language_types)
     info.update(
@@ -798,7 +796,7 @@ def _write_v3_stationary(
     pd.DataFrame(metadata_rows).to_parquet(metadata_path, index=False)
     info["total_videos"] = len(copies)
     write_json(root / "meta" / "info.json", info)
-    _copy_videos(copies, on_progress)
+    copy_videos(copies, on_progress)
 
 
 def _write_episode_videos(

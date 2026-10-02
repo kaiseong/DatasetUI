@@ -13,8 +13,9 @@ from datasetui.database import Database
 from datasetui.dataset_io.stats import write_stats
 from datasetui.dataset_io.video import slice_video
 from datasetui.datasets import inspect_dataset
-from datasetui.merge import merge_datasets
-from datasetui.merge_progress import MergeProgressReporter
+from datasetui.job_progress import JobProgressReporter
+from datasetui.merge.job import merge_datasets
+
 
 
 class _ProgressStore:
@@ -31,7 +32,7 @@ class _ProgressStore:
 def test_merge_reporter_throttles_hot_updates_but_keeps_stage_and_end_events() -> None:
     store = _ProgressStore()
     now = [100.0]
-    reporter = MergeProgressReporter(
+    reporter = JobProgressReporter(
         store,
         job_id="job",
         worker_id="worker",
@@ -58,7 +59,7 @@ def test_merge_reporter_throttles_hot_updates_but_keeps_stage_and_end_events() -
 
 
 def test_merge_reporter_propagates_lease_storage_failure() -> None:
-    reporter = MergeProgressReporter(
+    reporter = JobProgressReporter(
         _ProgressStore(RuntimeError("lease lost")),
         job_id="job",
         worker_id="worker",

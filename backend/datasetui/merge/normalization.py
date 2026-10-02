@@ -1,3 +1,5 @@
+"""Normalization statistics for merged outputs."""
+
 from __future__ import annotations
 
 import copy
@@ -13,17 +15,20 @@ from typing import Any, Callable, Sequence
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from datasetui.merge_schema import (
-    _compression_policy,
-    _open_parquet,
-    _parquet_files,
-    _without_metadata,
+from datasetui.merge.schema import (
+    compression_policy,
+    open_parquet,
+    parquet_files,
+    without_metadata,
 )
 from datasetui.transform_errors import CurationTransformError
 
-
 ProgressCallback = Callable[[dict[str, Any]], None]
+
+
 NORMALIZATION_ENGINE = "datasetui-merge-input-normalization-v1"
+
+
 _VECTOR_COLUMNS = ("action", "observation.state")
 
 
@@ -46,14 +51,14 @@ def plan_merge_normalization(
     has_timestamp = "timestamp" in canonical_features
     expected_fields: list[pa.Field] | None = None
     datasets: list[dict[str, Any]] = []
-    total_files = sum(len(_parquet_files(root / "data")) for root in resolved)
+    total_files = sum(len(parquet_files(root / "data")) for root in resolved)
     completed = 0
     for dataset_index, root in enumerate(resolved):
         files = []
-        for path in _parquet_files(root / "data"):
+        for path in parquet_files(root / "data"):
             relative = path.relative_to(root).as_posix()
-            with _open_parquet(path) as parquet:
-                fields = list(_without_metadata(parquet.schema_arrow))
+            with open_parquet(path) as parquet:
+                fields = list(without_metadata(parquet.schema_arrow))
                 expected_fields = _validate_physical_schema(
                     fields,
                     expected_fields,
@@ -346,7 +351,7 @@ def _verify_private_copy(root: Path, dataset_plan: dict[str, Any]) -> None:
     if _sha256(root / "meta/info.json") != dataset_plan["info_sha256"]:
         raise CurationTransformError(f"Private merge metadata differs from plan: {root}")
     actual_files = [
-        path.relative_to(root).as_posix() for path in _parquet_files(root / "data")
+        path.relative_to(root).as_posix() for path in parquet_files(root / "data")
     ]
     expected_files = [item["path"] for item in dataset_plan["files"]]
     if actual_files != expected_files:
@@ -363,18 +368,18 @@ def _verify_private_copy(root: Path, dataset_plan: dict[str, Any]) -> None:
 
 
 def _normalize_file(path: Path, root: Path, widths: dict[str, int]) -> bool:
-    with _open_parquet(path) as source:
+    with open_parquet(path) as source:
         target_schema = _canonical_schema(source.schema_arrow, widths)
         if source.schema_arrow.equals(target_schema, check_metadata=True):
             return False
-        compression = _compression_policy(source)
+        compression = compression_policy(source)
         row_groups = source.metadata.num_row_groups
     mode = stat.S_IMODE(path.stat(follow_symlinks=False).st_mode)
     descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.normalize-", dir=path.parent)
     os.close(descriptor)
     temporary = Path(name)
     try:
-        with _open_parquet(path) as source:
+        with open_parquet(path) as source:
             with pq.ParquetWriter(temporary, target_schema, compression=compression) as writer:
                 for index in range(source.metadata.num_row_groups):
                     table = source.read_row_group(index)
@@ -449,7 +454,7 @@ def _canonical_huggingface_metadata(
 
 
 def _verify_rewrite(original: Path, candidate: Path, expected_row_groups: int) -> None:
-    with _open_parquet(original) as before, _open_parquet(candidate) as after:
+    with open_parquet(original) as before, open_parquet(candidate) as after:
         if before.metadata.num_row_groups != expected_row_groups or after.metadata.num_row_groups != expected_row_groups:
             raise CurationTransformError(f"Parquet row groups changed: file={original}")
         if before.metadata.num_rows != after.metadata.num_rows:

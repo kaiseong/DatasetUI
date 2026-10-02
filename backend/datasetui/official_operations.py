@@ -21,6 +21,7 @@ from datasetui.lerobot_runtime import ENGINE_POLICY, require_runtime, UPSTREAM_C
 from datasetui.transform_errors import CurationTransformError
 
 
+
 MERGE_STATISTICS_POLICY = "lerobot-official-aggregate-v1"
 OFFICIAL_STATISTICS_MARKER = "datasetui-official-statistics-v1"
 
@@ -404,10 +405,7 @@ def write_official_merge(
     *, sources, destination: Path, robot_type: str, on_progress=None
 ):
     from datasetui.processing_sources import private_sources
-    from datasetui.merge_normalization import (
-        plan_merge_normalization,
-        normalize_private_merge_sources,
-    )
+    from datasetui.merge.normalization import plan_merge_normalization, normalize_private_merge_sources
 
     roots = [source.root for source in sources]
     _validate_destination(destination, [root.resolve() for root in roots])
@@ -429,10 +427,7 @@ def _merge_private(*, sources, destination: Path, robot_type: str, on_progress=N
     _event(on_progress, "공식 Merge 원본 보존 검사")
     before = [_inventory(root) for root in roots]
     loaded = [_load_source(root, dataset_class) for root in roots]
-    from datasetui.merge_schema import (
-        inspect_compatible_data_schema,
-        restore_merged_data_schema,
-    )
+    from datasetui.merge.schema import inspect_compatible_data_schema, restore_merged_data_schema
 
     inspect_compatible_data_schema(roots)
     if any(dataset.meta.robot_type != robot_type for dataset in loaded):

@@ -11,7 +11,8 @@ from datasetui.dataset_io.source import DatasetSource
 from datasetui.models import RelativeActionConfig
 from datasetui.relative_artifacts import read_relative_profile
 from datasetui.transform_errors import CurationTransformError
-from datasetui.validation import validate_dataset_root
+from datasetui.validation.run import validate_dataset_root
+
 
 
 

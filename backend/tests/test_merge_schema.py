@@ -7,12 +7,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
-from datasetui.merge_schema import (
-    REPAIR_ENGINE,
+from datasetui.merge.schema import (
     inspect_compatible_data_schema,
+    REPAIR_ENGINE,
     restore_merged_data_schema,
 )
 from datasetui.transform_errors import CurationTransformError
+
 
 
 def _schema(

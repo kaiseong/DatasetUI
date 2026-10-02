@@ -37,7 +37,8 @@ from datasetui.segmentation.preview import (
 )
 from datasetui.segmentation.selection import has_keep_objects, retained_mask
 from datasetui.segmentation.source import load_source
-from datasetui.validation import validate_dataset_root
+from datasetui.validation.run import validate_dataset_root
+
 
 
 

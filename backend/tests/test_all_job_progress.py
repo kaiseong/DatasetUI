@@ -9,14 +9,15 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from test_curation_api import _register
+from test_transforms import _settings
+
 from datasetui.api import create_router
 from datasetui.config import Settings
 from datasetui.database import Database, JobLeaseLostError
 from datasetui.jobs import run_registered_job
 from datasetui.queueing import RecordingDispatcher
 from datasetui.tasks import run_job
-from test_curation_api import _register
-from test_transforms import _settings
 
 
 BASE_ASYNC_KINDS = (
@@ -149,7 +150,7 @@ def test_validation_progress_updates_validation_and_generic_job_snapshots(
         return {"checks": []}
 
     monkeypatch.setattr(
-        "datasetui.validation.validate_registered_dataset", fake_validation
+        "datasetui.validation.run.validate_registered_dataset", fake_validation
     )
     run_registered_job(
         "datasets.validate",

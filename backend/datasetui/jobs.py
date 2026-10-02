@@ -11,6 +11,7 @@ from datasetui.job_progress import JobProgressReporter
 
 
 
+
 JobHandler = Callable[[dict[str, Any]], dict[str, Any]]
 UUID_PATTERN = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
@@ -414,19 +415,19 @@ def run_registered_job(
         database.initialize()
         validated = validate_job_payload(kind, payload)
         if kind == "datasets.delivery_preflight":
-            from datasetui.delivery_workflow import run_delivery_preflight
+            from datasetui.delivery.workflow import run_delivery_preflight
 
             return run_delivery_preflight(
                 database, settings, validated, job_id, worker_id
             )
         if kind == "datasets.copy_pc_password":
-            from datasetui.delivery import _source, _copy_verified_to_pc
+            from datasetui.delivery.transfer import gated_source, copy_verified_to_pc
             from datasetui.credential_store import credential_store
 
-            record, source, manifest = _source(database, settings, validated)
+            record, source, manifest = gated_source(database, settings, validated)
             password = credential_store(settings).take(job_id)
             try:
-                return _copy_verified_to_pc(
+                return copy_verified_to_pc(
                     expected_manifest=manifest,
                     settings=settings,
                     source=source,
@@ -579,7 +580,7 @@ def run_registered_job(
             worker_id=worker_id,
         )
     if kind == "datasets.merge":
-        from datasetui.merge import merge_datasets
+        from datasetui.merge.job import merge_datasets
 
         if job_id is None or worker_id is None:
             raise ValueError("dataset merge requires worker ownership")
@@ -594,7 +595,7 @@ def run_registered_job(
             worker_id=worker_id,
         )
     if kind == "datasets.validate":
-        from datasetui.validation import validate_registered_dataset
+        from datasetui.validation.run import validate_registered_dataset
 
         settings = Settings.from_env()
         database = Database(settings.database_path)
@@ -650,11 +651,7 @@ def run_registered_job(
             worker_id=worker_id,
         )
     if kind in {"datasets.export_nas", "datasets.upload_hf", "datasets.copy_pc_key"}:
-        from datasetui.delivery import (
-            copy_to_pc_with_key,
-            export_to_nas,
-            upload_to_huggingface,
-        )
+        from datasetui.delivery.transfer import copy_to_pc_with_key, export_to_nas, upload_to_huggingface
 
         if job_id is None or worker_id is None:
             raise ValueError("delivery requires worker ownership")

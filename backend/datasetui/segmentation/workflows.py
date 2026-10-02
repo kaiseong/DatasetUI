@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from datasetui.config import Settings
 from datasetui.database import Database, IdempotencyConflictError, utc_now
-from datasetui.delivery_workflow import dispatch_registered_job
+from datasetui.delivery.workflow import dispatch_registered_job
 from datasetui.queueing import QueueDispatcher
 from datasetui.segmentation.contract import SegmentationSpec
 from datasetui.segmentation.workflow_contract import (
@@ -18,6 +18,7 @@ from datasetui.segmentation.workflow_contract import (
     BatchExportPayload,
     TemplateSave,
 )
+
 
 LOG = logging.getLogger(__name__)
 

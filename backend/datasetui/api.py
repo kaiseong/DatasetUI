@@ -11,15 +11,16 @@ from typing import Any, Literal
 from fastapi import APIRouter, Header, HTTPException, Query, Request, Response, status
 from fastapi.responses import StreamingResponse
 
+from datasetui.config import Settings
 from datasetui.database import (
     AnnotationRevisionConflictError,
     Database,
     DatasetNameConflictError,
-    DatasetNotReadyError,
     DatasetNotFoundError,
+    DatasetNotReadyError,
     DatasetTrashConflictError,
-    DuplicateRecipeNameError,
     DuplicateProfileNameError,
+    DuplicateRecipeNameError,
     FlagRevisionConflictError,
     IdempotencyConflictError,
     JobCancellationConflictError,
@@ -31,6 +32,14 @@ from datasetui.database import (
     ValidationRunActiveError,
     ValidationRunNotFoundError,
 )
+from datasetui.dataset_files import (
+    DatasetFilePathError,
+    DatasetFileUnavailableError,
+    DatasetRangeError,
+    iter_open_file,
+    open_dataset_file,
+    parse_byte_range,
+)
 from datasetui.dataset_trash import (
     DatasetTrashPathError,
     dataset_location_identity,
@@ -40,72 +49,61 @@ from datasetui.dataset_trash import (
     registered_dataset_identity,
     restore_dataset_from_trash,
 )
-from datasetui.dataset_files import (
-    DatasetFilePathError,
-    DatasetFileUnavailableError,
-    DatasetRangeError,
-    iter_open_file,
-    open_dataset_file,
-    parse_byte_range,
-)
-from datasetui.config import Settings
-from datasetui.huggingface import (
-    HF_NAMESPACE,
-    HuggingFaceGateway,
+from datasetui.delivery.workflow import (
+    create_delivery_workflow,
+    dispatch_registered_job,
+    reconcile_deliveries,
 )
 from datasetui.hf_errors import (
     HuggingFaceDatasetNotFoundError,
     HuggingFaceRevisionNotFoundError,
     HuggingFaceUnavailableError,
 )
+from datasetui.huggingface import HuggingFaceGateway, HF_NAMESPACE
 from datasetui.jobs import queue_for_kind, validate_job_payload
 from datasetui.models import (
     CurationRecipe,
     CurationRecipeCreate,
-    CurationRunCreate,
     CurationRecipeSnapshot,
     CurationRecipeSnapshotCreate,
     CurationRecipeUpdate,
+    CurationRunCreate,
     Dataset,
     DatasetConversionCreate,
     DatasetMergeCreate,
-    DatasetUpdate,
+    DatasetReadiness,
     DatasetTrashCreate,
+    DatasetTrashEmptyCreate,
     DatasetTrashEntry,
     DatasetTrashRestore,
-    DatasetTrashEmptyCreate,
-    HuggingFaceDeleteCreate,
+    DatasetUpdate,
     DatasetValidationCreate,
-    DatasetReadiness,
-    EpisodeFlagPatch,
-    EpisodeFlags,
     EpisodeAnnotations,
     EpisodeAnnotationsPut,
+    EpisodeFlagPatch,
+    EpisodeFlags,
+    HuggingFaceDataset,
+    HuggingFaceDeleteCreate,
+    HuggingFaceDeliveryCreate,
+    HuggingFaceImportCreate,
+    HuggingFaceRevision,
     Job,
     JobCancel,
     JobCreate,
     JobEvent,
     JobStatus,
-    HuggingFaceDataset,
-    HuggingFaceImportCreate,
-    HuggingFaceDeliveryCreate,
-    HuggingFaceRevision,
-    Profile,
-    ProfileCreate,
-    ProfileUpdate,
     NasDeliveryCreate,
     PcKeyDeliveryCreate,
     PcPasswordDeliveryCreate,
-    SystemHealth,
+    Profile,
+    ProfileCreate,
+    ProfileUpdate,
     StorageArea,
+    SystemHealth,
     ValidationRun,
 )
 from datasetui.queueing import QueueDispatcher
-from datasetui.delivery_workflow import (
-    create_delivery_workflow,
-    dispatch_registered_job,
-    reconcile_deliveries,
-)
+
 
 
 logger = logging.getLogger("datasetui.api")

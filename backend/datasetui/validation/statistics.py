@@ -1,3 +1,5 @@
+"""Statistics checks, including the official-tooling policy."""
+
 from __future__ import annotations
 
 import json
@@ -11,12 +13,21 @@ import pandas as pd
 
 from datasetui.transform_errors import CurationTransformError
 
-
 IssueCallback = Callable[[str, str, str, int | None], None]
+
+
 REQUIRED_STATISTICS = ("min", "max", "mean", "std", "count")
+
+
 VISUAL_DTYPES = {"image", "video"}
+
+
 NON_NUMERIC_DTYPES = {"string", "language"}
+
+
 MAX_STATS_BYTES = 64 * 1024 * 1024
+
+
 OFFICIAL_BOOKKEEPING_FEATURES = {"index", "episode_index", "task_index"}
 
 
@@ -36,8 +47,8 @@ def _official_policy(root: Path, issue: IssueCallback) -> str | None:
         from datasetui.official_operations import (
             MERGE_STATISTICS_POLICY,
             OFFICIAL_STATISTICS_MARKER,
-            _digest,
             _data_digest,
+            _digest,
             _episode_metadata_digest,
             _video_digest,
         )

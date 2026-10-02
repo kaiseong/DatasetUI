@@ -6,10 +6,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from datasetui.database import JobCancellationConflictError
-from datasetui.job_cancellation import JobCancellationRequested
-from datasetui.delivery import export_to_nas, upload_to_huggingface
 from test_delivery import _registered, _pass_gate
+
+from datasetui.database import JobCancellationConflictError
+from datasetui.delivery.transfer import export_to_nas, upload_to_huggingface
+from datasetui.job_cancellation import JobCancellationRequested
 
 
 @pytest.mark.parametrize("kind", ["datasets.export_nas", "datasets.upload_hf"])

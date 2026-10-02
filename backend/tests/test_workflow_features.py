@@ -12,8 +12,10 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from test_dataset_trash import _environment, _trash, _restore
+
 from datasetui.api import create_router
-from datasetui.delivery_workflow import (
+from datasetui.delivery.workflow import (
     create_delivery_workflow,
     reconcile_deliveries,
     recover_workflows,
@@ -21,14 +23,10 @@ from datasetui.delivery_workflow import (
 )
 from datasetui.library_operations import LibraryOperationError, run_library_operation
 from datasetui.queueing import RecordingDispatcher
-from test_dataset_trash import _environment, _trash, _restore
 
 
 def test_delivery_waits_for_export_gate(tmp_path: Path):
-    from datasetui.delivery_workflow import (
-        create_delivery_workflow,
-        reconcile_deliveries,
-    )
+    from datasetui.delivery.workflow import create_delivery_workflow, reconcile_deliveries
     from datasetui.queueing import RecordingDispatcher
 
     settings, database, dataset, profile, _ = _registered(tmp_path)
@@ -61,11 +59,7 @@ def test_delivery_waits_for_export_gate(tmp_path: Path):
 
 
 def test_valid_gate_is_checked_by_preflight_before_delivery(tmp_path: Path):
-    from datasetui.delivery_workflow import (
-        create_delivery_workflow,
-        reconcile_deliveries,
-        run_delivery_preflight,
-    )
+    from datasetui.delivery.workflow import create_delivery_workflow, reconcile_deliveries, run_delivery_preflight
     from datasetui.queueing import RecordingDispatcher
 
     settings, database, dataset, profile, _ = _registered(tmp_path)
@@ -235,7 +229,7 @@ def test_changed_content_does_not_reuse_cached_gate(tmp_path, monkeypatch):
         calls.append(kwargs)
         return {"passed": False, "mode": "export_gate"}
 
-    monkeypatch.setattr("datasetui.validation.validate_registered_dataset", validate)
+    monkeypatch.setattr("datasetui.validation.run.validate_registered_dataset", validate)
     result = run_delivery_preflight(
         database, settings, check["payload"], check["id"], "worker"
     )
@@ -816,7 +810,7 @@ def test_password_worker_uses_verified_staging_and_publication_guard(
         kwargs["finalize"]()
         return {"ok": True, "files": 1, "bytes": 10}
 
-    monkeypatch.setattr("datasetui.delivery._copy_to_pc", transfer)
+    monkeypatch.setattr("datasetui.delivery.transfer._copy_to_pc", transfer)
     delivered = run_registered_job(
         job["kind"], job["payload"], job_id=job["id"], worker_id="sender"
     )

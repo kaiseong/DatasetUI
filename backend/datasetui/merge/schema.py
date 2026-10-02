@@ -1,3 +1,5 @@
+"""Schema compatibility between merge sources and shared parquet helpers."""
+
 from __future__ import annotations
 
 import hashlib
@@ -14,7 +16,6 @@ import pyarrow.parquet as pq
 
 from datasetui.transform_errors import CurationTransformError
 
-
 REPAIR_ENGINE = "datasetui-merge-schema-restore-v1"
 
 
@@ -24,9 +25,9 @@ def inspect_compatible_data_schema(source_roots: Sequence[Path]) -> pa.Schema:
     expected: pa.Schema | None = None
     expected_location: str | None = None
     for root in source_roots:
-        for path in _parquet_files(Path(root) / "data"):
-            with _open_parquet(path) as parquet:
-                schema = _without_metadata(parquet.schema_arrow)
+        for path in parquet_files(Path(root) / "data"):
+            with open_parquet(path) as parquet:
+                schema = without_metadata(parquet.schema_arrow)
             if expected is None:
                 expected = schema
                 expected_location = str(path)
@@ -46,12 +47,12 @@ def restore_merged_data_schema(
 ) -> dict[str, Any]:
     expected = inspect_compatible_data_schema(source_roots)
     output_root = Path(output_root)
-    output_files = _parquet_files(output_root / "data")
+    output_files = parquet_files(output_root / "data")
     plans: list[tuple[Path, dict[str, pa.DataType]]] = []
     total_rows = 0
     total_row_groups = 0
     for path in output_files:
-        with _open_parquet(path) as parquet:
+        with open_parquet(path) as parquet:
             repairs = _repair_plan(expected, parquet.schema_arrow, path)
             total_rows += parquet.metadata.num_rows
             total_row_groups += parquet.metadata.num_row_groups
@@ -147,7 +148,7 @@ def _restore_array(
         raise CurationTransformError(
             f"Merged output list cannot be safely restored: {path} · {column}"
         ) from exc
-    if not _values_equal(source.to_pylist(), restored.to_pylist()):
+    if not values_equal(source.to_pylist(), restored.to_pylist()):
         raise CurationTransformError(
             f"Merged output values changed during schema restoration: {path} · {column}"
         )
@@ -164,13 +165,13 @@ def _rewrite_file(
     os.close(temporary_fd)
     temporary = Path(temporary_name)
     try:
-        with _open_parquet(path) as parquet:
+        with open_parquet(path) as parquet:
             if _repair_plan(expected, parquet.schema_arrow, path) != repairs:
                 raise CurationTransformError(
                     f"Merged output schema changed before restoration: {path}"
                 )
             target_schema = _target_schema(expected, parquet.schema_arrow)
-            compression = _compression_policy(parquet)
+            compression = compression_policy(parquet)
             with pq.ParquetWriter(
                 temporary,
                 target_schema,
@@ -196,7 +197,7 @@ def _rewrite_file(
             os.fsync(descriptor)
         finally:
             os.close(descriptor)
-        with _open_parquet(temporary) as candidate:
+        with open_parquet(temporary) as candidate:
             if not _schemas_equal(expected, candidate.schema_arrow):
                 raise CurationTransformError(
                     f"Merged output schema restoration failed: {path}"
@@ -235,7 +236,7 @@ def _verify_row_groups(
     candidate: pq.ParquetFile,
     repairs: dict[str, pa.DataType],
 ) -> None:
-    with _open_parquet(original) as source:
+    with open_parquet(original) as source:
         if source.metadata.num_rows != candidate.metadata.num_rows:
             raise CurationTransformError(
                 f"Merged output row count changed during schema restoration: {original}"
@@ -260,7 +261,7 @@ def _verify_row_groups(
                 before_column = before.column(name)
                 after_column = after.column(name)
                 values_match = (
-                    _values_equal(before_column.to_pylist(), after_column.to_pylist())
+                    values_equal(before_column.to_pylist(), after_column.to_pylist())
                     if name in repairs
                     else before_column.equals(after_column)
                 )
@@ -271,7 +272,7 @@ def _verify_row_groups(
                     )
 
 
-def _compression_policy(parquet: pq.ParquetFile) -> Any:
+def compression_policy(parquet: pq.ParquetFile) -> Any:
     codecs_by_path: dict[str, set[str]] = {}
     for row_group in range(parquet.metadata.num_row_groups):
         metadata = parquet.metadata.row_group(row_group)
@@ -304,26 +305,26 @@ def _compression_name(name: str) -> str | None:
     return name
 
 
-def _without_metadata(schema: pa.Schema) -> pa.Schema:
+def without_metadata(schema: pa.Schema) -> pa.Schema:
     return pa.schema(
         [pa.field(field.name, field.type, nullable=field.nullable) for field in schema]
     )
 
 
 def _schemas_equal(expected: pa.Schema, actual: pa.Schema) -> bool:
-    return _without_metadata(expected).equals(
-        _without_metadata(actual), check_metadata=False
+    return without_metadata(expected).equals(
+        without_metadata(actual), check_metadata=False
     )
 
 
 def _schema_sha256(schema: pa.Schema) -> str:
-    return hashlib.sha256(str(_without_metadata(schema)).encode()).hexdigest()
+    return hashlib.sha256(str(without_metadata(schema)).encode()).hexdigest()
 
 
-def _values_equal(left: Any, right: Any) -> bool:
+def values_equal(left: Any, right: Any) -> bool:
     if isinstance(left, list) and isinstance(right, list):
         return len(left) == len(right) and all(
-            _values_equal(left_item, right_item)
+            values_equal(left_item, right_item)
             for left_item, right_item in zip(left, right, strict=True)
         )
     if isinstance(left, float) and isinstance(right, float):
@@ -331,7 +332,7 @@ def _values_equal(left: Any, right: Any) -> bool:
     return left == right
 
 
-def _parquet_files(data_root: Path) -> list[Path]:
+def parquet_files(data_root: Path) -> list[Path]:
     if data_root.is_symlink() or not data_root.is_dir():
         raise CurationTransformError("Dataset data directory is unavailable")
     files: list[Path] = []
@@ -355,7 +356,7 @@ def _parquet_files(data_root: Path) -> list[Path]:
 
 
 @contextmanager
-def _open_parquet(path: Path) -> Iterator[pq.ParquetFile]:
+def open_parquet(path: Path) -> Iterator[pq.ParquetFile]:
     try:
         descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW)
     except OSError as exc:
